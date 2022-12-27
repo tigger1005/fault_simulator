@@ -1,0 +1,7 @@
+/target
+Content/bin/aarch32/*.bin
+Content/bin/aarch32/*.elf
+*.lst
+*.o
+**/.DS_Store
+Cargo.lock
