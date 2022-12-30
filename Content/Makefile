@@ -1,15 +1,16 @@
 CC = arm-none-eabi-gcc
 OBJCOPY = arm-none-eabi-objcopy
 OBJDUMP = arm-none-eabi-objdump
+TARGET = armv8-m.main
 
 CFLAGS = -c -Os -fPIC -Iinclude \
          -g -gdwarf -Wno-unused-but-set-variable -fno-inline -fno-omit-frame-pointer \
          -fno-ipa-cp-clone -fno-ipa-cp -fno-common -fno-builtin -ffreestanding -fno-stack-protector -Wall -Wno-format-security \
-         -Wno-format-nonliteral -Wno-return-local-addr -Wno-int-to-pointer-cast -march=armv7-a \
+         -Wno-format-nonliteral -Wno-return-local-addr -Wno-int-to-pointer-cast -march=$(TARGET) \
 		 -DMCUBOOT_FIH_PROFILE_ON -DMCUBOOT_FIH_PROFILE_HIGH -DFAULT_INJECTION_TEST
 
 CFLAGS_LD = -N -Wl,--build-id=none -fPIC -fPIE -g -gdwarf -Os -Wno-unused-but-set-variable -Wno-return-local-addr -fno-inline -fno-ipa-cp-clone \
-            -fno-ipa-cp -nostartfiles -nodefaultlibs -march=armv7-a
+            -fno-ipa-cp -nostartfiles -nodefaultlibs -march=$(TARGET)
 
 DEPS = include/common.h
 OBJ = bin/aarch32/obj/entry.o $(patsubst src/%.c,bin/aarch32/obj/%.o,$(wildcard src/*.c))

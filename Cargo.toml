@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 unicorn-engine = "2.0.1"
+elfy = "0.2.2"
