@@ -1,21 +1,13 @@
-//use std::mem;
+#![allow(dead_code)]
+
+mod elf_file;
+use elf_file::ElfFile;
 
 use unicorn_engine::unicorn_const::{Arch, Mode, Permission, SECOND_SCALE};
 //use unicorn_engine::unicorn_const::{Arch, HookType, MemType, Mode, Permission, SECOND_SCALE};
 use unicorn_engine::{RegisterARM, Unicorn};
 
-//use elf::hash::sysv_hash;
-//use elf::note::Note;
-//use elf::note::NoteGnuBuildId;
-
-// use elf::endian::AnyEndian;
-// use elf::section::SectionHeader;
-// use elf::ElfBytes;
-
-use elfy::Elf;
-//use elfy::{Section, SectionData, SectionFlags, SectionType};
-
-//const MAX_INSTRUCTIONS: usize = 20000000;
+const MAX_INSTRUCTIONS: usize = 20000000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
 const CODE_START: u64 = 0x80000000;
@@ -26,11 +18,8 @@ const BOOT_STAGE: u64 = 0x32000000;
 // },
 
 fn main() {
-    // Load elf file
-    let elf = open_elf_file();
-    let elf_file = elf.segments().next().unwrap();
-    // Elf file header data
-    let file_address = elf_file.header().physical_address();
+    // Load and parse elf file
+    let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
 
     // Setup platform -> ARMv8-m.base
     let mut unicorn = Unicorn::new(Arch::ARM, Mode::LITTLE_ENDIAN | Mode::MCLASS)
@@ -38,41 +27,48 @@ fn main() {
     let emu = &mut unicorn;
 
     // Setup memory and IO
-    setup_mmio(emu, &elf);
+    setup_mmio(emu, &file_data);
 
     // Setup breakpoints
-    setup_breakpoints(emu, &elf);
+    setup_breakpoints(emu, &file_data);
 
     // Setup registers
     emu.reg_write(RegisterARM::SP, STACK_BASE + STACK_SIZE as u64 - 4)
         .expect("failed to set register");
 
     // Write code to memory area
-    emu.mem_write(file_address as u64, &elf_file.data())
+    emu.mem_write(file_data.program_header.p_paddr as u64, &file_data.program)
         .expect("failed to write file data");
 
     // Write flash data to boot stage memory
-    let boot_stage: [u8; 4] = [0x78, 0x56, 0x34, 0x12];
+    let boot_stage: [u8; 4] = [0x88, 0x56, 0x34, 0x12];
     emu.mem_write(BOOT_STAGE, &boot_stage)
         .expect("failed to write boot stage data");
 
     // Start execution
     println!("Start program");
 
-    let mut pc: u64 = file_address as u64;
-    for _i in 0..200 {
-        //println!("Executing address : 0x{:X}", pc);
+    //let mut pc: u64 = file_address as u64;
+    // for _i in 0..200 {
+    //     //println!("Executing address : 0x{:X}", pc);
 
-        emu.emu_start(
-            pc + 1,
-            (file_address + elf_file.data().len() + 1) as u64,
-            0,
-            1,
-        )
-        .expect("failed to run program");
+    //     emu.emu_start(
+    //         pc + 1,
+    //         (file_address + elf_file.data().len() + 1) as u64,
+    //         0,
+    //         1,
+    //     )
+    //     .expect("failed to run program");
 
-        pc = emu.reg_read(RegisterARM::PC).unwrap();
-    }
+    //     pc = emu.reg_read(RegisterARM::PC).unwrap();
+    // }
+    emu.emu_start(
+        (file_data.program_header.p_paddr + 1) as u64,
+        (file_data.program_header.p_paddr + file_data.program_header.p_filesz + 1) as u64,
+        SECOND_SCALE,
+        MAX_INSTRUCTIONS,
+    )
+    .expect("failed to run program");
     println!("Program stopped");
 
     //print_register_and_data(emu);
@@ -120,7 +116,7 @@ fn print_register_and_data<D>(emu: &mut Unicorn<D>) {
 /// Auth success / failed trigger
 /// { 0xAA01000, new HwPeripheral((eng, address, size, value) }
 ///
-fn setup_mmio<D>(emu: &mut Unicorn<D>, _elf: &Elf) {
+fn setup_mmio<D>(emu: &mut Unicorn<D>, _elf: &ElfFile) {
     // Next boot stage mem
     emu.mem_map(0x32000000, 0x1000, Permission::READ | Permission::WRITE)
         .expect("failed to map boot stage page");
@@ -147,18 +143,19 @@ fn setup_mmio<D>(emu: &mut Unicorn<D>, _elf: &Elf) {
 /// This IO call signalize the Successful or Failed boot flow
 ///
 /// { eng.RequestStop(value == 1 ? Result.Completed : Result.Failed); })
-fn mmio_auth_write_callback<D>(_emu: &mut Unicorn<D>, address: u64, size: usize, value: u64) {
+fn mmio_auth_write_callback<D>(emu: &mut Unicorn<D>, address: u64, size: usize, value: u64) {
     println!(
         "mmio_write_callback address 0x{:X} length 0x{:X} value 0x{:X}",
         address, size, value
     );
+    emu.emu_stop().expect("failed to stop");
 }
 
 /// Callback for serial mem IO write access
 ///
 /// This IO write displays printed messages
 ///
-fn mmio_serial_write_callback<D>(_emu: &mut Unicorn<D>, address: u64, size: usize, value: u64) {
+fn mmio_serial_write_callback<D>(_emu: &mut Unicorn<D>, _address: u64, _size: usize, value: u64) {
     print!("{}", value as u8 as char);
 }
 
@@ -166,7 +163,10 @@ fn mmio_serial_write_callback<D>(_emu: &mut Unicorn<D>, address: u64, size: usiz
 ///
 /// BreakPoints
 /// { binInfo.Symbols["flash_load_img"].Address }
-fn setup_breakpoints<D>(emu: &mut Unicorn<D>, _elf: &Elf) {
+fn setup_breakpoints<D>(emu: &mut Unicorn<D>, _elf: &ElfFile) {
+    // Get symbol address from elf data structure
+    // elf.sections().
+
     emu.add_code_hook(0x1006, 0x1008, hook_code_flash_load_img_callback)
         .expect("failed to set flash_load_img code hook");
 }
@@ -201,34 +201,3 @@ fn hook_code_flash_load_img_callback<A>(_emu: &mut Unicorn<A>, address: u64, siz
 //     println!("hook_write_callback");
 //     true
 // }
-
-// assert_eq!(emu.reg_read(RegisterARM::R0), Ok(100));
-// assert_eq!(emu.reg_read(RegisterARM::R5), Ok(1337));
-
-fn open_elf_file() -> Elf {
-    let elf = Elf::load("Content/bin/aarch32/bl1.elf").expect("Something went wrong!");
-    // Get first element (Header + Data)
-    let elf_file = elf.segments().next().unwrap();
-    // Check main assets
-    let header = elf_file.header();
-    assert_eq!(
-        header.program_header_type(),
-        elfy::types::ProgramHeaderType::Loadable
-    );
-    assert_eq!(
-        header.flags(),
-        elfy::types::ProgramHeaderFlags::ReadWriteExecute
-    );
-    assert_eq!(header.alignment().unwrap(), 4);
-    // Check addresses
-    let physical_address = header.physical_address();
-    let virtual_address = header.virtual_address();
-    assert_eq!(physical_address, virtual_address);
-
-    // Check file size
-    let file_size = header.file_size();
-    let memory_size = header.memory_size();
-    assert_eq!(file_size, memory_size);
-
-    elf
-}

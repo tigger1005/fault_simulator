@@ -24,8 +24,5 @@ int main(void) {
 
   boot_next_stage();
 
-  while (true) {
-  };
-
   return 0;
 }
