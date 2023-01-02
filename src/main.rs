@@ -143,11 +143,13 @@ fn setup_mmio<D>(emu: &mut Unicorn<D>, _elf: &ElfFile) {
 /// This IO call signalize the Successful or Failed boot flow
 ///
 /// { eng.RequestStop(value == 1 ? Result.Completed : Result.Failed); })
-fn mmio_auth_write_callback<D>(emu: &mut Unicorn<D>, address: u64, size: usize, value: u64) {
-    println!(
-        "mmio_write_callback address 0x{:X} length 0x{:X} value 0x{:X}",
-        address, size, value
-    );
+fn mmio_auth_write_callback<D>(emu: &mut Unicorn<D>, _address: u64, _size: usize, value: u64) {
+    match value {
+        1 => println!("Indicator: __SET_SIM_SUCCESS()"),
+        2 => println!("Indicator: __SET_SIM_FAILED()"),
+        _ => println!("Indicator: Wrong_Value"),
+    }
+
     emu.emu_stop().expect("failed to stop");
 }
 
@@ -163,12 +165,13 @@ fn mmio_serial_write_callback<D>(_emu: &mut Unicorn<D>, _address: u64, _size: us
 ///
 /// BreakPoints
 /// { binInfo.Symbols["flash_load_img"].Address }
-fn setup_breakpoints<D>(emu: &mut Unicorn<D>, _elf: &ElfFile) {
-    // Get symbol address from elf data structure
-    // elf.sections().
-
-    emu.add_code_hook(0x1006, 0x1008, hook_code_flash_load_img_callback)
-        .expect("failed to set flash_load_img code hook");
+fn setup_breakpoints<D>(emu: &mut Unicorn<D>, file_data: &ElfFile) {
+    emu.add_code_hook(
+        file_data.flash_load_img.st_value,
+        file_data.flash_load_img.st_value + 1,
+        hook_code_flash_load_img_callback,
+    )
+    .expect("failed to set flash_load_img code hook");
 }
 
 /// Hook for flash_load_img callback handling.
@@ -182,11 +185,8 @@ fn setup_breakpoints<D>(emu: &mut Unicorn<D>, _elf: &ElfFile) {
 ///             eng.Write(0x32000000, Encoding.ASCII.GetBytes("Test Payload!!!!"));
 ///         }
 ///     } },
-fn hook_code_flash_load_img_callback<A>(_emu: &mut Unicorn<A>, address: u64, size: u32) {
-    println!(
-        "hook_code_callback address 0x{:X} with length of 0x{}",
-        address, size
-    );
+fn hook_code_flash_load_img_callback<A>(_emu: &mut Unicorn<A>, _address: u64, _size: u32) {
+    println!("Call of flash_load_img");
 }
 
 // emu.add_mem_hook(HookType::MEM_READ, 0x1000, 0x1002, hook_read_callback)
