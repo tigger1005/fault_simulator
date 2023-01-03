@@ -10,6 +10,7 @@ pub struct ElfFile {
     pub program_header: ProgramHeader,
     pub program: Vec<u8>,
     pub flash_load_img: Symbol,
+    pub serial_puts: Symbol,
 }
 
 impl ElfFile {
@@ -43,12 +44,21 @@ impl ElfFile {
             .1
             .clone();
 
+        // Find needed symbols
+        let serial_puts = symbols_with_names
+            .iter()
+            .find(|&x| x.0 == "serial_puts")
+            .unwrap()
+            .1
+            .clone();
+
         // Fill struct
         Self {
             header: file.ehdr,
             program_header,
             program: program.to_vec(),
             flash_load_img,
+            serial_puts,
         }
     }
 }

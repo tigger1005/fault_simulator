@@ -40,13 +40,17 @@ const ARM_REG: [RegisterARM; 16] = [
     RegisterARM::PC,
 ];
 
+const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
+const T1_NOP: [u8; 2] = [0x00, 0xBF];
+
 const MAX_INSTRUCTIONS: usize = 20000000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
-const CODE_START: u64 = 0x80000000;
 const BOOT_STAGE: u64 = 0x32000000;
 
 fn main() {
+    env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
+
     // Load and parse elf file
     let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
 
@@ -55,12 +59,22 @@ fn main() {
         .expect("failed to initialize Unicorn instance");
     let emu = &mut unicorn;
 
+    // Setup simulation
+    setup_simulation(emu, &file_data);
+
+    // Check simulation
+    check_simulation(emu, &file_data);
+}
+
+fn setup_simulation<D>(emu: &mut Unicorn<D>, file_data: &ElfFile) {
     // Setup memory and IO
     setup_mmio(emu, &file_data);
 
     // Setup breakpoints
     setup_breakpoints(emu, &file_data);
+}
 
+fn check_simulation<D>(emu: &mut Unicorn<D>, file_data: &ElfFile) {
     // Run simulation
     run_simulation(emu, &file_data, true);
     assert_eq!(
@@ -167,13 +181,13 @@ fn print_register_and_data<D>(emu: &mut Unicorn<D>) {
 /// Auth success / failed trigger
 /// { 0xAA01000, new HwPeripheral((eng, address, size, value) }
 ///
-fn setup_mmio<D>(emu: &mut Unicorn<D>, _elf: &ElfFile) {
+fn setup_mmio<D>(emu: &mut Unicorn<D>, elf: &ElfFile) {
     // Next boot stage mem
     emu.mem_map(0x32000000, 0x1000, Permission::READ | Permission::WRITE)
         .expect("failed to map boot stage page");
 
     // Code
-    emu.mem_map(CODE_START, 0x20000, Permission::ALL)
+    emu.mem_map(elf.program_header.p_paddr, 0x20000, Permission::ALL)
         .expect("failed to map code page");
 
     // Stack
