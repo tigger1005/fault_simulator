@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 unicorn-engine = "2.0.1"
-elfy = "0.2.2"
 elf = "0.7.0"
+atomic_enum = "0.2.0"
+log = "0.4.17" 
