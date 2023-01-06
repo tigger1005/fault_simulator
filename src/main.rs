@@ -9,26 +9,31 @@ fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
 
     // Load and parse elf file
-    let mut simu = Simulation::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
+    let mut simulation = Simulation::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
 
     // Setup simulation
-    simu.setup_simulation();
+    simulation.setup();
 
     // Check simulation
-    simu.check_simulation();
+    /*
+        # Check for correct system
+            - Prepare system
+            - Set state to positive run
+                - Run
+            - Check Success_State
+            - Prepare system
+            - Set state to negative run
+                - Run
+            - Check Failed_State
+    */
+    //simulation.check();
+
+    //simulation.get_cycles();
+
+    simulation.test();
 }
 
 /*
-# Check for correct system
-- Prepare system
-- Set state to positive run
-    - Run
-- Check Success_State
-- Prepare system
-- Set state to negative run
-    - Run
-- Check Failed_State
-
 # Get address table
 - Prepare system
 - Set state to negative run
