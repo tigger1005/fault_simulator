@@ -46,16 +46,16 @@ struct Cpu {
 }
 
 #[derive(Copy, Clone)]
-struct Nop {
-    data: [u8; 4],
-    address: u64,
+pub struct FaultData {
+    pub data: [u8; 4],
+    pub address: u64,
 }
 
 struct SimulationData {
     state: RunState,
     is_positiv: bool,
     cpu: Cpu,
-    nop_context: Option<Nop>,
+    fault_data: Option<FaultData>,
 }
 
 pub struct Simulation<'a> {
@@ -70,7 +70,7 @@ impl<'a> Simulation<'a> {
             state: RunState::Init,
             is_positiv: true,
             cpu: Cpu { cycles: 0, pc: 0 },
-            nop_context: None,
+            fault_data: None,
         };
 
         // Setup platform -> ARMv8-m.base
@@ -177,7 +177,7 @@ impl<'a> Simulation<'a> {
         println!("");
     }
 
-    pub fn run_with_nop(&mut self, address: u64) {
+    pub fn run_with_nop(&mut self, address: u64) -> Option<FaultData> {
         self.init_and_load(false);
         // Deactivate io print
         self.emu
@@ -185,19 +185,14 @@ impl<'a> Simulation<'a> {
             .unwrap();
         // set initial program start address
         self.set_start_address(self.file_data.program_header.p_paddr);
-        // set nop
-        //println!("Set nop at address : 0x{:X}", address);
+        // Set nop
         self.set_nop(address);
-        // Print memory
-        //self.print_memory(0x80000000, 16);
-        // run till end
-        let ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
+        // Run
+        let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
         if self.emu.get_data().state == RunState::Success {
-            println!(
-                "Successfull with cached nop at address {:X} with {:?}",
-                address, ret_val,
-            );
+            return self.emu.get_data().fault_data;
         }
+        return None;
     }
 
     pub fn steps(&self) -> usize {
@@ -209,12 +204,12 @@ impl<'a> Simulation<'a> {
     /// If initial value is 32 bit two nops are placed
     /// Overwritten data is stored for restauration
     fn set_nop(&mut self, address: u64) {
-        let mut nop_context: Nop = Nop {
+        let mut nop_context: FaultData = FaultData {
             data: [0; 4],
             address,
         };
         self.emu.mem_read(address, &mut nop_context.data).unwrap();
-        self.emu.get_data_mut().nop_context = Some(nop_context).clone();
+        self.emu.get_data_mut().fault_data = Some(nop_context).clone();
 
         // Check for 32bit cmd (0b11101... 0b1111....)
         if (nop_context.data[1] & 0xF8 == 0xE8) || (nop_context.data[1] & 0xF0 == 0xF0) {
@@ -230,9 +225,9 @@ impl<'a> Simulation<'a> {
     }
 
     fn restore(&mut self) {
-        let context = self.emu.get_data().nop_context.unwrap();
+        let context = self.emu.get_data().fault_data.unwrap();
         self.emu.mem_write(context.address, &context.data).unwrap();
-        self.emu.get_data_mut().nop_context = None;
+        self.emu.get_data_mut().fault_data = None;
     }
 
     pub fn set_start_address(&mut self, address: u64) {

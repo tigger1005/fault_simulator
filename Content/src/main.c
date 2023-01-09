@@ -15,13 +15,13 @@ int main(void) {
 
   uint32_t *image = (uint32_t *)IMG_LOAD_ADDR;
 
-  if (!memcmp(&img_value, image, sizeof(uint32_t))) {
-    serial_puts("Positive program flow\n");
-    boot_next_stage();
+  if (memcmp(&img_value, image, sizeof(uint32_t))) {
+    serial_puts("Negative program flow\n");
+    __SET_SIM_FAILED();
   }
 
-  serial_puts("Negative program flow\n");
-  __SET_SIM_FAILED();
+  serial_puts("Positive program flow\n");
+  boot_next_stage();
 
   return 0;
 }

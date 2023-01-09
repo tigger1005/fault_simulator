@@ -2,6 +2,8 @@
 mod elf_file;
 use elf_file::ElfFile;
 
+mod disassembly;
+use disassembly::Disassembly;
 //use log::debug;
 
 mod simulation;
@@ -12,13 +14,12 @@ fn main() {
 
     // Load elf file
     let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
-    
+    let cs: Disassembly = Disassembly::new();
     // Run cached nop simulation
-    cached_nop_simulation(&file_data);
+    cached_nop_simulation(&file_data, &cs);
 }
 
-
-fn cached_nop_simulation(file_data: &ElfFile) -> () {
+fn cached_nop_simulation(file_data: &ElfFile, cs: &Disassembly) -> () {
     // Load and parse elf file
     let mut simulation = Simulation::new(file_data);
     // Setup simulation
@@ -43,21 +44,17 @@ fn cached_nop_simulation(file_data: &ElfFile) -> () {
         // Setup simulation
         simulation.setup();
         // Run test with specific address
-        simulation.run_with_nop(address);
+        if let Some(fault_data) = simulation.run_with_nop(address) {
+            println!(
+                "Successfull: {} -> NOP",
+                cs.bin2asm(&fault_data.data, fault_data.address)
+            );
+        };
         drop(simulation);
     }
 }
 
-
 /*
-# Get address table
-- Prepare system
-- Set state to negative run
-- Go with single step till Failed_State
-    - Count Steps
-    - Note all individual addresses into array
-
-
 # Glitch run
 - Loop from Count 0..Steps
     - Loop (16/32) according to cmd size
