@@ -3,8 +3,7 @@ use log::debug;
 use unicorn_engine::unicorn_const::{uc_error, Arch, Mode, Permission, SECOND_SCALE};
 use unicorn_engine::{RegisterARM, Unicorn};
 
-mod elf_file;
-use elf_file::ElfFile;
+use crate::elf_file::ElfFile;
 
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
 const T1_NOP: [u8; 2] = [0x00, 0xBF];
@@ -48,7 +47,7 @@ struct Cpu {
 
 #[derive(Copy, Clone)]
 struct Nop {
-    data: [u8;4],
+    data: [u8; 4],
     address: u64,
 }
 
@@ -60,12 +59,12 @@ struct SimulationData {
 }
 
 pub struct Simulation<'a> {
-    file_data: ElfFile,
+    file_data: &'a ElfFile,
     emu: Unicorn<'a, SimulationData>,
 }
 
 impl<'a> Simulation<'a> {
-    pub fn new(path: std::path::PathBuf) -> Self {
+    pub fn new(file_data: &'a ElfFile) -> Self {
         // Setup simulation data structure
         let simulation_data = SimulationData {
             state: RunState::Init,
@@ -73,8 +72,7 @@ impl<'a> Simulation<'a> {
             cpu: Cpu { cycles: 0, pc: 0 },
             nop_context: None,
         };
-        // Load elf file
-        let file_data: ElfFile = ElfFile::new(path);
+
         // Setup platform -> ARMv8-m.base
         let emu = Unicorn::new_with_data(
             Arch::ARM,
@@ -112,7 +110,9 @@ impl<'a> Simulation<'a> {
         self.init_states(run_successful);
     }
 
-    pub fn get_cycles(&mut self) {
+    pub fn get_address_list(&mut self) -> Vec<u64> {
+        //
+        let mut address_list: Vec<u64> = Vec::new();
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
@@ -121,17 +121,19 @@ impl<'a> Simulation<'a> {
             .unwrap();
 
         self.set_start_address(self.file_data.program_header.p_paddr);
+        address_list.push(self.emu.get_data().cpu.pc);
 
         let mut cycles: usize = 0;
 
         let mut ret_val = Ok(());
         while ret_val == Ok(()) {
-            println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
-            ret_val = self.run_steps(1);
+            //println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
+            ret_val = self.run_steps(1, false);
             if ret_val == Ok(()) {
                 cycles += 1;
             }
             // debug!("PC : 0x{:X}", pc);
+            address_list.push(self.emu.get_data().cpu.pc);
             if self.emu.get_data().state == RunState::Failed {
                 // debug!("Stoped on Failed marker");
                 break;
@@ -141,7 +143,11 @@ impl<'a> Simulation<'a> {
 
         self.emu.get_data_mut().cpu.cycles = cycles;
         debug!("Cycles : {}", self.emu.get_data().cpu.cycles);
-        debug!("PC : {:X}", self.emu.pc_read().unwrap());
+        address_list
+            .iter()
+            .for_each(|adr| debug!("Address: 0x{:X}", adr));
+
+        address_list
     }
 
     fn run(&mut self, run_successful: bool) {
@@ -156,46 +162,46 @@ impl<'a> Simulation<'a> {
         //print_register_and_data(emu);
     }
 
-    fn run_till(&mut self, run_successful: bool, steps: usize) -> Result<(), uc_error> {
+    pub fn run_till(&mut self, run_successful: bool, steps: usize) -> Result<(), uc_error> {
         self.init_and_load(run_successful);
         // Start execution
         debug!("Run : {} Steps", steps);
         self.set_start_address(self.file_data.program_header.p_paddr);
-        self.run_steps(steps)
+        self.run_steps(steps, false)
     }
 
-    pub fn test(&mut self) {
+    pub fn print_memory(&self, address: u64, size: usize) {
+        let data = self.emu.mem_read_as_vec(address, size).unwrap();
+        println!("Memory at 0x{:X}", address);
+        data.iter().for_each(|x| print!("0x{:X} ", x));
+        println!("");
+    }
+
+    pub fn run_with_nop(&mut self, address: u64) {
         self.init_and_load(false);
         // Deactivate io print
         self.emu
             .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
             .unwrap();
-
+        // set initial program start address
         self.set_start_address(self.file_data.program_header.p_paddr);
+        // set nop
+        //println!("Set nop at address : 0x{:X}", address);
+        self.set_nop(address);
+        // Print memory
+        //self.print_memory(0x80000000, 16);
+        // run till end
+        let ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
+        if self.emu.get_data().state == RunState::Success {
+            println!(
+                "Successfull with cached nop at address {:X} with {:?}",
+                address, ret_val,
+            );
+        }
+    }
 
-        let mut data: [u8;10] = [0;10];
-        
-        
-        self.emu.mem_read(self.file_data.program_header.p_paddr, & mut data).unwrap();
-        println!("Data {:?}", data);
-        self.set_nop(self.file_data.program_header.p_paddr);
-        self.emu.mem_read(self.file_data.program_header.p_paddr, & mut data).unwrap();
-        println!("Data {:?}", data);
-
-        
-
-        // Start execution
-        println!("Start test");
-
-        println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
-        let ret_val = self.run_steps(1);
-        println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
-        println!("PC : {:X}", self.emu.pc_read().unwrap());
-        println!("Program stopped : {:?}", ret_val);
-
-        self.restore();
-        self.emu.mem_read(self.file_data.program_header.p_paddr, & mut data).unwrap();
-        println!("Data {:?}", data);
+    pub fn steps(&self) -> usize {
+        self.emu.get_data().cpu.cycles
     }
 
     /// Set nop at specified address
@@ -203,7 +209,10 @@ impl<'a> Simulation<'a> {
     /// If initial value is 32 bit two nops are placed
     /// Overwritten data is stored for restauration
     fn set_nop(&mut self, address: u64) {
-        let mut nop_context: Nop = Nop{data: [0;4], address};
+        let mut nop_context: Nop = Nop {
+            data: [0; 4],
+            address,
+        };
         self.emu.mem_read(address, &mut nop_context.data).unwrap();
         self.emu.get_data_mut().nop_context = Some(nop_context).clone();
 
@@ -226,22 +235,44 @@ impl<'a> Simulation<'a> {
         self.emu.get_data_mut().nop_context = None;
     }
 
-    fn set_start_address(&mut self, address: u64) {
+    pub fn set_start_address(&mut self, address: u64) {
         self.emu.get_data_mut().cpu.pc = address;
     }
 
-    fn run_steps(&mut self, cycles: usize) -> Result<(), uc_error> {
-        let end_address =
-            self.file_data.program_header.p_paddr + self.file_data.program_header.p_filesz;
+    fn run_steps(&mut self, cycles: usize, debug: bool) -> Result<(), uc_error> {
+        let mut ret_val;
+        if debug {
+            let mut cyc = cycles;
+            ret_val = Ok(());
+            while ret_val == Ok(()) && cyc != 0 {
+                //println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
+                ret_val = self.run_steps(1, false);
+                cyc -= 1;
+                println!("PC : 0x{:X}", self.emu.pc_read().unwrap());
+                if self.emu.get_data().state != RunState::Init {
+                    println!("Stopped on marker: {:?}", self.emu.get_data().state);
+                    break;
+                }
+            }
+        } else {
+            let end_address =
+                self.file_data.program_header.p_paddr + self.file_data.program_header.p_filesz;
 
-        // Start from last PC
-        let ret_val = self.emu.emu_start(
-            self.emu.get_data().cpu.pc | 1,
-            end_address | 1,
-            SECOND_SCALE,
-            cycles,
-        );
-        // Store new PC
+            // Start from last PC
+            ret_val = self.emu.emu_start(
+                self.emu.get_data().cpu.pc | 1,
+                end_address | 1,
+                SECOND_SCALE,
+                cycles,
+            );
+            debug!("Started at: 0x{:X}", self.emu.get_data().cpu.pc);
+            debug!(
+                "Stopped at: 0x{:X} with marker: {:?} and {:?}",
+                self.emu.pc_read().unwrap(),
+                self.emu.get_data().state,
+                ret_val
+            );
+        } // Store new PC
         self.set_start_address(self.emu.pc_read().unwrap());
 
         ret_val

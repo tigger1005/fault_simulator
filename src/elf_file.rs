@@ -1,6 +1,5 @@
 use elf::endian::AnyEndian;
 use elf::file::FileHeader;
-//use elf::section::SectionHeader;
 use elf::segment::ProgramHeader;
 use elf::symbol::Symbol;
 use elf::ElfBytes;

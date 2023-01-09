@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+mod elf_file;
+use elf_file::ElfFile;
 
 //use log::debug;
 
@@ -8,30 +10,44 @@ use simulation::Simulation;
 fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
 
-    // Load and parse elf file
-    let mut simulation = Simulation::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
+    // Load elf file
+    let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
+    
+    // Run cached nop simulation
+    cached_nop_simulation(&file_data);
+}
 
+
+fn cached_nop_simulation(file_data: &ElfFile) -> () {
+    // Load and parse elf file
+    let mut simulation = Simulation::new(file_data);
     // Setup simulation
     simulation.setup();
 
-    // Check simulation
-    /*
-        # Check for correct system
-            - Prepare system
-            - Set state to positive run
-                - Run
-            - Check Success_State
-            - Prepare system
-            - Set state to negative run
-                - Run
-            - Check Failed_State
-    */
-    //simulation.check();
+    // Get trace data from negative run
+    let address_list = simulation.get_address_list();
+    drop(simulation);
 
-    //simulation.get_cycles();
+    // # NOP run
+    // - Loop from Count 0..Steps
+    //     - Prepare system
+    //     - Set state to negative run
+    //         Change to NOP
+    //     - Run till Success/Failed state
+    //         If Success add to found list
+    // - Repeat till end of loop
 
-    simulation.test();
+    // Test loop over all addresses (steps)
+    for address in address_list {
+        let mut simulation = Simulation::new(file_data);
+        // Setup simulation
+        simulation.setup();
+        // Run test with specific address
+        simulation.run_with_nop(address);
+        drop(simulation);
+    }
 }
+
 
 /*
 # Get address table
@@ -41,18 +57,6 @@ fn main() {
     - Count Steps
     - Note all individual addresses into array
 
-# NOP run
-- Loop from Count 0..Steps
-    - Prepare system
-    - Set state to negative run
-    - Run (Count)
-        Check for ASM Cmd - 16/32 Bit
-        Change to NOP
-    - Run (1/2)
-        Change back
-    - Run till Success/Failed state
-        If Success add to found list
-- Repeat till end of loop
 
 # Glitch run
 - Loop from Count 0..Steps
