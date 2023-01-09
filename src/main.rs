@@ -63,7 +63,7 @@ fn cached_nop_simulation(file_data: &ElfFile, cs: &Disassembly) -> () {
         let fault_data = handle.join().expect("Cannot fault result");
         match fault_data {
             Some(data) => {
-                println!("Test {}", cs.bin2asm(&data.data, data.address));
+                println!("Success at {} -> NOP", cs.bin2asm(&data.data, data.address));
             }
             _ => {}
         }
