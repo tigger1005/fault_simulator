@@ -56,6 +56,7 @@ struct SimulationData {
     is_positiv: bool,
     cpu: Cpu,
     fault_data: Option<FaultData>,
+    print_output: bool,
 }
 
 pub struct Simulation<'a> {
@@ -71,6 +72,7 @@ impl<'a> Simulation<'a> {
             is_positiv: true,
             cpu: Cpu { cycles: 0, pc: 0 },
             fault_data: None,
+            print_output: true,
         };
 
         // Setup platform -> ARMv8-m.base
@@ -180,6 +182,7 @@ impl<'a> Simulation<'a> {
     pub fn run_with_nop(&mut self, address: u64) -> Option<FaultData> {
         self.init_and_load(false);
         // Deactivate io print
+        self.emu.get_data_mut().print_output = false;
         self.emu
             .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
             .unwrap();
@@ -435,12 +438,14 @@ fn mmio_auth_write_callback<D>(
 /// This IO write displays printed messages
 ///
 fn mmio_serial_write_callback<D>(
-    _emu: &mut Unicorn<SimulationData>,
+    emu: &mut Unicorn<SimulationData>,
     _address: u64,
     _size: usize,
     value: u64,
 ) {
-    print!("{}", value as u8 as char);
+    if emu.get_data().print_output == true {
+        print!("{}", value as u8 as char);
+    }
 }
 
 /// Hook for flash_load_img callback handling.
