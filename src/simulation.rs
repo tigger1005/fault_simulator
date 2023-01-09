@@ -48,6 +48,7 @@ struct Cpu {
 #[derive(Copy, Clone)]
 pub struct FaultData {
     pub data: [u8; 4],
+    pub data_changed: [u8; 4],
     pub address: u64,
 }
 
@@ -209,6 +210,7 @@ impl<'a> Simulation<'a> {
     fn set_nop(&mut self, address: u64) {
         let mut nop_context: FaultData = FaultData {
             data: [0; 4],
+            data_changed: [0; 4],
             address,
         };
         self.emu.mem_read(address, &mut nop_context.data).unwrap();

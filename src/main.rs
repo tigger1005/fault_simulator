@@ -4,10 +4,11 @@ use elf_file::ElfFile;
 
 mod disassembly;
 use disassembly::Disassembly;
-//use log::debug;
 
 mod simulation;
 use simulation::Simulation;
+
+use std::thread;
 
 fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
@@ -21,7 +22,7 @@ fn main() {
 
 fn cached_nop_simulation(file_data: &ElfFile, cs: &Disassembly) -> () {
     // Load and parse elf file
-    let mut simulation = Simulation::new(file_data);
+    let mut simulation = Simulation::new(&file_data);
     // Setup simulation
     simulation.setup();
 
@@ -39,18 +40,33 @@ fn cached_nop_simulation(file_data: &ElfFile, cs: &Disassembly) -> () {
     // - Repeat till end of loop
 
     // Test loop over all addresses (steps)
+    let mut handles = Vec::new();
+
+    // Start all threads (all will execute with a single address)
     for address in address_list {
-        let mut simulation = Simulation::new(file_data);
-        // Setup simulation
-        simulation.setup();
-        // Run test with specific address
-        if let Some(fault_data) = simulation.run_with_nop(address) {
-            println!(
-                "Successfull: {} -> NOP",
-                cs.bin2asm(&fault_data.data, fault_data.address)
-            );
-        };
-        drop(simulation);
+        let fd = file_data.clone();
+        let handle = thread::spawn(move || {
+            let mut simulation = Simulation::new(&fd);
+            // Setup
+            simulation.setup();
+            // Run test with specific address
+            let result = simulation.run_with_nop(address);
+            drop(simulation);
+            result
+        });
+        handles.push(handle);
+    }
+
+    println!("Fault injection: NOP (Cached)");
+    // wait for each thread to finish
+    for handle in handles {
+        let fault_data = handle.join().expect("Cannot fault result");
+        match fault_data {
+            Some(data) => {
+                println!("Test {}", cs.bin2asm(&data.data, data.address));
+            }
+            _ => {}
+        }
     }
 }
 

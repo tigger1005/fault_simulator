@@ -4,6 +4,7 @@ use elf::segment::ProgramHeader;
 use elf::symbol::Symbol;
 use elf::ElfBytes;
 
+#[derive(Clone)]
 pub struct ElfFile {
     pub header: FileHeader<AnyEndian>,
     pub program_header: ProgramHeader,
