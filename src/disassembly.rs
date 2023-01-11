@@ -24,7 +24,11 @@ impl Disassembly {
             .expect("Failed to disassemble");
 
         let asm_cmd = &insns.as_ref()[0];
-        asm_cmd.to_string()
+        format!(
+            "{} {}",
+            asm_cmd.mnemonic().unwrap(),
+            asm_cmd.op_str().unwrap()
+        )
     }
 }
 

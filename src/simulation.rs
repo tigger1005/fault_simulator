@@ -5,6 +5,9 @@ use unicorn_engine::{RegisterARM, Unicorn};
 
 use crate::elf_file::ElfFile;
 
+use std::collections::HashMap;
+use std::ops::Shl;
+
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
 const T1_NOP: [u8; 2] = [0x00, 0xBF];
 
@@ -55,8 +58,30 @@ pub struct FaultData {
 
 #[derive(Copy, Clone)]
 pub struct AddressRecord {
-    pub address: u64,
     size: usize,
+    count: usize,
+}
+
+#[derive(Clone, Copy)]
+pub struct ExternalRecord {
+    address: u64,
+    size: usize,
+    count: usize,
+}
+
+impl ExternalRecord {
+    pub fn new(record_map: HashMap<u64, AddressRecord>) -> Vec<ExternalRecord> {
+        let mut list: Vec<ExternalRecord> = Vec::new();
+        record_map.iter().for_each(|record| {
+            list.push(ExternalRecord {
+                address: *record.0,
+                size: record.1.size,
+                count: record.1.count,
+            });
+        });
+
+        list
+    }
 }
 
 struct SimulationData {
@@ -120,7 +145,7 @@ impl<'a> Simulation<'a> {
         self.init_states(run_successful);
     }
 
-    fn get_cmd_record(&mut self, address: u64) -> AddressRecord {
+    fn get_cmd_record(&mut self, address: u64) -> (u64, AddressRecord) {
         let mut data: [u8; 2] = [0; 2];
 
         self.set_start_address(address);
@@ -134,20 +159,19 @@ impl<'a> Simulation<'a> {
         if (data[1] & 0xF8 == 0xE8) || (data[1] & 0xF0 == 0xF0) {
             size = 4;
         }
-        AddressRecord { address, size }
+        (address, AddressRecord { size, count: 1 })
     }
 
-    pub fn get_address_list(&mut self) -> Vec<AddressRecord> {
+    pub fn get_address_list(&mut self) -> Vec<ExternalRecord> {
         //
-        let mut address_list: Vec<AddressRecord> = Vec::new();
+        let mut address_list = HashMap::new();
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
-        self.emu
-            .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
-            .unwrap();
+        self.deactivate_printf_function();
 
-        address_list.push(self.get_cmd_record(self.file_data.program_header.p_paddr));
+        let (adr, rec) = self.get_cmd_record(self.file_data.program_header.p_paddr);
+        address_list.insert(adr, rec);
 
         let mut cycles: usize = 0;
 
@@ -159,7 +183,12 @@ impl<'a> Simulation<'a> {
                 cycles += 1;
             }
             // debug!("PC : 0x{:X}", pc);
-            address_list.push(self.get_cmd_record(self.emu.get_data().cpu.pc));
+            let (adr, rec) = self.get_cmd_record(self.emu.get_data().cpu.pc);
+            address_list
+                .entry(adr)
+                .and_modify(|record| record.count += 1)
+                .or_insert(rec);
+
             if self.emu.get_data().state == RunState::Failed {
                 // debug!("Stoped on Failed marker");
                 break;
@@ -169,11 +198,14 @@ impl<'a> Simulation<'a> {
 
         self.emu.get_data_mut().cpu.cycles = cycles;
         debug!("Cycles : {}", self.emu.get_data().cpu.cycles);
-        address_list
-            .iter()
-            .for_each(|adr| debug!("Address: 0x{:X}, {} bytes", adr.address, adr.size));
+        address_list.iter().for_each(|rec| {
+            debug!(
+                "Address: 0x{:X} count {}, size {}",
+                rec.0, rec.1.count, rec.1.size
+            )
+        });
 
-        address_list
+        ExternalRecord::new(address_list)
     }
 
     fn run(&mut self, run_successful: bool) {
@@ -203,41 +235,23 @@ impl<'a> Simulation<'a> {
         println!("");
     }
 
-    pub fn run_with_nop(&mut self, address_record: AddressRecord) -> Option<Vec<FaultData>> {
-        self.init_and_load(false);
-        // Deactivate io print
-        self.emu.get_data_mut().print_output = false;
+    fn deactivate_printf_function(&mut self) {
         self.emu
             .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
             .unwrap();
-        // set initial program start address
-        self.set_start_address(self.file_data.program_header.p_paddr);
-        // Set nop
-        self.set_nop(address_record);
-        // Run
-        let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
-        if self.emu.get_data().state == RunState::Success {
-            return Some(self.emu.get_data().fault_data.clone());
-        }
-        return None;
     }
 
-    pub fn run_with_nop_2(
-        &mut self,
-        address_record: AddressRecord,
-        address_record_2: AddressRecord,
-    ) -> Option<Vec<FaultData>> {
+    pub fn run_with_nop(&mut self, external_record: Vec<ExternalRecord>) -> Option<Vec<FaultData>> {
         self.init_and_load(false);
         // Deactivate io print
         self.emu.get_data_mut().print_output = false;
-        self.emu
-            .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
-            .unwrap();
+        self.deactivate_printf_function();
         // set initial program start address
         self.set_start_address(self.file_data.program_header.p_paddr);
         // Set nop
-        self.set_nop(address_record);
-        self.set_nop(address_record_2);
+        external_record
+            .iter()
+            .for_each(|record| self.set_nop(*record));
         // Run
         let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
         if self.emu.get_data().state == RunState::Success {
@@ -254,26 +268,55 @@ impl<'a> Simulation<'a> {
     ///
     /// If initial value is 32 bit two nops are placed
     /// Overwritten data is stored for restauration
-    fn set_nop(&mut self, address_record: AddressRecord) {
+    fn set_nop(&mut self, external_record: ExternalRecord) {
         let mut nop_context: FaultData = FaultData {
             data: [0; 4],
             data_changed: [0; 4],
-            address: address_record.address,
-            size: address_record.size,
+            address: external_record.address,
+            size: external_record.size,
         };
+        // Read original data
         self.emu
-            .mem_read(address_record.address, &mut nop_context.data)
+            .mem_read(external_record.address, &mut nop_context.data)
             .unwrap();
 
+        // Generate changed data
+        nop_context.data_changed[0..2].copy_from_slice(&T1_NOP);
+        if external_record.size == 4 {
+            nop_context.data_changed[2..4].copy_from_slice(&T1_NOP);
+        } else {
+            nop_context.data_changed[2..4].copy_from_slice(&nop_context.data[2..4]);
+        }
         self.emu.get_data_mut().fault_data.push(nop_context);
 
-        nop_context.data[0..2].copy_from_slice(&T1_NOP);
-        if address_record.size == 4 {
-            nop_context.data[2..4].copy_from_slice(&T1_NOP);
-        }
-        // Write back
+        // Write generated data to address
         self.emu
-            .mem_write(address_record.address, &nop_context.data)
+            .mem_write(external_record.address, &nop_context.data_changed)
+            .unwrap();
+    }
+
+    /// Set bit glitch at specified address
+    ///
+    fn set_bit_glitch(&mut self, external_record: ExternalRecord, bit_pos: usize) {
+        let mut glitch_context: FaultData = FaultData {
+            data: [0; 4],
+            data_changed: [0; 4],
+            address: external_record.address,
+            size: external_record.size,
+        };
+        // Read original data
+        self.emu
+            .mem_read(external_record.address, &mut glitch_context.data)
+            .unwrap();
+
+        // Generate changed data
+        glitch_context.data_changed = glitch_context.data;
+        glitch_context.data_changed[bit_pos / 8] ^= (0x01 as u8).shl(bit_pos % 8);
+        // Add to list
+        self.emu.get_data_mut().fault_data.push(glitch_context);
+        // Write generated data to address
+        self.emu
+            .mem_write(external_record.address, &glitch_context.data_changed)
             .unwrap();
     }
 
