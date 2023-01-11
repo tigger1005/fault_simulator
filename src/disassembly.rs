@@ -4,12 +4,6 @@ pub struct Disassembly {
     cs: Capstone,
 }
 
-/// Print instruction group names
-fn group_names(cs: &Capstone, regs: &[InsnGroupId]) -> String {
-    let names: Vec<String> = regs.iter().map(|&x| cs.group_name(x).unwrap()).collect();
-    names.join(", ")
-}
-
 impl Disassembly {
     pub fn new() -> Self {
         let cs = Capstone::new()
@@ -28,7 +22,7 @@ impl Disassembly {
             .cs
             .disasm_all(data, address)
             .expect("Failed to disassemble");
-        
+
         let asm_cmd = &insns.as_ref()[0];
         asm_cmd.to_string()
     }

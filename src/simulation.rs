@@ -50,13 +50,20 @@ pub struct FaultData {
     pub data: [u8; 4],
     pub data_changed: [u8; 4],
     pub address: u64,
+    pub size: usize,
+}
+
+#[derive(Copy, Clone)]
+pub struct AddressRecord {
+    pub address: u64,
+    size: usize,
 }
 
 struct SimulationData {
     state: RunState,
     is_positiv: bool,
     cpu: Cpu,
-    fault_data: Option<FaultData>,
+    fault_data: Vec<FaultData>,
     print_output: bool,
 }
 
@@ -72,7 +79,7 @@ impl<'a> Simulation<'a> {
             state: RunState::Init,
             is_positiv: true,
             cpu: Cpu { cycles: 0, pc: 0 },
-            fault_data: None,
+            fault_data: Vec::new(),
             print_output: true,
         };
 
@@ -113,9 +120,26 @@ impl<'a> Simulation<'a> {
         self.init_states(run_successful);
     }
 
-    pub fn get_address_list(&mut self) -> Vec<u64> {
+    fn get_cmd_record(&mut self, address: u64) -> AddressRecord {
+        let mut data: [u8; 2] = [0; 2];
+
+        self.set_start_address(address);
+
+        self.emu
+            .mem_read(self.emu.get_data().cpu.pc, &mut data)
+            .unwrap();
+
+        let mut size = 2;
+        // Check for 32bit cmd (0b11101... 0b1111....)
+        if (data[1] & 0xF8 == 0xE8) || (data[1] & 0xF0 == 0xF0) {
+            size = 4;
+        }
+        AddressRecord { address, size }
+    }
+
+    pub fn get_address_list(&mut self) -> Vec<AddressRecord> {
         //
-        let mut address_list: Vec<u64> = Vec::new();
+        let mut address_list: Vec<AddressRecord> = Vec::new();
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
@@ -123,8 +147,7 @@ impl<'a> Simulation<'a> {
             .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
             .unwrap();
 
-        self.set_start_address(self.file_data.program_header.p_paddr);
-        address_list.push(self.emu.get_data().cpu.pc);
+        address_list.push(self.get_cmd_record(self.file_data.program_header.p_paddr));
 
         let mut cycles: usize = 0;
 
@@ -136,7 +159,7 @@ impl<'a> Simulation<'a> {
                 cycles += 1;
             }
             // debug!("PC : 0x{:X}", pc);
-            address_list.push(self.emu.get_data().cpu.pc);
+            address_list.push(self.get_cmd_record(self.emu.get_data().cpu.pc));
             if self.emu.get_data().state == RunState::Failed {
                 // debug!("Stoped on Failed marker");
                 break;
@@ -148,7 +171,7 @@ impl<'a> Simulation<'a> {
         debug!("Cycles : {}", self.emu.get_data().cpu.cycles);
         address_list
             .iter()
-            .for_each(|adr| debug!("Address: 0x{:X}", adr));
+            .for_each(|adr| debug!("Address: 0x{:X}, {} bytes", adr.address, adr.size));
 
         address_list
     }
@@ -180,7 +203,7 @@ impl<'a> Simulation<'a> {
         println!("");
     }
 
-    pub fn run_with_nop(&mut self, address: u64) -> Option<FaultData> {
+    pub fn run_with_nop(&mut self, address_record: AddressRecord) -> Option<Vec<FaultData>> {
         self.init_and_load(false);
         // Deactivate io print
         self.emu.get_data_mut().print_output = false;
@@ -190,11 +213,35 @@ impl<'a> Simulation<'a> {
         // set initial program start address
         self.set_start_address(self.file_data.program_header.p_paddr);
         // Set nop
-        self.set_nop(address);
+        self.set_nop(address_record);
         // Run
         let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
         if self.emu.get_data().state == RunState::Success {
-            return self.emu.get_data().fault_data;
+            return Some(self.emu.get_data().fault_data.clone());
+        }
+        return None;
+    }
+
+    pub fn run_with_nop_2(
+        &mut self,
+        address_record: AddressRecord,
+        address_record_2: AddressRecord,
+    ) -> Option<Vec<FaultData>> {
+        self.init_and_load(false);
+        // Deactivate io print
+        self.emu.get_data_mut().print_output = false;
+        self.emu
+            .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
+            .unwrap();
+        // set initial program start address
+        self.set_start_address(self.file_data.program_header.p_paddr);
+        // Set nop
+        self.set_nop(address_record);
+        self.set_nop(address_record_2);
+        // Run
+        let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
+        if self.emu.get_data().state == RunState::Success {
+            return Some(self.emu.get_data().fault_data.clone());
         }
         return None;
     }
@@ -207,32 +254,37 @@ impl<'a> Simulation<'a> {
     ///
     /// If initial value is 32 bit two nops are placed
     /// Overwritten data is stored for restauration
-    fn set_nop(&mut self, address: u64) {
+    fn set_nop(&mut self, address_record: AddressRecord) {
         let mut nop_context: FaultData = FaultData {
             data: [0; 4],
             data_changed: [0; 4],
-            address,
+            address: address_record.address,
+            size: address_record.size,
         };
-        self.emu.mem_read(address, &mut nop_context.data).unwrap();
-        self.emu.get_data_mut().fault_data = Some(nop_context).clone();
+        self.emu
+            .mem_read(address_record.address, &mut nop_context.data)
+            .unwrap();
 
-        // Check for 32bit cmd (0b11101... 0b1111....)
-        if (nop_context.data[1] & 0xF8 == 0xE8) || (nop_context.data[1] & 0xF0 == 0xF0) {
+        self.emu.get_data_mut().fault_data.push(nop_context);
+
+        nop_context.data[0..2].copy_from_slice(&T1_NOP);
+        if address_record.size == 4 {
             nop_context.data[2..4].copy_from_slice(&T1_NOP);
         }
-        nop_context.data[0..2].copy_from_slice(&T1_NOP);
         // Write back
-        self.emu.mem_write(address, &nop_context.data).unwrap();
-    }
-
-    fn set_nop_at_pc(&mut self) {
-        self.set_nop(self.emu.get_data().cpu.pc);
+        self.emu
+            .mem_write(address_record.address, &nop_context.data)
+            .unwrap();
     }
 
     fn restore(&mut self) {
-        let context = self.emu.get_data().fault_data.unwrap();
-        self.emu.mem_write(context.address, &context.data).unwrap();
-        self.emu.get_data_mut().fault_data = None;
+        let fault_vec = self.emu.get_data().fault_data.clone();
+        fault_vec.iter().for_each(|fault_data| {
+            self.emu
+                .mem_write(fault_data.address, &fault_data.data)
+                .unwrap()
+        });
+        self.emu.get_data_mut().fault_data.clear();
     }
 
     pub fn set_start_address(&mut self, address: u64) {

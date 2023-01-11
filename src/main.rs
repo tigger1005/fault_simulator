@@ -6,7 +6,7 @@ mod disassembly;
 use disassembly::Disassembly;
 
 mod simulation;
-use simulation::Simulation;
+use simulation::{FaultData, Simulation};
 
 use std::thread;
 
@@ -18,6 +18,7 @@ fn main() {
     let cs: Disassembly = Disassembly::new();
     // Run cached nop simulation
     cached_nop_simulation(&file_data, &cs);
+    cached_nop_simulation_2(&file_data, &cs);
 }
 
 fn cached_nop_simulation(file_data: &ElfFile, cs: &Disassembly) -> () {
@@ -34,7 +35,7 @@ fn cached_nop_simulation(file_data: &ElfFile, cs: &Disassembly) -> () {
     // - Loop from Count 0..Steps
     //     - Prepare system
     //     - Set state to negative run
-    //         Change to NOP
+    //     - Set NOP at specific address
     //     - Run till Success/Failed state
     //         If Success add to found list
     // - Repeat till end of loop
@@ -60,13 +61,71 @@ fn cached_nop_simulation(file_data: &ElfFile, cs: &Disassembly) -> () {
     println!("Fault injection: NOP (Cached)");
     // wait for each thread to finish
     for handle in handles {
-        let fault_data = handle.join().expect("Cannot fault result");
-        match fault_data {
-            Some(data) => {
-                println!("Success at {} -> NOP", cs.bin2asm(&data.data, data.address));
-            }
-            _ => {}
+        print(cs, handle.join().expect("Cannot fault result"));
+    }
+}
+
+fn cached_nop_simulation_2(file_data: &ElfFile, cs: &Disassembly) -> () {
+    // Load and parse elf file
+    let mut simulation = Simulation::new(&file_data);
+    // Setup simulation
+    simulation.setup();
+
+    // Get trace data from negative run
+    let address_list = simulation.get_address_list();
+    drop(simulation);
+
+    // # NOP run
+    // - Loop from Count 0..Steps
+    //     - Prepare system
+    //     - Set state to negative run
+    //     - Set NOP at specific address
+    //     - Run till Success/Failed state
+    //         If Success add to found list
+    // - Repeat till end of loop
+
+    // Test loop over all addresses (steps)
+    let mut handles = Vec::new();
+    let array_len = address_list.len();
+
+    // Start all threads (all will execute with a single address)
+    for index in 0..array_len - 1 {
+        for index_2 in (index + 1)..array_len {
+            let address = address_list[index];
+            let address_2 = address_list[index_2];
+            let fd = file_data.clone();
+            let handle = thread::spawn(move || {
+                let mut simulation = Simulation::new(&fd);
+                // Setup
+                simulation.setup();
+                // Run test with specific address
+                let result = simulation.run_with_nop_2(address, address_2);
+                drop(simulation);
+                result
+            });
+            handles.push(handle);
         }
+    }
+
+    println!("Fault injection: 2 consecutive NOP (Cached)");
+    // wait for each thread to finish
+    for handle in handles {
+        print(cs, handle.join().expect("Cannot fault result"));
+    }
+}
+
+fn print(cs: &Disassembly, ret_data: Option<Vec<FaultData>>) {
+    match ret_data {
+        Some(data) => {
+            println!("Success with:");
+            data.iter().for_each(|fault_data| {
+                println!(
+                    "{} -> NOP",
+                    cs.bin2asm(&fault_data.data, fault_data.address)
+                )
+            })
+        }
+        _ => {}
     }
 }
 
