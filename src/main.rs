@@ -95,7 +95,7 @@ fn cached_nop_simulation_2(file_data: &ElfFile, cs: &Disassembly) -> usize {
         .iter()
         .enumerate()
         .for_each(|(i, record_1)| {
-            external_records[i..].iter().for_each(|record_2| {
+            external_records[(i + 1)..].iter().for_each(|record_2| {
                 let temp_rec_1 = *record_1;
                 let temp_rec_2 = *record_2;
                 let fd = file_data.clone();
