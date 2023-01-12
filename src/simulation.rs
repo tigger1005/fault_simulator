@@ -64,9 +64,9 @@ pub struct AddressRecord {
 
 #[derive(Clone, Copy)]
 pub struct ExternalRecord {
-    address: u64,
-    size: usize,
-    count: usize,
+    pub address: u64,
+    pub size: usize,
+    pub count: usize,
 }
 
 impl ExternalRecord {
@@ -260,6 +260,29 @@ impl<'a> Simulation<'a> {
         return None;
     }
 
+    pub fn run_with_bit_flip(
+        &mut self,
+        external_record: Vec<ExternalRecord>,
+        bit_pos: usize,
+    ) -> Option<Vec<FaultData>> {
+        self.init_and_load(false);
+        // Deactivate io print
+        self.emu.get_data_mut().print_output = false;
+        self.deactivate_printf_function();
+        // set initial program start address
+        self.set_start_address(self.file_data.program_header.p_paddr);
+        // Set nop
+        external_record
+            .iter()
+            .for_each(|record| self.set_bit_flip(*record, bit_pos));
+        // Run
+        let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
+        if self.emu.get_data().state == RunState::Success {
+            return Some(self.emu.get_data().fault_data.clone());
+        }
+        return None;
+    }
+
     pub fn steps(&self) -> usize {
         self.emu.get_data().cpu.cycles
     }
@@ -297,8 +320,8 @@ impl<'a> Simulation<'a> {
 
     /// Set bit glitch at specified address
     ///
-    fn set_bit_glitch(&mut self, external_record: ExternalRecord, bit_pos: usize) {
-        let mut glitch_context: FaultData = FaultData {
+    fn set_bit_flip(&mut self, external_record: ExternalRecord, bit_pos: usize) {
+        let mut flip_context: FaultData = FaultData {
             data: [0; 4],
             data_changed: [0; 4],
             address: external_record.address,
@@ -306,17 +329,17 @@ impl<'a> Simulation<'a> {
         };
         // Read original data
         self.emu
-            .mem_read(external_record.address, &mut glitch_context.data)
+            .mem_read(external_record.address, &mut flip_context.data)
             .unwrap();
 
         // Generate changed data
-        glitch_context.data_changed = glitch_context.data;
-        glitch_context.data_changed[bit_pos / 8] ^= (0x01 as u8).shl(bit_pos % 8);
+        flip_context.data_changed = flip_context.data;
+        flip_context.data_changed[bit_pos / 8] ^= (0x01 as u8).shl(bit_pos % 8);
         // Add to list
-        self.emu.get_data_mut().fault_data.push(glitch_context);
+        self.emu.get_data_mut().fault_data.push(flip_context);
         // Write generated data to address
         self.emu
-            .mem_write(external_record.address, &glitch_context.data_changed)
+            .mem_write(external_record.address, &flip_context.data_changed)
             .unwrap();
     }
 
@@ -352,6 +375,18 @@ impl<'a> Simulation<'a> {
         } else {
             let end_address =
                 self.file_data.program_header.p_paddr + self.file_data.program_header.p_filesz;
+
+            // let origin = panic::take_hook();
+            // panic::set_hook(Box::new(|_info| {}));
+            // let ret_val = panic::catch_unwind(|| {
+            //     self.emu.emu_start(
+            //         self.emu.get_data().cpu.pc | 1,
+            //         end_address | 1,
+            //         SECOND_SCALE,
+            //         cycles,
+            //     );
+            // });
+            // let _ = panic::take_hook();
 
             // Start from last PC
             ret_val = self.emu.emu_start(
