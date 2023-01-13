@@ -17,12 +17,17 @@ fn main() {
     let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
     let cs: Disassembly = Disassembly::new();
 
-    // Load and parse elf file
+    println!("Check for correct program behavior:");
+    // Check for correct program behavior
     let mut simulation = Simulation::new(&file_data);
-    // Setup simulation
     simulation.setup();
+    simulation.check();
+    drop(simulation);
 
+    println!("\nRun fault simulations:");
     // Get trace data from negative run
+    let mut simulation = Simulation::new(&file_data);
+    simulation.setup();
     let external_records = simulation.get_address_list();
     drop(simulation);
 
