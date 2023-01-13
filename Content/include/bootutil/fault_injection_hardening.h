@@ -65,7 +65,7 @@
 extern "C" {
 #endif /* __cplusplus */
 
-#include "mcuboot_config/mcuboot_config.h"
+#include "../mcuboot_config/mcuboot_config.h"
 #undef FIH_ENABLE_GLOBAL_FAIL
 #undef FIH_ENABLE_CFI
 #undef FIH_ENABLE_DOUBLE_VARS

@@ -1,4 +1,4 @@
-#include "../include/common.h"
+#include "common.h"
 
 int __attribute__((noinline))
 memcmp(const void *str1, const void *str2, size_t count) {
@@ -13,7 +13,7 @@ memcmp(const void *str1, const void *str2, size_t count) {
   return 0;
 }
 
-void __attribute__((noinline))
+void *__attribute__((noinline))
 memcpy(void *dst, const void *src, size_t count) {
   unsigned char *d = (unsigned char *)dst;
   const unsigned char *s = (const unsigned char *)src;
@@ -21,14 +21,16 @@ memcpy(void *dst, const void *src, size_t count) {
   while (count-- > 0) {
     *d++ = *s++;
   }
+  return d;
 }
 
-void __attribute__((noinline)) memset(void *dst, uint8_t val, size_t count) {
+void *__attribute__((noinline)) memset(void *dst, int val, size_t count) {
   unsigned char *d = (unsigned char *)dst;
 
   while (count-- > 0) {
     *d++ = val;
   }
+  return d;
 }
 
 void __attribute__((noinline)) serial_putc(char c) {

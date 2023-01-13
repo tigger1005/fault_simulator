@@ -1,4 +1,4 @@
-#include "./fih_mem.h"
+#include "fih_mem.h"
 #include "bootutil/fault_injection_hardening.h"
 #include <stddef.h>
 #include <stdint.h>
@@ -78,11 +78,11 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length)
     size_t d = (size_t)fih_uint_val(length);
     for (; u < len && d > 0; u++, --d)
     {
-        if (((uint8_t *)fih_uint_val(data1))[u] != ((uint8_t *)fih_uint_val(data2))[u])
+        if (((uint8_t *)(uintptr_t)fih_uint_val(data1))[u] != ((uint8_t *)(uintptr_t)fih_uint_val(data2))[u])
         {
             break;
         }
-        if (((uint8_t *)fih_uint_msk(data1))[d - 1] != ((uint8_t *)fih_uint_msk(data2))[d - 1])
+        if (((uint8_t *)(uintptr_t)fih_uint_msk(data1))[d - 1] != ((uint8_t *)(uintptr_t)fih_uint_msk(data2))[d - 1])
         {
             break;
         }
@@ -106,7 +106,7 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length)
     len = (size_t)fih_uint_msk(length);
     for (u = 0; u < len; u++)
     {
-        if (((uint8_t *)fih_uint_msk(data1))[u] != ((uint8_t *)fih_uint_msk(data2))[u])
+        if (((uint8_t *)(uintptr_t)fih_uint_msk(data1))[u] != ((uint8_t *)(uintptr_t)fih_uint_msk(data2))[u])
         {
             break;
         }
