@@ -12,9 +12,26 @@ use std::thread;
 
 use indicatif::ProgressBar;
 
+use std::process::Command;
+
 fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
-                        // Load elf file
+                        // Compile victim
+    println!("Compile victim if necessary:");
+    let output = Command::new("make")
+        .current_dir("./Content")
+        .output()
+        .expect("failed to execute process");
+    if !output.status.success() {
+        println!("status: {}", output.status);
+        println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+        println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+    } else {
+        println!("Compiled: OK\n")
+    }
+    assert!(output.status.success());
+
+    // Load victim data
     let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
     let cs: Disassembly = Disassembly::new();
 
