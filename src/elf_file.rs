@@ -15,7 +15,7 @@ pub struct ElfFile {
 
 impl ElfFile {
     pub fn new(path: std::path::PathBuf) -> Self {
-        let file_data = std::fs::read(path).expect("Could not read file.").clone();
+        let file_data = std::fs::read(path).expect("Could not read file.");
         let slice = file_data.as_slice();
         let file = ElfBytes::<AnyEndian>::minimal_parse(slice).expect("Open file data failed");
 

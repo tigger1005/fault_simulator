@@ -55,7 +55,7 @@ fn main() {
         cached_nop_simulation_2(&file_data, external_records.clone(), &cs);
     }
     // Run cached bit-flip simulation
-    cached_bit_flip_simulation(&file_data, external_records.clone(), &cs);
+    cached_bit_flip_simulation(&file_data, external_records, &cs);
 }
 
 fn cached_nop_simulation(

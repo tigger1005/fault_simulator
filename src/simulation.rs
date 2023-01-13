@@ -234,12 +234,12 @@ impl<'a> Simulation<'a> {
         self.run_steps(steps, false)
     }
 
-    pub fn print_memory(&self, address: u64, size: usize) {
-        let data = self.emu.mem_read_as_vec(address, size).unwrap();
-        println!("Memory at 0x{:X}", address);
-        data.iter().for_each(|x| print!("0x{:X} ", x));
-        println!("");
-    }
+    // pub fn print_memory(&self, address: u64, size: usize) {
+    //     let data = self.emu.mem_read_as_vec(address, size).unwrap();
+    //     println!("Memory at 0x{:X}", address);
+    //     data.iter().for_each(|x| print!("0x{:X} ", x));
+    //     println!("");
+    // }
 
     fn deactivate_printf_function(&mut self) {
         self.emu
@@ -263,7 +263,7 @@ impl<'a> Simulation<'a> {
         if self.emu.get_data().state == RunState::Success {
             return Some(self.emu.get_data().fault_data.clone());
         }
-        return None;
+        None
     }
 
     pub fn run_with_bit_flip(
@@ -286,11 +286,7 @@ impl<'a> Simulation<'a> {
         if self.emu.get_data().state == RunState::Success {
             return Some(self.emu.get_data().fault_data.clone());
         }
-        return None;
-    }
-
-    pub fn steps(&self) -> usize {
-        self.emu.get_data().cpu.cycles
+        None
     }
 
     /// Set nop at specified address
@@ -340,7 +336,7 @@ impl<'a> Simulation<'a> {
 
         // Generate changed data
         flip_context.data_changed = flip_context.data;
-        flip_context.data_changed[bit_pos / 8] ^= (0x01 as u8).shl(bit_pos % 8);
+        flip_context.data_changed[bit_pos / 8] ^= (0x01_u8).shl(bit_pos % 8);
         // Add to list
         self.emu.get_data_mut().fault_data.push(flip_context);
         // Write generated data to address
@@ -349,15 +345,15 @@ impl<'a> Simulation<'a> {
             .unwrap();
     }
 
-    fn restore(&mut self) {
-        let fault_vec = self.emu.get_data().fault_data.clone();
-        fault_vec.iter().for_each(|fault_data| {
-            self.emu
-                .mem_write(fault_data.address, &fault_data.data)
-                .unwrap()
-        });
-        self.emu.get_data_mut().fault_data.clear();
-    }
+    // fn restore(&mut self) {
+    //     let fault_vec = self.emu.get_data().fault_data.clone();
+    //     fault_vec.iter().for_each(|fault_data| {
+    //         self.emu
+    //             .mem_write(fault_data.address, &fault_data.data)
+    //             .unwrap()
+    //     });
+    //     self.emu.get_data_mut().fault_data.clear();
+    // }
 
     pub fn set_start_address(&mut self, address: u64) {
         self.emu.get_data_mut().cpu.pc = address;
@@ -425,7 +421,7 @@ impl<'a> Simulation<'a> {
     fn load_code(&mut self) {
         self.emu
             .mem_write(
-                self.file_data.program_header.p_paddr as u64,
+                self.file_data.program_header.p_paddr,
                 &self.file_data.program,
             )
             .expect("failed to write file data");
@@ -443,31 +439,20 @@ impl<'a> Simulation<'a> {
             .expect("failed to set register");
     }
 
-    fn print_register_and_data(&self) {
-        println!(
-            "Register R4 : 0x{:X}",
-            self.emu.reg_read(RegisterARM::R4).unwrap()
-        );
-        println!(
-            "Register R7 : 0x{:X}",
-            self.emu.reg_read(RegisterARM::R7).unwrap()
-        );
-        println!(
-            "Register LR : 0x{:X}",
-            self.emu.reg_read(RegisterARM::LR).unwrap()
-        );
-        println!(
-            "Register SP : 0x{:X}",
-            self.emu.reg_read(RegisterARM::SP).unwrap()
-        );
+    // fn print_register_and_data(&self) {
+    //     ARM_REG.iter().for_each(|reg| {
+    //         println!(
+    //             "Register {:?} : 0x{:X}",
+    //             reg,
+    //             self.emu.reg_read(RegisterARM::R4).unwrap()
+    //         )
+    //     });
 
-        let pc = self.emu.reg_read(RegisterARM::PC).unwrap();
-
-        let mut data: [u8; 10] = [0; 10];
-        self.emu.mem_read(pc, &mut data).expect("Read memory");
-        println!("Register PC : 0x{:X}", pc);
-        println!("Code: {:?}", data);
-    }
+    //     let pc = self.emu.reg_read(RegisterARM::PC).unwrap();
+    //     let mut data: [u8; 10] = [0; 10];
+    //     self.emu.mem_read(pc, &mut data).expect("Read memory");
+    //     println!("Code: {:?}", data);
+    // }
 
     /// Setup the system
     ///
@@ -614,7 +599,7 @@ fn mmio_serial_write_callback<D>(
     _size: usize,
     value: u64,
 ) {
-    if emu.get_data().print_output == true {
+    if emu.get_data().print_output {
         print!("{}", value as u8 as char);
     }
 }
@@ -635,7 +620,7 @@ fn hook_code_flash_load_img_callback<D>(
     _address: u64,
     _size: u32,
 ) {
-    if emu.get_data_mut().is_positiv == true {
+    if emu.get_data_mut().is_positiv {
         // Write flash data to boot stage memory
         let boot_stage: [u8; 4] = [0x78, 0x56, 0x34, 0x12];
         emu.mem_write(BOOT_STAGE, &boot_stage)
