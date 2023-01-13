@@ -8,7 +8,6 @@ use disassembly::Disassembly;
 mod simulation;
 use simulation::{ExternalRecord, FaultData, Simulation};
 
-use std::panic;
 use std::thread;
 
 fn main() {
@@ -31,7 +30,7 @@ fn main() {
     if cached_nop_simulation(&file_data, external_records.clone(), &cs) == 0 {
         cached_nop_simulation_2(&file_data, external_records.clone(), &cs);
     }
-    //cached_bit_flip_simulation(&file_data, external_records.clone(), &cs);
+    cached_bit_flip_simulation(&file_data, external_records.clone(), &cs);
 }
 
 fn cached_nop_simulation(
@@ -71,34 +70,34 @@ fn cached_bit_flip_simulation(
     cs: &Disassembly,
 ) -> usize {
     // Test loop over all addresses (steps)
-    //    let mut handles = Vec::new();
+    let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
     for record in external_records {
         for bit_pos in 0..(record.size * 8) {
             let fd = file_data.clone();
-            //            let handle = thread::spawn(move || {
-            let mut simulation = Simulation::new(&fd);
-            // Setup
-            simulation.setup();
-            println!("0x{:X} bit pos {}", record.address, bit_pos);
-            // Run test with specific address
-            if (record.address == 0x800000C6 && bit_pos == 11) {
-                println!("pos")
-            }
-            let result = simulation.run_with_bit_flip(vec![record], bit_pos);
-            drop(simulation);
-            //                result
-            //            });
-            //            handles.push(handle);
+            let handle = thread::spawn(move || {
+                let mut simulation = Simulation::new(&fd);
+                // Setup
+                simulation.setup();
+                //            println!("0x{:X} bit pos {}", record.address, bit_pos);
+                // Run test with specific address
+                // if (record.address == 0x800000C6 && bit_pos == 11) {
+                //     println!("pos")
+                // }
+                let result = simulation.run_with_bit_flip(vec![record], bit_pos);
+                drop(simulation);
+                result
+            });
+            handles.push(handle);
         }
     }
 
     println!("Fault injection: Bit-Flip (Cached)");
     let mut count = 0;
     // wait for each thread to finish
-    // for handle in handles {
-    //     count += print(cs, handle.join().expect("Cannot fault result"));
-    // }
+    for handle in handles {
+        count += print(cs, handle.join().expect("Cannot fault result"));
+    }
     count
 }
 

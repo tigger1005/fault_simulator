@@ -1,6 +1,8 @@
 use log::debug;
 
-use unicorn_engine::unicorn_const::{uc_error, Arch, Mode, Permission, SECOND_SCALE};
+use unicorn_engine::unicorn_const::{
+    uc_error, Arch, HookType, MemType, Mode, Permission, SECOND_SCALE,
+};
 use unicorn_engine::{RegisterARM, Unicorn};
 
 use crate::elf_file::ElfFile;
@@ -15,6 +17,7 @@ const MAX_INSTRUCTIONS: usize = 20000000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
 const BOOT_STAGE: u64 = 0x32000000;
+const AUTH_BASE: u64 = 0xAA01000;
 
 const ARM_REG: [RegisterARM; 16] = [
     RegisterARM::R0,
@@ -500,13 +503,16 @@ impl<'a> Simulation<'a> {
             .expect("failed to map stack page");
 
         // Auth success / failed trigger
+        // self.emu
+        //     .mmio_map_wo(
+        //         0xAA01000,
+        //         0x1000,
+        //         mmio_auth_write_callback::<SimulationData>,
+        //     )
+        //     .expect("failed to map mmio");
         self.emu
-            .mmio_map_wo(
-                0xAA01000,
-                0x1000,
-                mmio_auth_write_callback::<SimulationData>,
-            )
-            .expect("failed to map mmio");
+            .mem_map(AUTH_BASE, 0x1000, Permission::WRITE)
+            .expect("failed to map mmio replacement");
 
         // IO address space
         self.emu
@@ -531,8 +537,14 @@ impl<'a> Simulation<'a> {
             )
             .expect("failed to set flash_load_img code hook");
 
-        // emu.add_mem_hook(HookType::MEM_READ, 0x1000, 0x1002, hook_read_callback)
-        //     .expect("failed to set memory hook");
+        self.emu
+            .add_mem_hook(
+                HookType::MEM_WRITE,
+                AUTH_BASE,
+                AUTH_BASE + 4,
+                mmio_auth_write_callback::<SimulationData>,
+            )
+            .expect("failed to set memory hook");
     }
 }
 
@@ -541,12 +553,36 @@ impl<'a> Simulation<'a> {
 /// This IO call signalize the Successful or Failed boot flow
 ///
 /// { eng.RequestStop(value == 1 ? Result.Completed : Result.Failed); })
+// fn mmio_auth_write_callback<D>(
+//     emu: &mut Unicorn<SimulationData>,
+//     _address: u64,
+//     _size: usize,
+//     value: u64,
+// ) {
+//     match value {
+//         1 => {
+//             emu.get_data_mut().state = RunState::Success;
+//             debug!("Indicator: __SET_SIM_SUCCESS()")
+//         }
+//         2 => {
+//             emu.get_data_mut().state = RunState::Failed;
+//             debug!("Indicator: __SET_SIM_FAILED()")
+//         }
+//         _ => {
+//             emu.get_data_mut().state = RunState::Error;
+//             debug!("Indicator: Wrong_Value")
+//         }
+//     }
+
+//     emu.emu_stop().expect("failed to stop");
+// }
 fn mmio_auth_write_callback<D>(
     emu: &mut Unicorn<SimulationData>,
+    _mem_type: MemType,
     _address: u64,
     _size: usize,
-    value: u64,
-) {
+    value: i64,
+) -> bool {
     match value {
         1 => {
             emu.get_data_mut().state = RunState::Success;
@@ -561,8 +597,8 @@ fn mmio_auth_write_callback<D>(
             debug!("Indicator: Wrong_Value")
         }
     }
-
     emu.emu_stop().expect("failed to stop");
+    true
 }
 
 /// Callback for serial mem IO write access
@@ -609,14 +645,3 @@ fn hook_code_flash_load_img_callback<D>(
     }
     debug!("Call of flash_load_img");
 }
-
-// fn hook_write_callback<A>(
-//     _emu: &mut Unicorn<A>,
-//     _mem_type: MemType,
-//     _address: u64,
-//     _size: usize,
-//     _temp: i64,
-// ) -> bool {
-//     println!("hook_write_callback");
-//     true
-// }
