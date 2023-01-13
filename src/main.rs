@@ -10,6 +10,8 @@ use simulation::{ExternalRecord, FaultData, Simulation};
 
 use std::thread;
 
+use indicatif::ProgressBar;
+
 fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
 
@@ -43,8 +45,10 @@ fn cached_nop_simulation(
     external_records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
+    // Print overview
+    let n = external_records.len();
+    let bar = ProgressBar::new(n as u64);
     println!("Fault injection: NOP (Cached)");
-    println!("Positions in test: {}", external_records.len());
     // Test loop over all addresses (steps)
     let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
@@ -59,8 +63,10 @@ fn cached_nop_simulation(
             drop(simulation);
             result
         });
+        bar.inc(1);
         handles.push(handle);
     }
+    bar.finish();
 
     let mut count = 0;
     // wait for each thread to finish
@@ -75,10 +81,11 @@ fn cached_bit_flip_simulation(
     external_records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
+    // Print overview
     let mut n = 0;
     external_records.iter().for_each(|rec| n += rec.size * 8);
+    let bar = ProgressBar::new(n as u64);
     println!("Fault injection: Bit-Flip (Cached)");
-    println!("Positions in test: {}", n);
     // Test loop over all addresses (steps)
     let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
@@ -98,9 +105,11 @@ fn cached_bit_flip_simulation(
                 drop(simulation);
                 result
             });
+            bar.inc(1);
             handles.push(handle);
         }
     }
+    bar.finish();
 
     let mut count = 0;
     // wait for each thread to finish
@@ -115,10 +124,10 @@ fn cached_nop_simulation_2(
     external_records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
-    let n = external_records.len();
+    // Print overview
+    let n = ((external_records.len() - 1) / 2) * external_records.len();
+    let bar = ProgressBar::new(n as u64);
     println!("Fault injection: 2 consecutive NOP (Cached)");
-    println!("Positions in test: {}", ((n - 1) / 2) * n);
-
     // Test loop over all addresses (steps)
     let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
@@ -139,9 +148,11 @@ fn cached_nop_simulation_2(
                     drop(simulation);
                     result
                 });
+                bar.inc(1);
                 handles.push(handle);
             });
         });
+    bar.finish();
 
     let mut count = 0;
     // wait for each thread to finish
@@ -167,20 +178,3 @@ fn print(cs: &Disassembly, ret_data: Option<Vec<FaultData>>) -> usize {
         _ => 0,
     }
 }
-
-/*
-# Glitch run
-- Loop from Count 0..Steps
-    - Loop (16/32) according to cmd size
-        - Prepare system
-        - Set state to negative run
-        - Run (Count)
-            Check for ASM Cmd - 16/32 Bit
-            Change (xor) bit in cmd
-        - Run (1/2)
-            Change back
-        - Run till Success/Failed state
-            If Success add to found list
-- Repeat till end of loop
-
-*/
