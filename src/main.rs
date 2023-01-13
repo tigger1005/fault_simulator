@@ -43,6 +43,8 @@ fn cached_nop_simulation(
     external_records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
+    println!("Fault injection: NOP (Cached)");
+    println!("Positions in test: {}", external_records.len());
     // Test loop over all addresses (steps)
     let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
@@ -60,7 +62,6 @@ fn cached_nop_simulation(
         handles.push(handle);
     }
 
-    println!("Fault injection: NOP (Cached)");
     let mut count = 0;
     // wait for each thread to finish
     for handle in handles {
@@ -74,6 +75,10 @@ fn cached_bit_flip_simulation(
     external_records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
+    let mut n = 0;
+    external_records.iter().for_each(|rec| n += rec.size * 8);
+    println!("Fault injection: Bit-Flip (Cached)");
+    println!("Positions in test: {}", n);
     // Test loop over all addresses (steps)
     let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
@@ -97,7 +102,6 @@ fn cached_bit_flip_simulation(
         }
     }
 
-    println!("Fault injection: Bit-Flip (Cached)");
     let mut count = 0;
     // wait for each thread to finish
     for handle in handles {
@@ -111,6 +115,10 @@ fn cached_nop_simulation_2(
     external_records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
+    let n = external_records.len();
+    println!("Fault injection: 2 consecutive NOP (Cached)");
+    println!("Positions in test: {}", ((n - 1) / 2) * n);
+
     // Test loop over all addresses (steps)
     let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
@@ -135,7 +143,6 @@ fn cached_nop_simulation_2(
             });
         });
 
-    println!("Fault injection: 2 consecutive NOP (Cached)");
     let mut count = 0;
     // wait for each thread to finish
     for handle in handles {
