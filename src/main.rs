@@ -14,29 +14,26 @@ use indicatif::ProgressBar;
 
 fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
-
-    // Load elf file
+                        // Load elf file
     let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
     let cs: Disassembly = Disassembly::new();
 
     println!("Check for correct program behavior:");
     // Check for correct program behavior
     let mut simulation = Simulation::new(&file_data);
-    simulation.setup();
     simulation.check();
-    drop(simulation);
 
     println!("\nRun fault simulations:");
     // Get trace data from negative run
     let mut simulation = Simulation::new(&file_data);
-    simulation.setup();
     let external_records = simulation.get_address_list();
-    drop(simulation);
 
     // Run cached nop simulation
     if cached_nop_simulation(&file_data, external_records.clone(), &cs) == 0 {
+        // Run cached double nop simulation
         cached_nop_simulation_2(&file_data, external_records.clone(), &cs);
     }
+    // Run cached bit-flip simulation
     cached_bit_flip_simulation(&file_data, external_records.clone(), &cs);
 }
 
@@ -56,8 +53,6 @@ fn cached_nop_simulation(
         let fd = file_data.clone();
         let handle = thread::spawn(move || {
             let mut simulation = Simulation::new(&fd);
-            // Setup
-            simulation.setup();
             // Run test with specific address
             let result = simulation.run_with_nop(vec![record]);
             drop(simulation);
@@ -94,13 +89,7 @@ fn cached_bit_flip_simulation(
             let fd = file_data.clone();
             let handle = thread::spawn(move || {
                 let mut simulation = Simulation::new(&fd);
-                // Setup
-                simulation.setup();
-                //            println!("0x{:X} bit pos {}", record.address, bit_pos);
                 // Run test with specific address
-                // if (record.address == 0x800000C6 && bit_pos == 11) {
-                //     println!("pos")
-                // }
                 let result = simulation.run_with_bit_flip(vec![record], bit_pos);
                 drop(simulation);
                 result
@@ -141,8 +130,6 @@ fn cached_nop_simulation_2(
                 let fd = file_data.clone();
                 let handle = thread::spawn(move || {
                     let mut simulation = Simulation::new(&fd);
-                    // Setup
-                    simulation.setup();
                     // Run test with specific address
                     let result = simulation.run_with_nop(vec![temp_rec_1, temp_rec_2]);
                     drop(simulation);

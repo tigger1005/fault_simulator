@@ -118,9 +118,12 @@ impl<'a> Simulation<'a> {
             simulation_data,
         )
         .expect("failed to initialize Unicorn instance");
-        //let emu = &mut unicorn;
 
-        Self { file_data, emu }
+        // Setup emulator
+        let mut simulation: Simulation = Simulation { file_data, emu };
+        simulation.setup();
+
+        simulation
     }
 
     pub fn setup(&mut self) {
