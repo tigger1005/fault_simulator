@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+//#![allow(dead_code)]
 mod elf_file;
 use elf_file::ElfFile;
 
@@ -12,11 +12,15 @@ use std::thread;
 
 use indicatif::ProgressBar;
 
+use git_version::git_version;
 use std::process::Command;
+const GIT_VERSION: &str = git_version!();
 
 fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
-                        // Compile victim
+
+    println!("- Fault injection simulator: {GIT_VERSION}\n");
+    // Compile victim
     println!("Compile victim if necessary:");
     let output = Command::new("make")
         .current_dir("./Content")
