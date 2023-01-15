@@ -27,7 +27,7 @@ bin/aarch32/obj/%.o: src/%.c $(DEPS)
 
 bin/aarch32/bl1.elf: $(OBJ) src/aarch32/bl1.lds
 	$(CC) -o $@ -Tsrc/aarch32/bl1.lds $(CFLAGS_LD) $(OBJ) -lgcc
-	arm-none-eabi-objdump -d $@ > bin/aarch32/bl1.lst
+	$(OBJDUMP) -S -d $@ > bin/aarch32/bl1.lst
 
 bin/aarch32/bl1.bin: bin/aarch32/bl1.elf
 	$(OBJCOPY) -O binary $< $@
