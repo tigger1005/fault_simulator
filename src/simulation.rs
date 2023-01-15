@@ -13,7 +13,7 @@ use std::ops::Shl;
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
 const T1_NOP: [u8; 2] = [0x00, 0xBF];
 
-const MAX_INSTRUCTIONS: usize = 20000000;
+const MAX_INSTRUCTIONS: usize = 2000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
 const BOOT_STAGE: u64 = 0x32000000;
@@ -151,33 +151,47 @@ impl<'a> Simulation<'a> {
         self.init_states(run_successful);
     }
 
-    fn get_cmd_record(&mut self, address: u64) -> (u64, AddressRecord) {
+    fn get_cmd_address_record(&mut self, address: u64) -> Option<(u64, AddressRecord)> {
         let mut data: [u8; 2] = [0; 2];
 
         self.set_start_address(address);
 
-        self.emu
+        if self
+            .emu
             .mem_read(self.emu.get_data().cpu.pc, &mut data)
-            .unwrap();
-
-        let mut size = 2;
-        // Check for 32bit cmd (0b11101... 0b1111....)
-        if (data[1] & 0xF8 == 0xE8) || (data[1] & 0xF0 == 0xF0) {
-            size = 4;
+            .is_ok()
+        {
+            let mut size = 2;
+            // Check for 32bit cmd (0b11101... 0b1111....)
+            if (data[1] & 0xF8 == 0xE8) || (data[1] & 0xF0 == 0xF0) {
+                size = 4;
+            }
+            return Some((address, AddressRecord { size, count: 1 }));
         }
-        (address, AddressRecord { size, count: 1 })
+        None
     }
 
-    pub fn get_address_list(&mut self) -> Vec<ExternalRecord> {
+    pub fn get_address_list(
+        &mut self,
+        external_record: Vec<ExternalRecord>,
+    ) -> Vec<ExternalRecord> {
         //
         let mut address_list = HashMap::new();
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
+        self.emu.get_data_mut().print_output = false;
         self.deactivate_printf_function();
 
-        let (adr, rec) = self.get_cmd_record(self.file_data.program_header.p_paddr);
+        let (adr, rec) = self
+            .get_cmd_address_record(self.file_data.program_header.p_paddr)
+            .unwrap();
         address_list.insert(adr, rec);
+
+        // Insert nop
+        external_record
+            .iter()
+            .for_each(|record| self.set_nop(*record));
 
         let mut cycles: usize = 0;
 
@@ -185,15 +199,23 @@ impl<'a> Simulation<'a> {
         while ret_val == Ok(()) {
             //println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
             ret_val = self.run_steps(1, false);
-            if ret_val == Ok(()) {
-                cycles += 1;
+            if ret_val != Ok(()) {
+                break;
             }
+            cycles += 1;
+            if cycles > MAX_INSTRUCTIONS {
+                break;
+            }
+
             // debug!("PC : 0x{:X}", pc);
-            let (adr, rec) = self.get_cmd_record(self.emu.get_data().cpu.pc);
-            address_list
-                .entry(adr)
-                .and_modify(|record| record.count += 1)
-                .or_insert(rec);
+            if let Some((adr, rec)) = self.get_cmd_address_record(self.emu.get_data().cpu.pc) {
+                address_list
+                    .entry(adr)
+                    .and_modify(|record| record.count += 1)
+                    .or_insert(rec);
+            } else {
+                break;
+            }
 
             if self.emu.get_data().state == RunState::Failed {
                 // debug!("Stoped on Failed marker");
@@ -261,9 +283,13 @@ impl<'a> Simulation<'a> {
         // Run
         let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
         if self.emu.get_data().state == RunState::Success {
-            return Some(self.emu.get_data().fault_data.clone());
+            return Some(self.get_fault_data());
         }
         None
+    }
+
+    pub fn get_fault_data(&self) -> Vec<FaultData> {
+        self.emu.get_data().fault_data.clone()
     }
 
     pub fn run_with_bit_flip(
@@ -471,16 +497,22 @@ impl<'a> Simulation<'a> {
     /// { 0xAA01000, new HwPeripheral((eng, address, size, value) }
     ///
     fn setup_mmio(&mut self) {
+        const MINIMUM_MEMORY_SIZE: usize = 0x1000;
         // Next boot stage mem
         self.emu
-            .mem_map(0x32000000, 0x1000, Permission::READ | Permission::WRITE)
+            .mem_map(
+                0x32000000,
+                MINIMUM_MEMORY_SIZE,
+                Permission::READ | Permission::WRITE,
+            )
             .expect("failed to map boot stage page");
 
         // Code
+        let code_size = (self.file_data.program.len() + MINIMUM_MEMORY_SIZE) & 0xfffff000;
         self.emu
             .mem_map(
                 self.file_data.program_header.p_paddr,
-                0x20000,
+                code_size,
                 Permission::ALL,
             )
             .expect("failed to map code page");
@@ -499,14 +531,14 @@ impl<'a> Simulation<'a> {
         //     )
         //     .expect("failed to map mmio");
         self.emu
-            .mem_map(AUTH_BASE, 0x1000, Permission::WRITE)
+            .mem_map(AUTH_BASE, MINIMUM_MEMORY_SIZE, Permission::WRITE)
             .expect("failed to map mmio replacement");
 
         // IO address space
         self.emu
             .mmio_map_wo(
                 0x11000000,
-                0x1000,
+                MINIMUM_MEMORY_SIZE,
                 mmio_serial_write_callback::<SimulationData>,
             )
             .expect("failed to map serial IO");

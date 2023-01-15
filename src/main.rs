@@ -10,7 +10,7 @@ use simulation::{ExternalRecord, FaultData, Simulation};
 
 use std::thread;
 
-use indicatif::ProgressBar;
+use indicatif::{MultiProgress, ProgressBar};
 
 use git_version::git_version;
 use std::process::Command;
@@ -47,7 +47,7 @@ fn main() {
     println!("\nRun fault simulations:");
     // Get trace data from negative run
     let mut simulation = Simulation::new(&file_data);
-    let external_records = simulation.get_address_list();
+    let external_records = simulation.get_address_list(vec![]);
 
     // Run cached nop simulation
     if cached_nop_simulation(&file_data, external_records.clone(), &cs) == 0 {
@@ -72,17 +72,17 @@ fn cached_nop_simulation(
     // Start all threads (all will execute with a single address)
     for record in external_records {
         let fd = file_data.clone();
-        let handle = thread::spawn(move || {
+        handles.push(thread::spawn(move || {
             let mut simulation = Simulation::new(&fd);
             // Run test with specific address
             let result = simulation.run_with_nop(vec![record]);
             drop(simulation);
             result
-        });
+        }));
         bar.inc(1);
-        handles.push(handle);
     }
-    bar.finish();
+    bar.finish_and_clear();
+    println!("-> {} attacks executed", n);
 
     let mut count = 0;
     // wait for each thread to finish
@@ -99,74 +99,86 @@ fn cached_bit_flip_simulation(
 ) -> usize {
     // Print overview
     let mut n = 0;
+    let mut count = 0;
     external_records.iter().for_each(|rec| n += rec.size * 8);
     let bar = ProgressBar::new(n as u64);
     println!("Fault injection: Bit-Flip (Cached)");
-    // Test loop over all addresses (steps)
-    let mut handles = Vec::new();
     // Start all threads (all will execute with a single address)
     for record in external_records {
+        let mut handles = Vec::new();
         for bit_pos in 0..(record.size * 8) {
             let fd = file_data.clone();
-            let handle = thread::spawn(move || {
+            handles.push(thread::spawn(move || {
                 let mut simulation = Simulation::new(&fd);
                 // Run test with specific address
                 let result = simulation.run_with_bit_flip(vec![record], bit_pos);
                 drop(simulation);
                 result
-            });
+            }));
             bar.inc(1);
-            handles.push(handle);
+        }
+        // wait for each thread to finish
+        for handle in handles {
+            count += print(cs, handle.join().expect("Cannot fault result"));
         }
     }
-    bar.finish();
+    bar.finish_and_clear();
+    println!("-> {} attacks executed", n);
 
-    let mut count = 0;
-    // wait for each thread to finish
-    for handle in handles {
-        count += print(cs, handle.join().expect("Cannot fault result"));
-    }
     count
 }
 
 fn cached_nop_simulation_2(
     file_data: &ElfFile,
-    external_records: Vec<ExternalRecord>,
+    records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
     // Print overview
-    let n = ((external_records.len() - 1) / 2) * external_records.len();
-    let bar = ProgressBar::new(n as u64);
-    println!("Fault injection: 2 consecutive NOP (Cached)");
-    // Test loop over all addresses (steps)
-    let mut handles = Vec::new();
-    // Start all threads (all will execute with a single address)
-    external_records
-        .iter()
-        .enumerate()
-        .for_each(|(i, record_1)| {
-            external_records[(i + 1)..].iter().for_each(|record_2| {
-                let temp_rec_1 = *record_1;
-                let temp_rec_2 = *record_2;
-                let fd = file_data.clone();
-                let handle = thread::spawn(move || {
-                    let mut simulation = Simulation::new(&fd);
-                    // Run test with specific address
-                    let result = simulation.run_with_nop(vec![temp_rec_1, temp_rec_2]);
-                    drop(simulation);
-                    result
-                });
-                bar.inc(1);
-                handles.push(handle);
-            });
-        });
-    bar.finish();
-
     let mut count = 0;
-    // wait for each thread to finish
-    for handle in handles {
-        count += print(cs, handle.join().expect("Cannot fault result"));
-    }
+    let mut n = 0;
+    println!("Fault injection: 2 consecutive NOP (Cached)");
+    let bar = ProgressBar::new(records.len() as u64);
+    let progress = MultiProgress::new();
+    progress.add(bar.clone());
+    // Loop over all addresses from first round
+    records.iter().for_each(|record| {
+        // Get intermediate trace data from negative run with inserted nop -> new program flow
+        let mut simulation = Simulation::new(&file_data);
+        let intermediate_records = simulation.get_address_list(vec![*record]);
+        drop(simulation);
+        let intermediate_bar = ProgressBar::new(intermediate_records.len() as u64);
+        progress.add(intermediate_bar.clone());
+        // Run full test with intemediate trace data
+        let mut handles = Vec::new();
+        intermediate_records.iter().for_each(|intermediate_record| {
+            let temp_record = *record;
+            let temp_intermediate_record = *intermediate_record;
+            let fd = file_data.clone();
+            handles.push(thread::spawn(move || {
+                let mut intermediate_simulation = Simulation::new(&fd);
+                // Run test with specific intermediate record
+                let result = intermediate_simulation
+                    .run_with_nop(vec![temp_record, temp_intermediate_record]);
+                drop(intermediate_simulation);
+                result
+            }));
+            intermediate_bar.inc(1);
+            n += 1;
+        });
+        intermediate_bar.finish();
+        progress.remove(&intermediate_bar);
+        bar.inc(1);
+        // wait for each intermediate thread to finish
+        for handle in handles {
+            let result = handle.join().expect("Cannot fault result");
+            if result.is_some() {
+                bar.suspend(|| count += print(cs, result));
+            }
+        }
+    });
+    bar.finish_and_clear();
+    println!("-> {} attacks executed", n);
+
     count
 }
 
@@ -181,6 +193,7 @@ fn print(cs: &Disassembly, ret_data: Option<Vec<FaultData>>) -> usize {
                     cs.bin2asm(&fault_data.data_changed, fault_data.address)
                 );
             });
+            println!("");
             1
         }
         _ => 0,
