@@ -8,12 +8,14 @@ use disassembly::Disassembly;
 mod simulation;
 use simulation::{ExternalRecord, FaultData, Simulation};
 
-use std::thread;
+use indicatif::ProgressBar;
 
-use indicatif::{MultiProgress, ProgressBar};
+use rayon::prelude::*;
+use std::sync::mpsc::channel;
+
+use std::process::Command;
 
 use git_version::git_version;
-use std::process::Command;
 const GIT_VERSION: &str = git_version!();
 
 fn main() {
@@ -60,71 +62,63 @@ fn main() {
 
 fn cached_nop_simulation(
     file_data: &ElfFile,
-    external_records: Vec<ExternalRecord>,
+    records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
     // Print overview
-    let n = external_records.len();
+    let n = records.len();
     let bar = ProgressBar::new(n as u64);
     println!("Fault injection: NOP (Cached)");
-    // Test loop over all addresses (steps)
-    let mut handles = Vec::new();
+    // Setup sender and receiver
+    let (sender, receiver) = channel();
     // Start all threads (all will execute with a single address)
-    for record in external_records {
-        let fd = file_data.clone();
-        handles.push(thread::spawn(move || {
-            let mut simulation = Simulation::new(&fd);
-            // Run test with specific address
-            let result = simulation.run_with_nop(vec![record]);
-            drop(simulation);
-            result
-        }));
+    records.into_par_iter().for_each_with(sender, |s, record| {
+        let mut simulation = Simulation::new(&file_data);
+        if let Some(fault_data_vec) = simulation.run_with_nop(vec![record]) {
+            s.send(fault_data_vec[0]).unwrap();
+        }
+        drop(simulation);
         bar.inc(1);
-    }
+    });
+
     bar.finish_and_clear();
     println!("-> {} attacks executed", n);
 
-    let mut count = 0;
-    // wait for each thread to finish
-    for handle in handles {
-        count += print(cs, handle.join().expect("Cannot fault result"));
-    }
+    let res: Vec<_> = receiver.iter().collect();
+    let count = res.len();
+    print(cs, Some(res));
     count
 }
 
 fn cached_bit_flip_simulation(
     file_data: &ElfFile,
-    external_records: Vec<ExternalRecord>,
+    records: Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
     // Print overview
     let mut n = 0;
-    let mut count = 0;
-    external_records.iter().for_each(|rec| n += rec.size * 8);
+    records.iter().for_each(|rec| n += rec.size * 8);
     let bar = ProgressBar::new(n as u64);
     println!("Fault injection: Bit-Flip (Cached)");
+    // Setup sender and receiver
+    let (sender, receiver) = channel();
     // Start all threads (all will execute with a single address)
-    for record in external_records {
-        let mut handles = Vec::new();
+    records.into_par_iter().for_each_with(sender, |s, record| {
         for bit_pos in 0..(record.size * 8) {
-            let fd = file_data.clone();
-            handles.push(thread::spawn(move || {
-                let mut simulation = Simulation::new(&fd);
-                // Run test with specific address
-                let result = simulation.run_with_bit_flip(vec![record], bit_pos);
-                drop(simulation);
-                result
-            }));
-            bar.inc(1);
+            let mut simulation = Simulation::new(&file_data);
+            if let Some(fault_data_vec) = simulation.run_with_bit_flip(vec![record], bit_pos) {
+                s.send(fault_data_vec[0]).unwrap();
+            }
+            drop(simulation);
         }
-        // wait for each thread to finish
-        for handle in handles {
-            count += print(cs, handle.join().expect("Cannot fault result"));
-        }
-    }
+        bar.inc(1);
+    });
     bar.finish_and_clear();
     println!("-> {} attacks executed", n);
 
+    let res: Vec<_> = receiver.iter().collect();
+    let count = res.len();
+    print(cs, Some(res));
     count
 }
 
@@ -138,47 +132,38 @@ fn cached_nop_simulation_2(
     let mut n = 0;
     println!("Fault injection: 2 consecutive NOP (Cached)");
     let bar = ProgressBar::new(records.len() as u64);
-    let progress = MultiProgress::new();
-    progress.add(bar.clone());
     // Loop over all addresses from first round
     records.iter().for_each(|record| {
         // Get intermediate trace data from negative run with inserted nop -> new program flow
         let mut simulation = Simulation::new(&file_data);
         let intermediate_records = simulation.get_address_list(vec![*record]);
         drop(simulation);
-        let intermediate_bar = ProgressBar::new(intermediate_records.len() as u64);
-        progress.add(intermediate_bar.clone());
+        // Setup sender and receiver
+        let (sender, receiver) = channel();
+        n += intermediate_records.len();
         // Run full test with intemediate trace data
-        let mut handles = Vec::new();
-        intermediate_records.iter().for_each(|intermediate_record| {
-            let temp_record = *record;
-            let temp_intermediate_record = *intermediate_record;
-            let fd = file_data.clone();
-            handles.push(thread::spawn(move || {
-                let mut intermediate_simulation = Simulation::new(&fd);
+        intermediate_records
+            .into_par_iter()
+            .for_each_with(sender, |s, intermediate_record| {
+                let mut intermediate_simulation = Simulation::new(&file_data);
                 // Run test with specific intermediate record
-                let result = intermediate_simulation
-                    .run_with_nop(vec![temp_record, temp_intermediate_record]);
+                if let Some(fault_data_vec) =
+                    intermediate_simulation.run_with_nop(vec![*record, intermediate_record])
+                {
+                    fault_data_vec
+                        .iter()
+                        .for_each(|fault_data| s.send(*fault_data).unwrap());
+                };
                 drop(intermediate_simulation);
-                result
-            }));
-            intermediate_bar.inc(1);
-            n += 1;
-        });
-        intermediate_bar.finish();
-        progress.remove(&intermediate_bar);
-        bar.inc(1);
-        // wait for each intermediate thread to finish
-        for handle in handles {
-            let result = handle.join().expect("Cannot fault result");
-            if result.is_some() {
-                bar.suspend(|| count += print(cs, result));
-            }
-        }
-    });
-    bar.finish_and_clear();
-    println!("-> {} attacks executed", n);
+            });
 
+        let res: Vec<_> = receiver.iter().collect();
+        count += res.len();
+        print(cs, Some(res));
+        bar.inc(1);
+    });
+    bar.finish();
+    println!("-> {} attacks executed", n);
     count
 }
 
