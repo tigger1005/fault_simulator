@@ -86,7 +86,7 @@ fn cached_nop_simulation(
 
     let res: Vec<_> = receiver.iter().collect();
     let count = res.len();
-    print(cs, Some(res));
+    print(cs, res, 1);
     count
 }
 
@@ -110,15 +110,15 @@ fn cached_bit_flip_simulation(
                 s.send(fault_data_vec[0]).unwrap();
             }
             drop(simulation);
+            bar.inc(1);
         }
-        bar.inc(1);
     });
     bar.finish_and_clear();
     println!("-> {} attacks executed", n);
 
     let res: Vec<_> = receiver.iter().collect();
     let count = res.len();
-    print(cs, Some(res));
+    print(cs, res, 1);
     count
 }
 
@@ -159,28 +159,27 @@ fn cached_nop_simulation_2(
 
         let res: Vec<_> = receiver.iter().collect();
         count += res.len();
-        print(cs, Some(res));
+        bar.suspend(|| print(cs, res, 2));
         bar.inc(1);
     });
-    bar.finish();
+    bar.finish_and_clear();
     println!("-> {} attacks executed", n);
     count
 }
 
-fn print(cs: &Disassembly, ret_data: Option<Vec<FaultData>>) -> usize {
-    match ret_data {
-        Some(data) => {
-            data.iter().for_each(|fault_data| {
-                println!(
-                    "0x{:X}:  {} -> {}",
-                    fault_data.address,
-                    cs.bin2asm(&fault_data.data, fault_data.address),
-                    cs.bin2asm(&fault_data.data_changed, fault_data.address)
-                );
-            });
-            println!("");
-            1
-        }
-        _ => 0,
-    }
+fn print(cs: &Disassembly, fault_data_vec: Vec<FaultData>, entries_per_fault: usize) {
+    fault_data_vec
+        .iter()
+        .enumerate()
+        .for_each(|(i, fault_data)| {
+            println!(
+                "0x{:X}:  {} -> {}",
+                fault_data.address,
+                cs.bin2asm(&fault_data.data, fault_data.address),
+                cs.bin2asm(&fault_data.data_changed, fault_data.address)
+            );
+            if i % entries_per_fault == 1 {
+                println!();
+            }
+        });
 }
