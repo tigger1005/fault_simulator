@@ -13,6 +13,7 @@ use simulation::{
 use indicatif::ProgressBar;
 
 use rayon::prelude::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 
 use std::process::Command;
@@ -135,24 +136,23 @@ fn cached_nop_simulation_2(
 ) -> usize {
     // Print overview
     let mut count = 0;
-    let mut n = 0;
+    let n = AtomicUsize::new(0);
     println!("Fault injection: 2 consecutive NOP (Cached)");
     let bar = ProgressBar::new(records.len() as u64);
-    // Loop over all addresses from first round
-    records.iter().for_each(|record| {
+    // Setup sender and receiver
+    let (sender, receiver) = channel(); // Loop over all addresses from first round
+    records.into_par_iter().for_each_with(sender, |s, record| {
         let mut temp_record = *record;
         temp_record.set_fault_type(NopCached);
         // Get intermediate trace data from negative run with inserted nop -> new program flow
         let mut simulation = Simulation::new(&file_data);
         let intermediate_records = simulation.get_address_list(vec![temp_record]);
         drop(simulation);
-        // Setup sender and receiver
-        let (sender, receiver) = channel();
-        n += intermediate_records.len();
+        n.fetch_add(intermediate_records.len(), Ordering::Relaxed);
         // Run full test with intemediate trace data
         intermediate_records
-            .into_par_iter()
-            .for_each_with(sender, |s, mut intermediate_record| {
+            .into_iter()
+            .for_each(|mut intermediate_record| {
                 intermediate_record.set_fault_type(NopCached);
                 let mut intermediate_simulation = Simulation::new(&file_data);
                 if let Some(fault_data_vec) =
@@ -165,13 +165,14 @@ fn cached_nop_simulation_2(
                 drop(intermediate_simulation);
             });
 
-        let res: Vec<_> = receiver.iter().collect();
-        count += res.len();
-        bar.suspend(|| print(cs, res, 2));
         bar.inc(1);
     });
+    let res: Vec<_> = receiver.iter().collect();
+    count += res.len();
     bar.finish_and_clear();
-    println!("-> {} attacks executed", n);
+    print(cs, res, 2);
+
+    println!("-> {} attacks executed", n.load(Ordering::Relaxed));
     count
 }
 
