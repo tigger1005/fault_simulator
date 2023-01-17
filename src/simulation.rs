@@ -268,13 +268,6 @@ impl<'a> Simulation<'a> {
         self.run_steps(steps, false)
     }
 
-    // pub fn print_memory(&self, address: u64, size: usize) {
-    //     let data = self.emu.mem_read_as_vec(address, size).unwrap();
-    //     println!("Memory at 0x{:X}", address);
-    //     data.iter().for_each(|x| print!("0x{:X} ", x));
-    //     println!("");
-    // }
-
     fn deactivate_printf_function(&mut self) {
         self.emu
             .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
@@ -373,18 +366,6 @@ impl<'a> Simulation<'a> {
             let end_address =
                 self.file_data.program_header.p_paddr + self.file_data.program_header.p_filesz;
 
-            // let origin = panic::take_hook();
-            // panic::set_hook(Box::new(|_info| {}));
-            // let ret_val = panic::catch_unwind(|| {
-            //     self.emu.emu_start(
-            //         self.emu.get_data().cpu.pc | 1,
-            //         end_address | 1,
-            //         SECOND_SCALE,
-            //         cycles,
-            //     );
-            // });
-            // let _ = panic::take_hook();
-
             // Start from last PC
             ret_val = self.emu.emu_start(
                 self.emu.get_data().cpu.pc | 1,
@@ -434,37 +415,7 @@ impl<'a> Simulation<'a> {
             .expect("failed to set register");
     }
 
-    // fn print_register_and_data(&self) {
-    //     ARM_REG.iter().for_each(|reg| {
-    //         println!(
-    //             "Register {:?} : 0x{:X}",
-    //             reg,
-    //             self.emu.reg_read(RegisterARM::R4).unwrap()
-    //         )
-    //     });
-
-    //     let pc = self.emu.reg_read(RegisterARM::PC).unwrap();
-    //     let mut data: [u8; 10] = [0; 10];
-    //     self.emu.mem_read(pc, &mut data).expect("Read memory");
-    //     println!("Code: {:?}", data);
-    // }
-
     /// Setup the system
-    ///
-    /// This include memory and mem IO ranges according with their specific read and write rights.
-    ///
-    /// Next boot stage mem
-    /// { 0x32000000, new MemoryRegion { Size = 0x1000, Permission = MemoryPermission.RW }  }
-    ///
-    /// Code
-    /// { 0x80000000, new MemoryRegion { Data = flashBin, Size = 0x20000, Permission = MemoryPermission.RWX } }
-    ///
-    /// Stack
-    /// { 0x80100000, new MemoryRegion { Size = 0x10000, Permission = MemoryPermission.RW } }
-    ///
-    /// Auth success / failed trigger
-    /// { 0xAA01000, new HwPeripheral((eng, address, size, value) }
-    ///
     fn setup_mmio(&mut self) {
         const MINIMUM_MEMORY_SIZE: usize = 0x1000;
         // Next boot stage mem
@@ -540,31 +491,6 @@ impl<'a> Simulation<'a> {
 /// Callback for auth mem IO write access
 ///
 /// This IO call signalize the Successful or Failed boot flow
-///
-/// { eng.RequestStop(value == 1 ? Result.Completed : Result.Failed); })
-// fn mmio_auth_write_callback<D>(
-//     emu: &mut Unicorn<SimulationData>,
-//     _address: u64,
-//     _size: usize,
-//     value: u64,
-// ) {
-//     match value {
-//         1 => {
-//             emu.get_data_mut().state = RunState::Success;
-//             debug!("Indicator: __SET_SIM_SUCCESS()")
-//         }
-//         2 => {
-//             emu.get_data_mut().state = RunState::Failed;
-//             debug!("Indicator: __SET_SIM_FAILED()")
-//         }
-//         _ => {
-//             emu.get_data_mut().state = RunState::Error;
-//             debug!("Indicator: Wrong_Value")
-//         }
-//     }
-
-//     emu.emu_stop().expect("failed to stop");
-// }
 fn mmio_auth_write_callback<D>(
     emu: &mut Unicorn<SimulationData>,
     _mem_type: MemType,
@@ -593,7 +519,6 @@ fn mmio_auth_write_callback<D>(
 /// Callback for serial mem IO write access
 ///
 /// This IO write displays printed messages
-///
 fn mmio_serial_write_callback<D>(
     emu: &mut Unicorn<SimulationData>,
     _address: u64,
@@ -606,16 +531,6 @@ fn mmio_serial_write_callback<D>(
 }
 
 /// Hook for flash_load_img callback handling.
-///
-/// eng => {
-///     var useAltData = ((MyConfig) eng.Config).UseAltData;        
-///         if (useAltData) {
-///             eng.Write(0x32000000, Encoding.ASCII.GetBytes("!! Pwned boot !!"));
-///         }
-///         else {
-///             eng.Write(0x32000000, Encoding.ASCII.GetBytes("Test Payload!!!!"));
-///         }
-///     } },
 fn hook_code_flash_load_img_callback<D>(
     emu: &mut Unicorn<SimulationData>,
     _address: u64,
