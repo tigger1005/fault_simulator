@@ -12,7 +12,9 @@ use simulation::{
 
 use indicatif::ProgressBar;
 
+// Set number of threads: RAYON_NUM_THREADS="1" cargo run
 use rayon::prelude::*;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 
@@ -23,8 +25,7 @@ const GIT_VERSION: &str = git_version!();
 
 fn main() {
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
-
-    println!("- Fault injection simulator: {GIT_VERSION}\n");
+    println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
     // Compile victim
     println!("Compile victim if necessary:");
     let output = Command::new("make")
