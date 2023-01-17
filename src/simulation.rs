@@ -210,19 +210,17 @@ impl<'a> Simulation<'a> {
 
         let mut cycles: usize = 0;
 
-        let mut ret_val = Ok(());
-        while ret_val == Ok(()) {
-            //println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
-            ret_val = self.run_steps(1, false);
-            if ret_val != Ok(()) {
+        loop {
+            // Do one step in code
+            if self.run_steps(1, false) != Ok(()) {
                 break;
             }
+            // Handle cycles (cpu command steps)
             cycles += 1;
             if cycles > MAX_INSTRUCTIONS {
                 break;
             }
-
-            // debug!("PC : 0x{:X}", pc);
+            // Write next execution address to hash map
             if let Some((adr, rec)) = self.get_cmd_address_record(self.emu.get_data().cpu.pc) {
                 address_list
                     .entry(adr)
@@ -231,23 +229,14 @@ impl<'a> Simulation<'a> {
             } else {
                 break;
             }
-
+            // If failed marker is written -> stop recording
             if self.emu.get_data().state == RunState::Failed {
-                // debug!("Stoped on Failed marker");
                 break;
             }
         }
-        debug!("Return : {:?}", ret_val);
-
+        // Store recorded number of cycles to data structure
         self.emu.get_data_mut().cpu.cycles = cycles;
-        debug!("Cycles : {}", self.emu.get_data().cpu.cycles);
-        address_list.iter().for_each(|rec| {
-            debug!(
-                "Address: 0x{:X} count {}, size {}",
-                rec.0, rec.1.count, rec.1.size
-            )
-        });
-
+        // Convert hash map to vector array
         ExternalRecord::new(address_list)
     }
 

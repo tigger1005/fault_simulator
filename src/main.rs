@@ -79,7 +79,7 @@ fn cached_nop_simulation(
     records.into_par_iter().for_each_with(sender, |s, record| {
         let mut temp_record = *record;
         temp_record.set_fault_type(NopCached);
-        let mut simulation = Simulation::new(&file_data);
+        let mut simulation = Simulation::new(file_data);
         if let Some(fault_data_vec) = simulation.run_with_faults(vec![temp_record]) {
             s.send(fault_data_vec[0]).unwrap();
         }
@@ -88,7 +88,7 @@ fn cached_nop_simulation(
     });
 
     bar.finish_and_clear();
-    println!("-> {} attacks executed", n);
+    println!("-> {n} attacks executed");
 
     let res: Vec<_> = receiver.iter().collect();
     let count = res.len();
@@ -113,7 +113,7 @@ fn cached_bit_flip_simulation(
         for bit_pos in 0..(record.size * 8) {
             let mut temp_record = *record;
             temp_record.set_fault_type(BitFlipCached(bit_pos));
-            let mut simulation = Simulation::new(&file_data);
+            let mut simulation = Simulation::new(file_data);
             if let Some(fault_data_vec) = simulation.run_with_faults(vec![temp_record]) {
                 s.send(fault_data_vec[0]).unwrap();
             }
@@ -122,7 +122,7 @@ fn cached_bit_flip_simulation(
         }
     });
     bar.finish_and_clear();
-    println!("-> {} attacks executed", n);
+    println!("-> {n} attacks executed");
 
     let res: Vec<_> = receiver.iter().collect();
     let count = res.len();
@@ -146,7 +146,7 @@ fn cached_nop_simulation_2(
         let mut temp_record = *record;
         temp_record.set_fault_type(NopCached);
         // Get intermediate trace data from negative run with inserted nop -> new program flow
-        let mut simulation = Simulation::new(&file_data);
+        let mut simulation = Simulation::new(file_data);
         let intermediate_records = simulation.get_address_list(vec![temp_record]);
         drop(simulation);
         n.fetch_add(intermediate_records.len(), Ordering::Relaxed);
@@ -155,7 +155,7 @@ fn cached_nop_simulation_2(
             .into_iter()
             .for_each(|mut intermediate_record| {
                 intermediate_record.set_fault_type(NopCached);
-                let mut intermediate_simulation = Simulation::new(&file_data);
+                let mut intermediate_simulation = Simulation::new(file_data);
                 if let Some(fault_data_vec) =
                     intermediate_simulation.run_with_faults(vec![temp_record, intermediate_record])
                 {
