@@ -156,7 +156,7 @@ fn cached_nop_simulation_2(
                 intermediate_record.set_fault_type(NopCached);
                 let mut intermediate_simulation = Simulation::new(&file_data);
                 if let Some(fault_data_vec) =
-                    intermediate_simulation.run_with_faults(vec![*record, intermediate_record])
+                    intermediate_simulation.run_with_faults(vec![temp_record, intermediate_record])
                 {
                     fault_data_vec
                         .iter()
