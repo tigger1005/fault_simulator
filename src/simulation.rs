@@ -59,6 +59,13 @@ pub struct FaultData {
     pub size: usize,
 }
 
+#[derive(Clone, Copy)]
+pub enum FaultType {
+    Uninitialized,
+    NopCached,
+    BitFlipCached(usize),
+}
+
 #[derive(Copy, Clone)]
 pub struct AddressRecord {
     size: usize,
@@ -70,6 +77,7 @@ pub struct ExternalRecord {
     pub address: u64,
     pub size: usize,
     pub count: usize,
+    pub fault_type: FaultType,
 }
 
 impl ExternalRecord {
@@ -80,10 +88,14 @@ impl ExternalRecord {
                 address: *record.0,
                 size: record.1.size,
                 count: record.1.count,
+                fault_type: FaultType::Uninitialized,
             });
         });
 
         list
+    }
+    pub fn set_fault_type(&mut self, fault_type: FaultType) {
+        self.fault_type = fault_type;
     }
 }
 
@@ -191,7 +203,7 @@ impl<'a> Simulation<'a> {
         // Insert nop
         external_record
             .iter()
-            .for_each(|record| self.set_nop(*record));
+            .for_each(|record| self.set_fault(*record));
 
         let mut cycles: usize = 0;
 
@@ -269,7 +281,10 @@ impl<'a> Simulation<'a> {
             .unwrap();
     }
 
-    pub fn run_with_nop(&mut self, external_record: Vec<ExternalRecord>) -> Option<Vec<FaultData>> {
+    pub fn run_with_faults(
+        &mut self,
+        external_record: Vec<ExternalRecord>,
+    ) -> Option<Vec<FaultData>> {
         self.init_and_load(false);
         // Deactivate io print
         self.emu.get_data_mut().print_output = false;
@@ -279,7 +294,7 @@ impl<'a> Simulation<'a> {
         // Set nop
         external_record
             .iter()
-            .for_each(|record| self.set_nop(*record));
+            .for_each(|record| self.set_fault(*record));
         // Run
         let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
         if self.emu.get_data().state == RunState::Success {
@@ -292,94 +307,48 @@ impl<'a> Simulation<'a> {
         self.emu.get_data().fault_data.clone()
     }
 
-    pub fn run_with_bit_flip(
-        &mut self,
-        external_record: Vec<ExternalRecord>,
-        bit_pos: usize,
-    ) -> Option<Vec<FaultData>> {
-        self.init_and_load(false);
-        // Deactivate io print
-        self.emu.get_data_mut().print_output = false;
-        self.deactivate_printf_function();
-        // set initial program start address
-        self.set_start_address(self.file_data.program_header.p_paddr);
-        // Set nop
-        external_record
-            .iter()
-            .for_each(|record| self.set_bit_flip(*record, bit_pos));
-        // Run
-        let _ret_val = self.run_steps(MAX_INSTRUCTIONS, false);
-        if self.emu.get_data().state == RunState::Success {
-            return Some(self.emu.get_data().fault_data.clone());
-        }
-        None
-    }
-
-    /// Set nop at specified address
+    /// Set fault at specified address with given parameters
     ///
-    /// If initial value is 32 bit two nops are placed
-    /// Overwritten data is stored for restauration
-    fn set_nop(&mut self, external_record: ExternalRecord) {
-        let mut nop_context: FaultData = FaultData {
+    /// Original and replaced data is stored for restauration
+    /// and printing
+    fn set_fault(&mut self, address_record: ExternalRecord) {
+        let mut context: FaultData = FaultData {
             data: [0; 4],
             data_changed: [0; 4],
-            address: external_record.address,
-            size: external_record.size,
+            address: address_record.address,
+            size: address_record.size,
         };
         // Read original data
         self.emu
-            .mem_read(external_record.address, &mut nop_context.data)
+            .mem_read(address_record.address, &mut context.data)
             .unwrap();
 
-        // Generate changed data
-        nop_context.data_changed[0..2].copy_from_slice(&T1_NOP);
-        if external_record.size == 4 {
-            nop_context.data_changed[2..4].copy_from_slice(&T1_NOP);
-        } else {
-            nop_context.data_changed[2..4].copy_from_slice(&nop_context.data[2..4]);
+        // Generate data with fault specific handling
+        match address_record.fault_type {
+            FaultType::NopCached => {
+                context.data_changed[0..2].copy_from_slice(&T1_NOP);
+                if address_record.size == 4 {
+                    context.data_changed[2..4].copy_from_slice(&T1_NOP);
+                } else {
+                    context.data_changed[2..4].copy_from_slice(&context.data[2..4]);
+                }
+            }
+            FaultType::BitFlipCached(pos) => {
+                context.data_changed = context.data;
+                context.data_changed[pos / 8] ^= (0x01_u8).shl(pos % 8);
+            }
+            _ => {
+                panic!("No fault type set")
+            }
         }
-        self.emu.get_data_mut().fault_data.push(nop_context);
+
+        self.emu.get_data_mut().fault_data.push(context);
 
         // Write generated data to address
         self.emu
-            .mem_write(external_record.address, &nop_context.data_changed)
+            .mem_write(address_record.address, &context.data_changed)
             .unwrap();
     }
-
-    /// Set bit glitch at specified address
-    ///
-    fn set_bit_flip(&mut self, external_record: ExternalRecord, bit_pos: usize) {
-        let mut flip_context: FaultData = FaultData {
-            data: [0; 4],
-            data_changed: [0; 4],
-            address: external_record.address,
-            size: external_record.size,
-        };
-        // Read original data
-        self.emu
-            .mem_read(external_record.address, &mut flip_context.data)
-            .unwrap();
-
-        // Generate changed data
-        flip_context.data_changed = flip_context.data;
-        flip_context.data_changed[bit_pos / 8] ^= (0x01_u8).shl(bit_pos % 8);
-        // Add to list
-        self.emu.get_data_mut().fault_data.push(flip_context);
-        // Write generated data to address
-        self.emu
-            .mem_write(external_record.address, &flip_context.data_changed)
-            .unwrap();
-    }
-
-    // fn restore(&mut self) {
-    //     let fault_vec = self.emu.get_data().fault_data.clone();
-    //     fault_vec.iter().for_each(|fault_data| {
-    //         self.emu
-    //             .mem_write(fault_data.address, &fault_data.data)
-    //             .unwrap()
-    //     });
-    //     self.emu.get_data_mut().fault_data.clear();
-    // }
 
     pub fn set_start_address(&mut self, address: u64) {
         self.emu.get_data_mut().cpu.pc = address;

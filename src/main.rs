@@ -6,7 +6,9 @@ mod disassembly;
 use disassembly::Disassembly;
 
 mod simulation;
-use simulation::{ExternalRecord, FaultData, Simulation};
+use simulation::{
+    ExternalRecord, FaultData, FaultType::BitFlipCached, FaultType::NopCached, Simulation,
+};
 
 use indicatif::ProgressBar;
 
@@ -52,17 +54,17 @@ fn main() {
     let external_records = simulation.get_address_list(vec![]);
 
     // Run cached nop simulation
-    if cached_nop_simulation(&file_data, external_records.clone(), &cs) == 0 {
+    if cached_nop_simulation(&file_data, &external_records, &cs) == 0 {
         // Run cached double nop simulation
-        cached_nop_simulation_2(&file_data, external_records.clone(), &cs);
+        cached_nop_simulation_2(&file_data, &external_records, &cs);
     }
     // Run cached bit-flip simulation
-    cached_bit_flip_simulation(&file_data, external_records, &cs);
+    cached_bit_flip_simulation(&file_data, &external_records, &cs);
 }
 
 fn cached_nop_simulation(
     file_data: &ElfFile,
-    records: Vec<ExternalRecord>,
+    records: &Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
     // Print overview
@@ -73,8 +75,10 @@ fn cached_nop_simulation(
     let (sender, receiver) = channel();
     // Start all threads (all will execute with a single address)
     records.into_par_iter().for_each_with(sender, |s, record| {
+        let mut temp_record = *record;
+        temp_record.set_fault_type(NopCached);
         let mut simulation = Simulation::new(&file_data);
-        if let Some(fault_data_vec) = simulation.run_with_nop(vec![record]) {
+        if let Some(fault_data_vec) = simulation.run_with_faults(vec![temp_record]) {
             s.send(fault_data_vec[0]).unwrap();
         }
         drop(simulation);
@@ -92,7 +96,7 @@ fn cached_nop_simulation(
 
 fn cached_bit_flip_simulation(
     file_data: &ElfFile,
-    records: Vec<ExternalRecord>,
+    records: &Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
     // Print overview
@@ -105,8 +109,10 @@ fn cached_bit_flip_simulation(
     // Start all threads (all will execute with a single address)
     records.into_par_iter().for_each_with(sender, |s, record| {
         for bit_pos in 0..(record.size * 8) {
+            let mut temp_record = *record;
+            temp_record.set_fault_type(BitFlipCached(bit_pos));
             let mut simulation = Simulation::new(&file_data);
-            if let Some(fault_data_vec) = simulation.run_with_bit_flip(vec![record], bit_pos) {
+            if let Some(fault_data_vec) = simulation.run_with_faults(vec![temp_record]) {
                 s.send(fault_data_vec[0]).unwrap();
             }
             drop(simulation);
@@ -124,7 +130,7 @@ fn cached_bit_flip_simulation(
 
 fn cached_nop_simulation_2(
     file_data: &ElfFile,
-    records: Vec<ExternalRecord>,
+    records: &Vec<ExternalRecord>,
     cs: &Disassembly,
 ) -> usize {
     // Print overview
@@ -134,9 +140,11 @@ fn cached_nop_simulation_2(
     let bar = ProgressBar::new(records.len() as u64);
     // Loop over all addresses from first round
     records.iter().for_each(|record| {
+        let mut temp_record = *record;
+        temp_record.set_fault_type(NopCached);
         // Get intermediate trace data from negative run with inserted nop -> new program flow
         let mut simulation = Simulation::new(&file_data);
-        let intermediate_records = simulation.get_address_list(vec![*record]);
+        let intermediate_records = simulation.get_address_list(vec![temp_record]);
         drop(simulation);
         // Setup sender and receiver
         let (sender, receiver) = channel();
@@ -144,11 +152,11 @@ fn cached_nop_simulation_2(
         // Run full test with intemediate trace data
         intermediate_records
             .into_par_iter()
-            .for_each_with(sender, |s, intermediate_record| {
+            .for_each_with(sender, |s, mut intermediate_record| {
+                intermediate_record.set_fault_type(NopCached);
                 let mut intermediate_simulation = Simulation::new(&file_data);
-                // Run test with specific intermediate record
                 if let Some(fault_data_vec) =
-                    intermediate_simulation.run_with_nop(vec![*record, intermediate_record])
+                    intermediate_simulation.run_with_faults(vec![*record, intermediate_record])
                 {
                     fault_data_vec
                         .iter()
