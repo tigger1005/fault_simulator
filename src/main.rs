@@ -18,12 +18,15 @@ use rayon::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::channel;
 
+use std::env;
 use std::process::Command;
 
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
 fn main() {
+    env::set_var("RAYON_NUM_THREADS", "30");
+
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
     // Compile victim
