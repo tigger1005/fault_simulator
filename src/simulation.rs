@@ -8,24 +8,24 @@ use log::debug;
 use std::collections::HashMap;
 
 #[derive(Copy, Clone)]
-pub struct AddressRecord {
+pub struct TraceRecord {
     size: usize,
     count: usize,
 }
 
 #[derive(Clone, Copy)]
-pub struct ExternalRecord {
+pub struct SimulationFaultRecord {
     pub address: u64,
     pub size: usize,
     pub count: usize,
     pub fault_type: FaultType,
 }
 
-impl ExternalRecord {
-    pub fn new(record_map: HashMap<u64, AddressRecord>) -> Vec<ExternalRecord> {
-        let mut list: Vec<ExternalRecord> = Vec::new();
+impl SimulationFaultRecord {
+    pub fn new(record_map: HashMap<u64, TraceRecord>) -> Vec<SimulationFaultRecord> {
+        let mut list: Vec<SimulationFaultRecord> = Vec::new();
         record_map.iter().for_each(|record| {
-            list.push(ExternalRecord {
+            list.push(SimulationFaultRecord {
                 address: *record.0,
                 size: record.1.size,
                 count: record.1.count,
@@ -54,7 +54,10 @@ impl<'a> Simulation<'a> {
         Self { emu }
     }
 
-    pub fn check(&mut self) {
+    /// Check if code under investigation is working correct for
+    /// positive and negative execution
+    ///
+    pub fn check_program(&mut self) {
         // Run simulation
         self.run(true);
         assert_eq!(self.emu.get_state(), RunState::Success);
@@ -63,7 +66,7 @@ impl<'a> Simulation<'a> {
         assert_eq!(self.emu.get_state(), RunState::Failed);
     }
 
-    pub fn init_and_load(&mut self, run_successful: bool) {
+    fn init_and_load(&mut self, run_successful: bool) {
         self.emu.init_register();
         // Write code to memory area
         self.emu.load_code();
@@ -71,19 +74,22 @@ impl<'a> Simulation<'a> {
         self.emu.init_states(run_successful);
     }
 
-    pub fn get_address_list(
+    /// Record the program flow till the program ends on positiv or negative program execution
+    /// A vector array with the recorded addresses is returned
+    ///
+    pub fn record_code_trace(
         &mut self,
-        external_record: Vec<ExternalRecord>,
-    ) -> Vec<ExternalRecord> {
+        external_record: Vec<SimulationFaultRecord>,
+    ) -> Vec<SimulationFaultRecord> {
         //
-        let mut address_list = HashMap::new();
+        let mut trace_records_hmap = HashMap::new();
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
         let (adr, rec) = self.emu.get_cmd_address_record().unwrap();
-        address_list.insert(adr, rec);
+        trace_records_hmap.insert(adr, rec);
 
         // Insert nop
         external_record
@@ -104,7 +110,7 @@ impl<'a> Simulation<'a> {
             }
             // Write next execution address to hash map
             if let Some((adr, rec)) = self.emu.get_cmd_address_record() {
-                address_list
+                trace_records_hmap
                     .entry(adr)
                     .and_modify(|record| record.count += 1)
                     .or_insert(rec);
@@ -117,7 +123,7 @@ impl<'a> Simulation<'a> {
             }
         }
         // Convert hash map to vector array
-        ExternalRecord::new(address_list)
+        SimulationFaultRecord::new(trace_records_hmap)
     }
 
     fn run(&mut self, run_successful: bool) {
@@ -131,16 +137,20 @@ impl<'a> Simulation<'a> {
         //print_register_and_data(emu);
     }
 
-    pub fn run_till(&mut self, run_successful: bool, steps: usize) -> Result<(), uc_error> {
+    fn run_till(&mut self, run_successful: bool, steps: usize) -> Result<(), uc_error> {
         self.init_and_load(run_successful);
         // Start execution
         debug!("Run : {} Steps", steps);
         self.emu.run_steps(steps, false)
     }
 
+    /// Execute loaded code with the given faults injected bevor code execution
+    /// If code finishes with successful state, a vector array will be returned with the
+    /// injected faults
+    ///
     pub fn run_with_faults(
         &mut self,
-        external_record: Vec<ExternalRecord>,
+        external_record: Vec<SimulationFaultRecord>,
     ) -> Option<Vec<FaultData>> {
         self.init_and_load(false);
         // Deactivate io print

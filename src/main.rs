@@ -43,12 +43,12 @@ fn main() {
     let cs = Disassembly::new();
     // Check for correct program behavior
     let mut simulation = Simulation::new(&file_data);
-    simulation.check();
+    simulation.check_program();
 
     println!("\nRun fault simulations:");
     // Get trace data from negative run
     let mut simulation = Simulation::new(&file_data);
-    let external_records = simulation.get_address_list(vec![]);
+    let external_records = simulation.record_code_trace(vec![]);
 
     // Run cached nop simulation
     let nop_1 = fault_attacks::cached_nop_simulation(&file_data, &external_records);

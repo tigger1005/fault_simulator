@@ -1,6 +1,6 @@
 use std::ops::Shl;
 
-use super::{AddressRecord, ElfFile, ExternalRecord};
+use super::{ElfFile, SimulationFaultRecord, TraceRecord};
 
 mod callback;
 use callback::*;
@@ -246,7 +246,7 @@ impl<'a> FaultInjections<'a> {
     ///
     /// Original and replaced data is stored for restauration
     /// and printing
-    pub fn set_fault(&mut self, address_record: ExternalRecord) {
+    pub fn set_fault(&mut self, address_record: SimulationFaultRecord) {
         let mut fault_data: FaultData = FaultData {
             data: [0; 4],
             data_changed: [0; 4],
@@ -288,7 +288,7 @@ impl<'a> FaultInjections<'a> {
     /// Read address_record from given address
     ///
     /// Read data from current local stored program counter pc
-    pub fn get_cmd_address_record(&mut self) -> Option<(u64, AddressRecord)> {
+    pub fn get_cmd_address_record(&mut self) -> Option<(u64, TraceRecord)> {
         let mut data: [u8; 2] = [0; 2];
 
         if self.emu.mem_read(self.cpu.pc, &mut data).is_ok() {
@@ -297,7 +297,7 @@ impl<'a> FaultInjections<'a> {
             if (data[1] & 0xF8 == 0xE8) || (data[1] & 0xF0 == 0xF0) {
                 size = 4;
             }
-            return Some((self.cpu.pc, AddressRecord { size, count: 1 }));
+            return Some((self.cpu.pc, TraceRecord { size, count: 1 }));
         }
         None
     }
