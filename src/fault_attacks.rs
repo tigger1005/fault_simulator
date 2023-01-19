@@ -1,4 +1,4 @@
-use super::*;
+use super::ElfFile;
 
 // Set number of threads: RAYON_NUM_THREADS="1" cargo run
 use rayon::prelude::*;
@@ -8,7 +8,7 @@ use std::sync::mpsc::channel;
 
 use indicatif::ProgressBar;
 
-use crate::simulation::*;
+use crate::simulation::{FaultData, FaultType, Simulation, SimulationFaultRecord};
 
 /// Run program with a single nop instruction injected as an fault attack
 /// This is done in a static / cached methode
@@ -31,7 +31,6 @@ pub fn cached_nop_simulation(
         if let Some(fault_data_vec) = simulation.run_with_faults(vec![temp_record]) {
             s.send(fault_data_vec).unwrap();
         }
-        drop(simulation);
         bar.inc(1);
     });
 
@@ -74,7 +73,6 @@ pub fn cached_nop_simulation_2(
                 {
                     s.send(fault_data_vec).unwrap();
                 }
-                drop(intermediate_simulation);
             });
 
         bar.inc(1);
@@ -109,7 +107,6 @@ pub fn cached_bit_flip_simulation(
             if let Some(fault_data_vec) = simulation.run_with_faults(vec![temp_record]) {
                 s.send(fault_data_vec).unwrap();
             }
-            drop(simulation);
             bar.inc(1);
         }
     });

@@ -1,4 +1,4 @@
-use super::*;
+use super::{debug, EmulationData, MemType, RunState, Unicorn, BOOT_STAGE};
 
 /// Callback for auth mem IO write access
 ///
