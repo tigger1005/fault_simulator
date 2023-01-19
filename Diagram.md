@@ -4,14 +4,14 @@
 title: Fault simulation with unicorn
 ---
 classDiagram
-    Main <|-- Simulation
-    Simulation <|-- FaultInjection
-    Main <|-- Disassembly
-    Main <|-- Fault
-    FaultInjection <|-- Unicorn
-    FaultInjection <|-- Callbacks
-    Simulation <|-- ElfFile
-    Unicorn <|-- SimulationData
+    Main <-- Simulation
+    Simulation <-- FaultInjection
+    Main <-- Disassembly
+    Main <-- Fault
+    FaultInjection <-- Unicorn
+    FaultInjection <-- Callbacks
+    Simulation <-- ElfFile
+    Unicorn <-- SimulationData
     class Main {
         cs: Disassembly
     }
