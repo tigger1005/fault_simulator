@@ -4,7 +4,7 @@ use super::*;
 ///
 /// This IO call signalize the Successful or Failed boot flow
 pub(super) fn mmio_auth_write_callback<D>(
-    emu: &mut Unicorn<SimulationData>,
+    emu: &mut Unicorn<EmulationData>,
     _mem_type: MemType,
     _address: u64,
     _size: usize,
@@ -32,7 +32,7 @@ pub(super) fn mmio_auth_write_callback<D>(
 ///
 /// This IO write displays printed messages
 pub(super) fn mmio_serial_write_callback<D>(
-    emu: &mut Unicorn<SimulationData>,
+    emu: &mut Unicorn<EmulationData>,
     _address: u64,
     _size: usize,
     value: u64,
@@ -44,7 +44,7 @@ pub(super) fn mmio_serial_write_callback<D>(
 
 /// Hook for flash_load_img callback handling.
 pub(super) fn hook_code_flash_load_img_callback<D>(
-    emu: &mut Unicorn<SimulationData>,
+    emu: &mut Unicorn<EmulationData>,
     _address: u64,
     _size: u32,
 ) {

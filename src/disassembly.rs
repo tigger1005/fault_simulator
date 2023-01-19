@@ -1,3 +1,4 @@
+use crate::simulation::FaultData;
 use capstone::prelude::*;
 
 pub struct Disassembly {
@@ -17,7 +18,7 @@ impl Disassembly {
         Self { cs }
     }
 
-    pub fn bin2asm(&self, data: &[u8], address: u64) -> String {
+    fn bin_to_asm(&self, data: &[u8], address: u64) -> String {
         let insns = self
             .cs
             .disasm_all(data, address)
@@ -30,34 +31,20 @@ impl Disassembly {
             asm_cmd.op_str().unwrap()
         )
     }
+
+    /// Print fault data of given fault_data_vec vector
+    ///
+    pub fn print_fault_records(&self, fault_data_vec: Vec<Vec<FaultData>>) {
+        fault_data_vec.iter().for_each(|fault_context| {
+            fault_context.iter().for_each(|fault_data| {
+                println!(
+                    "0x{:X}:  {} -> {}",
+                    fault_data.address,
+                    self.bin_to_asm(&fault_data.data, fault_data.address),
+                    self.bin_to_asm(&fault_data.data_changed, fault_data.address)
+                );
+            });
+            println!();
+        });
+    }
 }
-
-// let insns = cs
-//     .disasm_all(X86_CODE, 0x1000)
-//     .expect("Failed to disassemble");
-// println!("Found {} instructions", insns.len());
-// for i in insns.as_ref() {
-//     println!();
-//     println!("{}", i);
-
-//     let detail: InsnDetail = cs.insn_detail(&i).expect("Failed to get insn detail");
-//     let arch_detail: ArchDetail = detail.arch_detail();
-//     let ops = arch_detail.operands();
-
-//     let output: &[(&str, String)] = &[
-//         ("insn id:", format!("{:?}", i.id().0)),
-//         ("bytes:", format!("{:?}", i.bytes())),
-//         ("read regs:", reg_names(&cs, detail.regs_read())),
-//         ("write regs:", reg_names(&cs, detail.regs_write())),
-//         ("insn groups:", group_names(&cs, detail.groups())),
-//     ];
-
-//     for &(ref name, ref message) in output.iter() {
-//         println!("{:4}{:12} {}", "", name, message);
-//     }
-
-//     println!("{:4}operands: {}", "", ops.len());
-//     for op in ops {
-//         println!("{:8}{:?}", "", op);
-//     }
-// }
