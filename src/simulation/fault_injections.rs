@@ -266,8 +266,9 @@ impl<'a> FaultInjections<'a> {
                 let mut address = address_record.address;
                 for _count in 0..number {
                     let temp_size = self.get_asm_cmd_size(address).unwrap();
-                    (0..temp_size)
-                        .for_each(|i| fault_data.data_changed.push(*T1_NOP.get(i).unwrap()));
+                    for i in 0..temp_size {
+                        fault_data.data_changed.push(*T1_NOP.get(i).unwrap())
+                    }
                     address += temp_size as u64;
                 }
                 // Set to same size as data_changed

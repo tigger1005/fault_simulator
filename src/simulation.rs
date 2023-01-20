@@ -123,7 +123,8 @@ impl<'a> Simulation<'a> {
             }
         }
         // Convert hash map to vector array
-        SimulationFaultRecord::new(trace_records_hmap)
+        let array = SimulationFaultRecord::new(trace_records_hmap);
+        array
     }
 
     fn run(&mut self, run_successful: bool) {

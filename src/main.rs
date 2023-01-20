@@ -13,6 +13,8 @@ use simulation::Simulation;
 use std::env;
 use std::process::Command;
 
+use itertools::Itertools;
+
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
@@ -50,16 +52,35 @@ fn main() {
     let mut simulation = Simulation::new(&file_data);
     let external_records = simulation.record_code_trace(vec![]);
 
+    let mut success = false;
+    let mut count_sum = 0;
     // Run cached nop simulation
-    let nop_1 = fault_attacks::cached_nop_simulation(&file_data, &external_records);
-    let entries = nop_1.len();
-    cs.print_fault_records(nop_1);
-    if entries == 0 {
+    for i in 1..=10 {
+        let (nop_1, count) =
+            fault_attacks::cached_nop_simulation_x_y(&file_data, &external_records, i, 0);
+        count_sum += count;
+        if cs.print_fault_records(nop_1) != 0 {
+            success = true;
+            break;
+        }
+    }
+    if success == false {
         // Run cached double nop simulation
-        let nop_2 = fault_attacks::cached_nop_simulation_2(&file_data, &external_records);
-        cs.print_fault_records(nop_2);
+        let it = (1..=10).combinations_with_replacement(2);
+        for t in it.into_iter() {
+            let (nop, count) =
+                fault_attacks::cached_nop_simulation_x_y(&file_data, &external_records, t[0], t[1]);
+            count_sum += count;
+            if cs.print_fault_records(nop) != 0 {
+                break;
+            }
+        }
     }
     // Run cached bit-flip simulation
-    let flip = fault_attacks::cached_bit_flip_simulation(&file_data, &external_records);
+    let (flip, sum) = fault_attacks::cached_bit_flip_simulation(&file_data, &external_records);
+    count_sum += sum;
     cs.print_fault_records(flip);
+
+    ////////////////////////////////
+    println!("Overall tests executed {count_sum}");
 }

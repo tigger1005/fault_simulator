@@ -18,33 +18,41 @@ impl Disassembly {
         Self { cs }
     }
 
-    fn bin_to_asm(&self, data: &[u8], address: u64) -> String {
-        let insns = self
+    fn bin_to_asm(&self, fault_data: &FaultData) {
+        let insns_data = self
             .cs
-            .disasm_all(data, address)
+            .disasm_all(&fault_data.data, fault_data.address)
+            .expect("Failed to disassemble");
+        let insns_data_changed = self
+            .cs
+            .disasm_all(&fault_data.data_changed, fault_data.address)
             .expect("Failed to disassemble");
 
-        let asm_cmd = &insns.as_ref()[0];
-        format!(
-            "{} {}",
-            asm_cmd.mnemonic().unwrap(),
-            asm_cmd.op_str().unwrap()
-        )
+        for i in 0..insns_data.as_ref().len() {
+            let ins = &insns_data.as_ref()[i];
+            let ins_changed = &insns_data_changed.as_ref()[i];
+
+            println!(
+                "0x{:X}:  {} {} -> {} {}",
+                ins.address(),
+                ins.mnemonic().unwrap(),
+                ins.op_str().unwrap(),
+                ins_changed.mnemonic().unwrap(),
+                ins_changed.op_str().unwrap()
+            );
+        }
     }
 
     /// Print fault data of given fault_data_vec vector
     ///
-    pub fn print_fault_records(&self, fault_data_vec: Vec<Vec<FaultData>>) {
+    pub fn print_fault_records(&self, fault_data_vec: Vec<Vec<FaultData>>) -> usize {
         fault_data_vec.iter().for_each(|fault_context| {
             fault_context.iter().for_each(|fault_data| {
-                println!(
-                    "0x{:X}:  {} -> {}",
-                    fault_data.address,
-                    self.bin_to_asm(&fault_data.data, fault_data.address),
-                    self.bin_to_asm(&fault_data.data_changed, fault_data.address)
-                );
+                self.bin_to_asm(&fault_data);
+                println!("");
             });
             println!();
         });
+        fault_data_vec.len()
     }
 }
