@@ -21,7 +21,7 @@ int main() {
   FIH_IF_INT_EQUAL(res, fih_int_encode(FIH_TRUE)) {
     FIH_IF_INT_EQUAL_BODY_CHECK(res, fih_int_encode(FIH_TRUE));
     CHECKPOINT();
-    // FIH_IF_INT_EQUAL_BODY_CHECK(res, fih_int_encode(FIH_TRUE));
+    FIH_IF_INT_EQUAL_BODY_CHECK(res, fih_int_encode(FIH_TRUE));
     serial_puts("Verification positive path  : OK\n");
     launch_oem_ram_app();
   }
