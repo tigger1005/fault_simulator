@@ -21,7 +21,7 @@ extern const fih_uint image_good_val;
   {                                                                            \
     fih_uint_validate(x);                                                      \
     fih_delay();                                                               \
-    if (x.msk != y.msk || x.val != y.val) {                                    \
+    if (x.msk != y.msk) {                                    \
       FIH_PANIC;                                                               \
     }                                                                          \
   }

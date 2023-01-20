@@ -19,7 +19,7 @@ const BOOT_STAGE: u64 = 0x32000000;
 const AUTH_BASE: u64 = 0xAA01000;
 
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
-const T1_NOP: [u8; 2] = [0x00, 0xBF];
+const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 
 const ARM_REG: [RegisterARM; 16] = [
     RegisterARM::R0,
@@ -55,16 +55,27 @@ struct Cpu {
 #[derive(Clone, Copy)]
 pub enum FaultType {
     Uninitialized,
-    NopCached,
+    NopCached(usize),
     BitFlipCached(usize),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct FaultData {
-    pub data: [u8; 4],
-    pub data_changed: [u8; 4],
+    pub data: Vec<u8>,
+    pub data_changed: Vec<u8>,
     pub address: u64,
-    pub size: usize,
+    pub count: usize,
+}
+
+impl FaultData {
+    pub fn new(address_record: SimulationFaultRecord) -> Self {
+        Self {
+            data: Vec::new(),
+            data_changed: Vec::new(),
+            address: address_record.address,
+            count: 0,
+        }
+    }
 }
 
 pub struct FaultInjections<'a> {
@@ -247,29 +258,33 @@ impl<'a> FaultInjections<'a> {
     /// Original and replaced data is stored for restauration
     /// and printing
     pub fn set_fault(&mut self, address_record: SimulationFaultRecord) {
-        let mut fault_data: FaultData = FaultData {
-            data: [0; 4],
-            data_changed: [0; 4],
-            address: address_record.address,
-            size: address_record.size,
-        };
-        // Read original data
-        self.emu
-            .mem_read(address_record.address, &mut fault_data.data)
-            .unwrap();
+        let mut fault_data: FaultData = FaultData::new(address_record);
 
         // Generate data with fault specific handling
         match address_record.fault_type {
-            FaultType::NopCached => {
-                fault_data.data_changed[0..2].copy_from_slice(&T1_NOP);
-                if address_record.size == 4 {
-                    fault_data.data_changed[2..4].copy_from_slice(&T1_NOP);
-                } else {
-                    fault_data.data_changed[2..4].copy_from_slice(&fault_data.data[2..4]);
+            FaultType::NopCached(number) => {
+                let mut address = address_record.address;
+                for _count in 0..number {
+                    let temp_size = self.get_asm_cmd_size(address).unwrap();
+                    (0..temp_size)
+                        .for_each(|i| fault_data.data_changed.push(*T1_NOP.get(i).unwrap()));
+                    address += temp_size as u64;
                 }
+                // Set to same size as data_changed
+                fault_data.data = fault_data.data_changed.clone();
+                // Read original data
+                self.emu
+                    .mem_read(address_record.address, &mut fault_data.data)
+                    .unwrap();
             }
             FaultType::BitFlipCached(pos) => {
-                fault_data.data_changed = fault_data.data;
+                let temp_size = self.get_asm_cmd_size(address_record.address).unwrap();
+                fault_data.data = vec![0; temp_size];
+                // Read original data
+                self.emu
+                    .mem_read(address_record.address, &mut fault_data.data)
+                    .unwrap();
+                fault_data.data_changed = fault_data.data.clone();
                 fault_data.data_changed[pos / 8] ^= (0x01_u8).shl(pos % 8);
             }
             _ => {
@@ -277,26 +292,32 @@ impl<'a> FaultInjections<'a> {
             }
         }
 
-        self.fault_data.push(fault_data);
-
         // Write generated data to address
         self.emu
             .mem_write(address_record.address, &fault_data.data_changed)
             .unwrap();
+
+        // Push to fault data vector
+        self.fault_data.push(fault_data);
+    }
+
+    fn get_asm_cmd_size(&self, address: u64) -> Option<usize> {
+        let mut data: [u8; 2] = [0; 2];
+        // Check for 32bit cmd (0b11101... 0b1111....)
+        if self.emu.mem_read(address, &mut data).is_ok() {
+            if (data[1] & 0xF8 == 0xE8) || (data[1] & 0xF0 == 0xF0) {
+                return Some(4);
+            }
+            return Some(2);
+        }
+        None
     }
 
     /// Read address_record from given address
     ///
     /// Read data from current local stored program counter pc
     pub fn get_cmd_address_record(&mut self) -> Option<(u64, TraceRecord)> {
-        let mut data: [u8; 2] = [0; 2];
-
-        if self.emu.mem_read(self.cpu.pc, &mut data).is_ok() {
-            let mut size = 2;
-            // Check for 32bit cmd (0b11101... 0b1111....)
-            if (data[1] & 0xF8 == 0xE8) || (data[1] & 0xF0 == 0xF0) {
-                size = 4;
-            }
+        if let Some(size) = self.get_asm_cmd_size(self.cpu.pc) {
             return Some((self.cpu.pc, TraceRecord { size, count: 1 }));
         }
         None
