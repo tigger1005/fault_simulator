@@ -81,50 +81,22 @@ impl<'a> Simulation<'a> {
         &mut self,
         external_record: Vec<SimulationFaultRecord>,
     ) -> Vec<SimulationFaultRecord> {
-        //
-        let mut trace_records_hmap = HashMap::new();
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
-        let (adr, rec) = self.emu.get_cmd_address_record().unwrap();
-        trace_records_hmap.insert(adr, rec);
-
-        // Insert nop
+        // Insert fault injections infront of tracing code
         external_record
             .iter()
             .for_each(|record| self.emu.set_fault(*record));
 
-        let mut cycles: usize = 0;
-
-        loop {
-            // Do one step in code
-            if self.emu.run_steps(1, false) != Ok(()) {
-                break;
-            }
-            // Handle cycles (cpu command steps)
-            cycles += 1;
-            if cycles > MAX_INSTRUCTIONS {
-                break;
-            }
-            // Write next execution address to hash map
-            if let Some((adr, rec)) = self.emu.get_cmd_address_record() {
-                trace_records_hmap
-                    .entry(adr)
-                    .and_modify(|record| record.count += 1)
-                    .or_insert(rec);
-            } else {
-                break;
-            }
-            // If failed marker is written -> stop recording
-            if self.emu.get_state() == RunState::Failed {
-                break;
-            }
-        }
-        // Convert hash map to vector array
-        let array = SimulationFaultRecord::new(trace_records_hmap);
-        array
+        // Set hook and run program
+        let hook = self.emu.set_code_hook().unwrap();
+        let _ret = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+        self.emu.release_hook(hook);
+        // Convert from hashmap to vector array
+        SimulationFaultRecord::new(self.emu.get_trace())
     }
 
     fn run(&mut self, run_successful: bool) {

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::ffi::c_void;
 use std::ops::Shl;
 
 use super::{ElfFile, SimulationFaultRecord, TraceRecord};
@@ -89,6 +91,7 @@ struct EmulationData {
     state: RunState,
     is_positiv: bool,
     print_output: bool,
+    trace_data: HashMap<u64, TraceRecord>,
 }
 
 impl<'a> FaultInjections<'a> {
@@ -98,6 +101,7 @@ impl<'a> FaultInjections<'a> {
             state: RunState::Init,
             is_positiv: true,
             print_output: true,
+            trace_data: HashMap::new(),
         };
 
         // Setup platform -> ARMv8-m.base
@@ -314,16 +318,6 @@ impl<'a> FaultInjections<'a> {
         None
     }
 
-    /// Read address_record from given address
-    ///
-    /// Read data from current local stored program counter pc
-    pub fn get_cmd_address_record(&mut self) -> Option<(u64, TraceRecord)> {
-        if let Some(size) = self.get_asm_cmd_size(self.cpu.pc) {
-            return Some((self.cpu.pc, TraceRecord { size, count: 1 }));
-        }
-        None
-    }
-
     /// Initialize the internal program state
     ///
     pub fn init_states(&mut self, run_state: bool) {
@@ -343,5 +337,26 @@ impl<'a> FaultInjections<'a> {
     /// Get fault_data
     pub fn get_fault_data(&self) -> &Vec<FaultData> {
         &self.fault_data
+    }
+
+    /// Set code hook for tracing
+    ///
+    pub fn set_code_hook(&mut self) -> Result<*mut c_void, uc_error> {
+        let res = self.emu.add_code_hook(
+            self.file_data.program_header.p_paddr,
+            self.file_data.program_header.p_memsz,
+            hook_code_callback::<EmulationData>,
+        );
+        res
+    }
+
+    /// Release hook function
+    pub fn release_hook(&mut self, hook: *mut c_void) {
+        self.emu.remove_hook(hook).unwrap();
+    }
+
+    /// Copy trace data to caller
+    pub fn get_trace(&self) -> HashMap<u64, TraceRecord> {
+        self.emu.get_data().trace_data.clone()
     }
 }

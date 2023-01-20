@@ -1,4 +1,4 @@
-use super::{debug, EmulationData, MemType, RunState, Unicorn, BOOT_STAGE};
+use super::{debug, EmulationData, MemType, RunState, TraceRecord, Unicorn, BOOT_STAGE};
 
 /// Callback for auth mem IO write access
 ///
@@ -42,7 +42,8 @@ pub(super) fn mmio_serial_write_callback<D>(
     }
 }
 
-/// Hook for flash_load_img callback handling.
+/// Hook for flash_load_img callback handling
+///
 pub(super) fn hook_code_flash_load_img_callback<D>(
     emu: &mut Unicorn<EmulationData>,
     _address: u64,
@@ -60,4 +61,19 @@ pub(super) fn hook_code_flash_load_img_callback<D>(
             .expect("failed to write boot stage data");
     }
     debug!("Call of flash_load_img");
+}
+
+/// Code Hook for tracing functionality
+///
+pub(super) fn hook_code_callback<D>(emu: &mut Unicorn<EmulationData>, address: u64, size: u32) {
+    let record = TraceRecord {
+        size: size as usize,
+        count: 1,
+    };
+
+    emu.get_data_mut()
+        .trace_data
+        .entry(address)
+        .and_modify(|record| record.count += 1)
+        .or_insert(record);
 }
