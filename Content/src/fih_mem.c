@@ -88,7 +88,7 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
     }
 
     if (u != len || fih_uint_msk(data1) == fih_uint_msk(data2)) {
-      return fih_int_encode(FIH_FALSE);
+       FIH_PANIC;
     }
     ret.msk = FIH_TRUE;
   }
@@ -104,7 +104,7 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
     }
 
     if (u != len || fih_uint_msk(data1) == fih_uint_val(data2)) {
-      return fih_int_encode(FIH_FALSE);
+      FIH_PANIC;
     }
     ret.msk ^= FIH_MASK_VALUE;
   }

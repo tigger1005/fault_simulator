@@ -342,12 +342,11 @@ impl<'a> FaultInjections<'a> {
     /// Set code hook for tracing
     ///
     pub fn set_code_hook(&mut self) -> Result<*mut c_void, uc_error> {
-        let res = self.emu.add_code_hook(
+        self.emu.add_code_hook(
             self.file_data.program_header.p_paddr,
             self.file_data.program_header.p_memsz,
             hook_code_callback::<EmulationData>,
-        );
-        res
+        )
     }
 
     /// Release hook function

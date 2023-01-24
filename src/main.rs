@@ -64,10 +64,10 @@ fn main() {
             break;
         }
     }
-    if success == false {
+    if !success {
         // Run cached double nop simulation
         let it = (1..=10).combinations_with_replacement(2);
-        for t in it.into_iter() {
+        for t in it {
             let (nop, count) =
                 fault_attacks::cached_nop_simulation_x_y(&file_data, &external_records, t[0], t[1]);
             count_sum += count;
