@@ -74,6 +74,10 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
     if (u != len || fih_uint_val(data1) == fih_uint_val(data2)) {
       return fih_int_encode(FIH_FALSE);
     }
+#ifndef FIH_ENABLE_DOUBLE_VARS
+    return FIH_TRUE;
+  }
+#else
     ret.val = FIH_TRUE;
   }
   fih_uint_validate(data1);
@@ -88,7 +92,7 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
     }
 
     if (u != len || fih_uint_msk(data1) == fih_uint_msk(data2)) {
-       FIH_PANIC;
+      FIH_PANIC;
     }
     ret.msk = FIH_TRUE;
   }
@@ -110,4 +114,5 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
   }
   fih_int_validate(ret);
   return ret;
+#endif
 }
