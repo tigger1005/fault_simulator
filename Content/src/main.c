@@ -11,9 +11,9 @@ int main() {
   flash_load_img();
   CHECKPOINT_INIT();
   CHECKPOINT();
-  fih_uint addr1 = FIH_UINT_INIT((uint32_t)IMG_LOAD_ADDR);
+  fih_uint addr1 = FIH_UINT_INIT((uint32_t)(uintptr_t)IMG_LOAD_ADDR);
   fih_uint length = FIH_UINT_INIT(4);
-  fih_uint addr2 = FIH_UINT_INIT((uint32_t)&image_good_val);
+  fih_uint addr2 = FIH_UINT_INIT((uint32_t)(uintptr_t)&image_good_val);
   fih_int res = FIH_UINT_INIT(FIH_FALSE);
   CHECKPOINT();
 

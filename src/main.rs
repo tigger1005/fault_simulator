@@ -37,11 +37,13 @@ fn main() {
     // Get parameter from command line
     let args = Args::parse();
 
+    // Set parameter from cli
     env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
 
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
 
+    // Compilation according cli parameter
     if !args.no_compilation {
         // Compile victim
         println!("Compile victim if necessary:");
