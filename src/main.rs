@@ -2,6 +2,8 @@
 mod elf_file;
 use elf_file::ElfFile;
 
+use clap::Parser;
+
 mod disassembly;
 use disassembly::Disassembly;
 
@@ -18,25 +20,44 @@ use itertools::Itertools;
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
+/// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Number of threads started in parallel
+    #[arg(short, long, default_value_t = 1)]
+    threads: u16,
+
+    /// Suppress re-compilation of target program
+    #[arg(short, long, default_value_t = false)]
+    no_compilation: bool,
+}
+
 fn main() {
-    env::set_var("RAYON_NUM_THREADS", "40");
+    // Get parameter from command line
+    let args = Args::parse();
+
+    env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
 
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
-    // Compile victim
-    println!("Compile victim if necessary:");
-    let output = Command::new("make")
-        .current_dir("./Content")
-        .output()
-        .expect("failed to execute process");
-    if !output.status.success() {
-        println!("status: {}", output.status);
-        println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-        println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-    } else {
-        println!("Compiled: OK\n")
+
+    if !args.no_compilation {
+        // Compile victim
+        println!("Compile victim if necessary:");
+        let output = Command::new("make")
+            .current_dir("./Content")
+            .output()
+            .expect("failed to execute process");
+        if !output.status.success() {
+            println!("status: {}", output.status);
+            println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
+            println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
+        } else {
+            println!("Compiled: OK\n")
+        }
+        assert!(output.status.success());
     }
-    assert!(output.status.success());
 
     // Load victim data
     let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
