@@ -33,14 +33,22 @@ struct Args {
     no_compilation: bool,
 }
 
+extern "C" {
+    fn init_native();
+}
+
 fn main() {
     println!("cargo:rustc-link-lib=sentry_crashpad");
-    println!("cargo:rustc-link-search=path/to/lib");
+    println!("cargo:rustc-link-search=/Users/rolo/GitHub/sentry-native/install/lib");
     println!("cargo:rustc-cdylib-link-arg=-Wl,-rpath,@executable_path/.");
     cc::Build::new()
         .file("native/src/init.c")
         .include("native/include")
         .compile("native");
+    // Init sentry
+    unsafe {
+        init_native();
+    };
 
     // Get parameter from command line
     let args = Args::parse();
