@@ -34,6 +34,14 @@ struct Args {
 }
 
 fn main() {
+    println!("cargo:rustc-link-lib=sentry_crashpad");
+    println!("cargo:rustc-link-search=path/to/lib");
+    println!("cargo:rustc-cdylib-link-arg=-Wl,-rpath,@executable_path/.");
+    cc::Build::new()
+        .file("native/src/init.c")
+        .include("native/include")
+        .compile("native");
+
     // Get parameter from command line
     let args = Args::parse();
 
