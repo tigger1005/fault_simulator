@@ -38,13 +38,16 @@ extern "C" {
 }
 
 fn main() {
+    println!("cargo:rerun-if-changed=native/src/init.c");
     println!("cargo:rustc-link-lib=sentry_crashpad");
     println!("cargo:rustc-link-search=/Users/rolo/GitHub/sentry-native/install/lib");
     println!("cargo:rustc-cdylib-link-arg=-Wl,-rpath,@executable_path/.");
+
     cc::Build::new()
-        .file("native/src/init.c")
+        .file("./native/src/init.c")
         .include("native/include")
         .compile("native");
+
     // Init sentry
     unsafe {
         init_native();
