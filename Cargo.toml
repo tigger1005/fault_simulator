@@ -6,5 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-unicorn-engine = "2.0.1"
-elfy = "0.2.2"
+#unicorn-engine = "2.0.1"
+unicorn-engine = {git = 'https://github.com/unicorn-engine/unicorn.git', branch = 'dev'}
+rayon = "1.6.1"
