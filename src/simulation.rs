@@ -45,7 +45,7 @@ pub struct Simulation<'a> {
 }
 
 impl<'a> Simulation<'a> {
-    pub fn new(file_data: &ElfFile) -> Self {
+    pub fn new(file_data: &'a ElfFile) -> Self {
         // Setup emulator
         let mut emu = FaultInjections::new(file_data);
         // Initial setup

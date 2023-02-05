@@ -37,7 +37,7 @@ pub(super) fn mmio_serial_write_callback<D>(
     _size: usize,
     value: u64,
 ) {
-    if emu.get_data().print_output {
+    if !emu.get_data().deactivate_print {
         print!("{}", value as u8 as char);
     }
 }
@@ -49,14 +49,14 @@ pub(super) fn hook_code_flash_load_img_callback<D>(
     _address: u64,
     _size: u32,
 ) {
-    if emu.get_data_mut().is_positiv {
+    if emu.get_data_mut().negative_run {
         // Write flash data to boot stage memory
-        let boot_stage: [u8; 4] = [0x78, 0x56, 0x34, 0x12];
+        let boot_stage: [u8; 4] = [0xB8, 0x45, 0x85, 0xFD];
         emu.mem_write(BOOT_STAGE, &boot_stage)
             .expect("failed to write boot stage data");
     } else {
         // Write flash data to boot stage memory
-        let boot_stage: [u8; 4] = [0xB8, 0x45, 0x85, 0xFD];
+        let boot_stage: [u8; 4] = [0x78, 0x56, 0x34, 0x12];
         emu.mem_write(BOOT_STAGE, &boot_stage)
             .expect("failed to write boot stage data");
     }

@@ -42,16 +42,13 @@ const ARM_REG: [RegisterARM; 16] = [
     RegisterARM::PC,
 ];
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub enum RunState {
+    #[default]
     Init = 0,
     Success,
     Failed,
     Error,
-}
-
-struct Cpu {
-    pc: u64,
 }
 
 #[derive(Clone, Copy)]
@@ -81,39 +78,34 @@ impl FaultData {
 }
 
 pub struct FaultInjections<'a> {
-    file_data: ElfFile,
+    file_data: &'a ElfFile,
     emu: Unicorn<'a, EmulationData>,
-    cpu: Cpu,
+    program_counter: u64,
     fault_data: Vec<FaultData>,
 }
 
+#[derive(Default)]
 struct EmulationData {
     state: RunState,
-    is_positiv: bool,
-    print_output: bool,
+    negative_run: bool,
+    deactivate_print: bool,
     trace_data: HashMap<u64, TraceRecord>,
 }
 
 impl<'a> FaultInjections<'a> {
-    pub fn new(file_data: &ElfFile) -> Self {
-        // Setup simulation data structure
-        let emu_data = EmulationData {
-            state: RunState::Init,
-            is_positiv: true,
-            print_output: true,
-            trace_data: HashMap::new(),
-        };
-
+    pub fn new(file_data: &'a ElfFile) -> Self {
         // Setup platform -> ARMv8-m.base
-        let emu = Unicorn::new_with_data(Arch::ARM, Mode::LITTLE_ENDIAN | Mode::MCLASS, emu_data)
-            .expect("failed to initialize Unicorn instance");
+        let emu = Unicorn::new_with_data(
+            Arch::ARM,
+            Mode::LITTLE_ENDIAN | Mode::MCLASS,
+            EmulationData::default(),
+        )
+        .expect("failed to initialize Unicorn instance");
 
-        // Get file data -> could also be a pointer TODO
-        let temp_file_data = file_data.clone();
         Self {
-            file_data: temp_file_data,
+            file_data,
             emu,
-            cpu: Cpu { pc: 0 },
+            program_counter: 0,
             fault_data: Vec::new(),
         }
     }
@@ -144,14 +136,14 @@ impl<'a> FaultInjections<'a> {
             )
             .expect("failed to write file data");
         // set initial program start address
-        self.cpu.pc = self.file_data.program_header.p_paddr;
+        self.program_counter = self.file_data.program_header.p_paddr;
     }
 
     /// Function to deactivate printf of c program to
     /// avoid unexpected output
     ///
     pub fn deactivate_printf_function(&mut self) {
-        self.emu.get_data_mut().print_output = false;
+        self.emu.get_data_mut().deactivate_print = true;
         self.emu
             .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
             .unwrap();
@@ -233,7 +225,7 @@ impl<'a> FaultInjections<'a> {
             let mut cyc = cycles;
             ret_val = Ok(());
             while ret_val == Ok(()) && cyc != 0 {
-                //println!("Executing address : 0x{:X}", self.emu.get_data().cpu.pc);
+                //println!("Executing address : 0x{:X}", self.emu.get_data().program_counter);
                 ret_val = self.run_steps(1, false);
                 cyc -= 1;
                 println!("PC : 0x{:X}", self.emu.pc_read().unwrap());
@@ -247,12 +239,15 @@ impl<'a> FaultInjections<'a> {
                 self.file_data.program_header.p_paddr + self.file_data.program_header.p_filesz;
 
             // Start from last PC
-            ret_val = self
-                .emu
-                .emu_start(self.cpu.pc | 1, end_address | 1, SECOND_SCALE, cycles);
+            ret_val = self.emu.emu_start(
+                self.program_counter | 1,
+                end_address | 1,
+                SECOND_SCALE,
+                cycles,
+            );
         }
         // Store new PC
-        self.cpu.pc = self.emu.pc_read().unwrap();
+        self.program_counter = self.emu.pc_read().unwrap();
 
         ret_val
     }
@@ -322,7 +317,7 @@ impl<'a> FaultInjections<'a> {
     ///
     pub fn init_states(&mut self, run_state: bool) {
         // Set run type
-        self.emu.get_data_mut().is_positiv = run_state;
+        self.emu.get_data_mut().negative_run = !run_state;
 
         // Set global state to initilized
         self.emu.get_data_mut().state = RunState::Init;

@@ -8,7 +8,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-unicorn-engine = {git = 'https://github.com/lg3696/unicorn', branch = 'fix-memory-leak'}
+unicorn-engine = {git = 'https://github.com/unicorn-engine/unicorn.git', branch = 'dev'}
 # unicorn-engine = "2.0.1"
 elf = "0.7.0"
 log = "0.4.17" 
