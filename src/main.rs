@@ -10,11 +10,11 @@ use disassembly::Disassembly;
 mod fault_attacks;
 
 mod simulation;
+
 use simulation::Simulation;
-
 use std::env;
-use std::process::Command;
 
+mod compile;
 use itertools::Itertools;
 
 use git_version::git_version;
@@ -36,29 +36,15 @@ struct Args {
 fn main() {
     // Get parameter from command line
     let args = Args::parse();
-
     // Set parameter from cli
     env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
-
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
+
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
 
     // Compilation according cli parameter
     if !args.no_compilation {
-        // Compile victim
-        println!("Compile victim if necessary:");
-        let output = Command::new("make")
-            .current_dir("./Content")
-            .output()
-            .expect("failed to execute process");
-        if !output.status.success() {
-            println!("status: {}", output.status);
-            println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-            println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
-        } else {
-            println!("Compilation status: OK\n")
-        }
-        assert!(output.status.success());
+        compile::compile();
     }
 
     // Load victim data
