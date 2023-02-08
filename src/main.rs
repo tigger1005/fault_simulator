@@ -11,12 +11,16 @@ fn main() {
         0x00, 0xF0, 0x01, 0xF8, 0xFE, 0xE7, 0x80, 0xB5, 0x00, 0x20, 0x00, 0xAF, 0x80, 0xBD,
     ];
 
+    // this method needs to be inside main() method
+    // env::set_var("RUST_BACKTRACE", "1");
+
     // Set parameter from cli
-    env::set_var("RAYON_NUM_THREADS", "10");
+    env::set_var("RAYON_NUM_THREADS", "20");
 
     println!("Start threads");
 
-    (0..10000).into_par_iter().for_each(|_| {
+    (0..10000).into_par_iter().for_each(|num| {
+        println!("Number {num}");
         // Setup platform -> ARMv8-m.base
         let mut emu = Unicorn::new(Arch::ARM, Mode::LITTLE_ENDIAN | Mode::MCLASS).unwrap();
         // Setup memory
