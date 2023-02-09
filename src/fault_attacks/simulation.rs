@@ -79,7 +79,7 @@ impl<'a> Simulation<'a> {
     ///
     pub fn record_code_trace(
         &mut self,
-        external_record: Vec<SimulationFaultRecord>,
+        external_record: &[SimulationFaultRecord],
     ) -> Vec<SimulationFaultRecord> {
         // Initialize and load
         self.init_and_load(false);
@@ -123,7 +123,7 @@ impl<'a> Simulation<'a> {
     ///
     pub fn run_with_faults(
         &mut self,
-        external_record: Vec<SimulationFaultRecord>,
+        external_record: &[SimulationFaultRecord],
     ) -> Option<Vec<FaultData>> {
         self.init_and_load(false);
         // Deactivate io print

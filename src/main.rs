@@ -1,21 +1,12 @@
 //#![allow(dead_code)]
-mod elf_file;
-use elf_file::ElfFile;
-
 use clap::Parser;
 
-mod disassembly;
-use disassembly::Disassembly;
-
 mod fault_attacks;
+use fault_attacks::FaultAttacks;
 
-mod simulation;
-
-use simulation::Simulation;
 use std::env;
 
 mod compile;
-use itertools::Itertools;
 
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
@@ -31,6 +22,10 @@ struct Args {
     /// Suppress re-compilation of target program
     #[arg(short, long, default_value_t = false)]
     no_compilation: bool,
+
+    /// Attacks to be executed. Possible values are: all, single, double, bit_flip
+    #[arg(long, default_value_t = String::from("all"))]
+    attack: String,
 }
 
 fn main() {
@@ -47,49 +42,34 @@ fn main() {
         compile::compile();
     }
 
-    // Load victim data
-    let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
+    // Load victim data for attack simulation
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
     println!("Check for correct program behavior:");
-    // Get disassembly
-    let cs = Disassembly::new();
     // Check for correct program behavior
-    let mut simulation = Simulation::new(&file_data);
-    simulation.check_program();
+    attack.check_for_correct_behavior();
 
     println!("\nRun fault simulations:");
-    // Get trace data from negative run
-    let mut simulation = Simulation::new(&file_data);
-    let external_records = simulation.record_code_trace(vec![]);
 
-    let mut success = false;
-    let mut count_sum = 0;
-    // Run cached nop simulation
-    for i in 1..=10 {
-        let (nop_1, count) =
-            fault_attacks::cached_nop_simulation_x_y(&file_data, &external_records, i, 0);
-        count_sum += count;
-        if cs.print_fault_records(nop_1) != 0 {
-            success = true;
-            break;
-        }
-    }
-    if !success {
-        // Run cached double nop simulation
-        let it = (1..=10).combinations_with_replacement(2);
-        for t in it {
-            let (nop, count) =
-                fault_attacks::cached_nop_simulation_x_y(&file_data, &external_records, t[0], t[1]);
-            count_sum += count;
-            if cs.print_fault_records(nop) != 0 {
-                break;
+    // Run attack simulation
+    match args.attack.as_str() {
+        "all" => {
+            if !attack.single_glitch(1..=10).0 {
+                attack.double_glitch(1..=10);
             }
+            attack.single_bit_flip();
         }
+        "single" => {
+            attack.single_glitch(0..=10);
+        }
+        "double" => {
+            attack.double_glitch(0..=10);
+        }
+        "bit_flip" => {
+            attack.single_bit_flip();
+        }
+        _ => println!("No attack selected!"),
     }
-    // Run cached bit-flip simulation
-    let (flip, sum) = fault_attacks::cached_bit_flip_simulation(&file_data, &external_records);
-    count_sum += sum;
-    cs.print_fault_records(flip);
 
     ////////////////////////////////
-    println!("Overall tests executed {count_sum}");
+    println!("Overall tests executed {}", attack.count_sum);
 }

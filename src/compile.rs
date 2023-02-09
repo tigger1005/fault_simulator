@@ -12,7 +12,7 @@ pub fn compile() {
         println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
         println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
     } else {
-        println!("Compiled: OK\n")
+        println!("Compilation status: OK\n")
     }
     assert!(output.status.success());
 }
