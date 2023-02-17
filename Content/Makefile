@@ -12,7 +12,7 @@ CFLAGS = -c -Os -fPIC -Iinclude \
 CFLAGS_LD = -N -Wl,--build-id=none -fPIC -fPIE -g -gdwarf -Os -Wno-unused-but-set-variable -Wno-return-local-addr -fno-inline -fno-ipa-cp-clone \
             -fno-ipa-cp -nostartfiles -nodefaultlibs -march=$(TARGET)
 
-DEPS = include/common.h
+#DEPS = include/common.h
 OBJ = bin/aarch32/obj/entry.o $(patsubst src/%.c,bin/aarch32/obj/%.o,$(wildcard src/*.c))
 
 all: bin/aarch32/bl1.bin
