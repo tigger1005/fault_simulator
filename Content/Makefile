@@ -21,7 +21,7 @@ bin/aarch32/obj/entry.o: src/aarch32/entry.S
 # Target OS detection
 ifeq ($(OS),windows)
 	@mkdir bin/aarch32/obj
-else ifeq ($(OS),linux)
+else # ifeq ($(OS),linux)
 	@mkdir -p bin/aarch32/obj
 endif
 

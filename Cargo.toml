@@ -7,6 +7,9 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[profile.dev.package."*"]
+opt-level = 3
+
 [dependencies]
 unicorn-engine = {git = 'https://github.com/unicorn-engine/unicorn.git', branch = 'dev'}
 # unicorn-engine = "2.0.1"
