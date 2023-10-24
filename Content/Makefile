@@ -19,8 +19,8 @@ all: bin/aarch32/bl1.bin
 
 bin/aarch32/obj/entry.o: src/aarch32/entry.S
 # Target OS detection
-ifeq ($(OS),windows)
-	@mkdir bin/aarch32/obj
+ifeq ($(OS),Windows_NT)
+	@if not exist "bin/aarch32/obj" @mkdir "bin/aarch32/obj"
 else # ifeq ($(OS),linux)
 	@mkdir -p bin/aarch32/obj
 endif
@@ -29,8 +29,8 @@ endif
 
 bin/aarch32/obj/%.o: src/%.c $(DEPS)
 # Target OS detection
-ifeq ($(OS),windows)
-	@mkdir bin/aarch32/obj
+ifeq ($(OS),Windows_NT)
+	@if not exist "bin/aarch32/obj" @mkdir "bin/aarch32/obj"
 else ifeq ($(OS),linux)
 	@mkdir -p bin/aarch32/obj
 endif
@@ -46,4 +46,8 @@ bin/aarch32/bl1.bin: bin/aarch32/bl1.elf
 
 .PHONY: clean
 clean:
+ifeq ($(OS),Windows_NT)
+	@if exist "bin" @rmdir "bin" /s /q
+else # ifeq ($(OS),linux)
 	rm -rf bin
+endif
