@@ -158,7 +158,7 @@ impl<'a> FaultInjections<'a> {
             .add_code_hook(
                 self.file_data.flash_load_img.st_value,
                 self.file_data.flash_load_img.st_value + 1,
-                hook_code_flash_load_img_callback::<EmulationData>,
+                hook_code_flash_load_img_callback,
             )
             .expect("failed to set flash_load_img code hook");
 
@@ -167,7 +167,7 @@ impl<'a> FaultInjections<'a> {
                 HookType::MEM_WRITE,
                 AUTH_BASE,
                 AUTH_BASE + 4,
-                mmio_auth_write_callback::<EmulationData>,
+                mmio_auth_write_callback,
             )
             .expect("failed to set memory hook");
     }
@@ -207,11 +207,7 @@ impl<'a> FaultInjections<'a> {
 
         // IO address space
         self.emu
-            .mmio_map_wo(
-                0x11000000,
-                MINIMUM_MEMORY_SIZE,
-                mmio_serial_write_callback::<EmulationData>,
-            )
+            .mmio_map_wo(0x11000000, MINIMUM_MEMORY_SIZE, mmio_serial_write_callback)
             .expect("failed to map serial IO");
     }
 
@@ -340,7 +336,7 @@ impl<'a> FaultInjections<'a> {
         self.emu.add_code_hook(
             self.file_data.program_header.p_paddr,
             self.file_data.program_header.p_memsz,
-            hook_code_callback::<EmulationData>,
+            hook_code_callback,
         )
     }
 
