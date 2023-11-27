@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ffi::c_void;
 use std::ops::Shl;
 
 use super::{ElfFile, SimulationFaultRecord, TraceRecord};
@@ -10,7 +9,7 @@ use callback::*;
 pub use unicorn_engine::unicorn_const::uc_error;
 use unicorn_engine::unicorn_const::{Arch, HookType, MemType, Mode, Permission, SECOND_SCALE};
 
-use unicorn_engine::{RegisterARM, Unicorn};
+use unicorn_engine::{RegisterARM, UcHookId, Unicorn};
 
 use log::debug;
 
@@ -332,7 +331,7 @@ impl<'a> FaultInjections<'a> {
 
     /// Set code hook for tracing
     ///
-    pub fn set_code_hook(&mut self) -> Result<*mut c_void, uc_error> {
+    pub fn set_code_hook(&mut self) -> Result<UcHookId, uc_error> {
         self.emu.add_code_hook(
             self.file_data.program_header.p_paddr,
             self.file_data.program_header.p_memsz,
@@ -341,7 +340,7 @@ impl<'a> FaultInjections<'a> {
     }
 
     /// Release hook function
-    pub fn release_hook(&mut self, hook: *mut c_void) {
+    pub fn release_hook(&mut self, hook: UcHookId) {
         self.emu.remove_hook(hook).unwrap();
     }
 
