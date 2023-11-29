@@ -54,7 +54,9 @@ impl FaultAttacks {
         for i in range {
             let (nop_1, count) = self.cached_nop_simulation_x_y(&mut records, i, 0);
             self.count_sum += count;
-            if self.cs.print_fault_records(&nop_1) != 0 {
+            self.cs.print_fault_records(&nop_1);
+
+            if !nop_1.is_empty() {
                 self.success = true;
                 break;
             }
@@ -71,7 +73,9 @@ impl FaultAttacks {
         for t in it {
             let (nop, count) = self.cached_nop_simulation_x_y(&mut records, t[0], t[1]);
             self.count_sum += count;
-            if self.cs.print_fault_records(&nop) != 0 {
+            self.cs.print_fault_records(&nop);
+
+            if !nop.is_empty() {
                 self.success = true;
                 break;
             }

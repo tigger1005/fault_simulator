@@ -45,7 +45,7 @@ impl Disassembly {
 
     /// Print fault data of given fault_data_vec vector
     ///
-    pub fn print_fault_records(&self, fault_data_vec: &Vec<Vec<FaultData>>) -> usize {
+    pub fn print_fault_records(&self, fault_data_vec: &Vec<Vec<FaultData>>) {
         fault_data_vec.iter().for_each(|fault_context| {
             fault_context.iter().for_each(|fault_data| {
                 self.bin_to_asm(fault_data);
@@ -53,6 +53,5 @@ impl Disassembly {
             });
             println!();
         });
-        fault_data_vec.len()
     }
 }
