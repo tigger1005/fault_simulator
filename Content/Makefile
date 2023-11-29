@@ -3,7 +3,7 @@ OBJCOPY = arm-none-eabi-objcopy
 OBJDUMP = arm-none-eabi-objdump
 TARGET = armv8-m.main
 
-CFLAGS = -c -Os -fPIC -Iinclude \
+CFLAGS = -c -O3 -fPIC -Iinclude \
          -g -gdwarf -Wno-unused-but-set-variable -fno-inline -fno-omit-frame-pointer \
          -fno-ipa-cp-clone -fno-ipa-cp -fno-common -fno-builtin -ffreestanding -fno-stack-protector -Wall -Wno-format-security \
          -Wno-format-nonliteral -Wno-return-local-addr -Wno-int-to-pointer-cast -march=$(TARGET) \

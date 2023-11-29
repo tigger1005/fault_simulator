@@ -126,8 +126,11 @@ impl FaultAttacks {
         // Print overview
         let n = AtomicUsize::new(0);
         println!(
-        "Fault injection - Insert 2 cached-NOP areas - with A: {num_x} and B: {num_y} consecutive nops"
-    );
+            "Fault injection - Insert {} cached-NOP areas - with A: {} and B: {} consecutive nops",
+            if num_x == 0 || num_y == 0 { 1 } else { 2 },
+            num_x,
+            num_y
+        );
         let bar = ProgressBar::new(records.len() as u64);
         // Setup sender and receiver
         let (sender, receiver) = channel();
