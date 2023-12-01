@@ -5,7 +5,7 @@ use fault_injections::*;
 pub use fault_injections::{FaultData, FaultType};
 
 use log::debug;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 #[derive(Copy, Clone)]
 pub struct TraceRecord {
@@ -39,6 +39,17 @@ impl SimulationFaultRecord {
         self.fault_type = fault_type;
     }
 }
+
+impl fmt::Debug for SimulationFaultRecord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(
+            f,
+            "address: 0x{:X} size: 0x{:?} count: 0x{:?} fault_type: 0x{:?}",
+            self.address, self.size, self.count, self.fault_type
+        )
+    }
+}
+
 
 pub struct Simulation<'a> {
     emu: FaultInjections<'a>,
@@ -79,22 +90,17 @@ impl<'a> Simulation<'a> {
     ///
     pub fn record_code_trace(
         &mut self,
-        external_record: &[SimulationFaultRecord],
+        faults: Vec<SimulationFaultRecord>,
     ) -> Vec<SimulationFaultRecord> {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
-        // Insert fault injections infront of tracing code
-        external_record
-            .iter()
-            .for_each(|record| self.emu.set_fault(*record));
-
-        // Set hook and run program
-        let hook = self.emu.set_code_hook().unwrap();
+        // Set hook with faults and run program
+        self.emu.set_trace_hook(faults);
         let _ret = self.emu.run_steps(MAX_INSTRUCTIONS, false);
-        self.emu.release_hook(hook);
+        self.emu.release_usage_fault_hooks();
         // Convert from hashmap to vector array
         SimulationFaultRecord::new(self.emu.get_trace())
     }

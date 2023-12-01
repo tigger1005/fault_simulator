@@ -21,11 +21,11 @@ impl Disassembly {
     fn bin_to_asm(&self, fault_data: &FaultData) {
         let insns_data = self
             .cs
-            .disasm_all(&fault_data.data, fault_data.address)
+            .disasm_all(&fault_data.data, fault_data.fault.address)
             .expect("Failed to disassemble");
         let insns_data_changed = self
             .cs
-            .disasm_all(&fault_data.data_changed, fault_data.address)
+            .disasm_all(&fault_data.data_changed, fault_data.fault.address)
             .expect("Failed to disassemble");
 
         for i in 0..insns_data.as_ref().len() {

@@ -49,7 +49,7 @@ impl FaultAttacks {
     /// Return (success: bool, number_of_attacks: usize)
     pub fn single_glitch(&mut self, range: std::ops::RangeInclusive<usize>) -> (bool, usize) {
         // Get trace data from negative run
-        let mut records = trace_run(&self.file_data, &[]);
+        let mut records = trace_run(&self.file_data, vec![]);
 
         for i in range {
             let (nop_1, count) = self.cached_nop_simulation_x_y(&mut records, i, 0);
@@ -66,7 +66,7 @@ impl FaultAttacks {
 
     pub fn double_glitch(&mut self, range: std::ops::RangeInclusive<usize>) -> (bool, usize) {
         // Get trace data from negative run
-        let mut records = trace_run(&self.file_data, &[]);
+        let mut records = trace_run(&self.file_data, vec![]);
 
         // Run cached double nop simulation
         let it = range.combinations_with_replacement(2);
@@ -89,7 +89,7 @@ impl FaultAttacks {
     pub fn single_bit_flip(&mut self) -> (bool, usize) {
         let mut count = 0;
         // Get trace data from negative run
-        let records = trace_run(&self.file_data, &[]);
+        let records = trace_run(&self.file_data, vec![]);
         // Print overview
         records.iter().for_each(|rec| count += rec.size * 8);
         let bar = ProgressBar::new(count as u64);
@@ -148,7 +148,7 @@ impl FaultAttacks {
                 simulation_run(temp_file_data, &[*record], s);
             } else {
                 // Get intermediate trace data from negative run with inserted nop -> new program flow
-                let intermediate_records = trace_run(temp_file_data, &[*record]);
+                let intermediate_records = trace_run(temp_file_data, vec![*record]);
 
                 n.fetch_add(intermediate_records.len(), Ordering::Relaxed);
                 // Run full test with intemediate trace data
@@ -169,7 +169,10 @@ impl FaultAttacks {
     }
 }
 
-fn trace_run(file_data: &ElfFile, records: &[SimulationFaultRecord]) -> Vec<SimulationFaultRecord> {
+fn trace_run(
+    file_data: &ElfFile,
+    records: Vec<SimulationFaultRecord>,
+) -> Vec<SimulationFaultRecord> {
     let mut simulation = Simulation::new(file_data);
     simulation.record_code_trace(records)
 }
