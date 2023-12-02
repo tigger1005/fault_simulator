@@ -68,16 +68,31 @@ pub(super) fn hook_code_flash_load_img_callback(
 /// Code Hook for tracing functionality
 ///
 pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, size: u32) {
+    // Prepare data record
     let record = TraceRecord {
         size: size as usize,
         count: 1,
     };
 
-    emu.get_data_mut()
-        .trace_data
-        .entry(address)
-        .and_modify(|record| record.count += 1)
-        .or_insert(record);
+    let is_not_empty = !emu.get_data().trace_data.is_empty();
+    // Check if there is a fault inserted
+    // Do also record if record table is not empty
+    if is_not_empty || emu.get_data_mut().fault_data.is_empty() {
+        emu.get_data_mut()
+            .trace_data
+            .entry(address)
+            .and_modify(|record| record.count += 1)
+            .or_insert(record);
+    } else {
+        // If yes, wait for recording till fault is reached
+        // There should only one fault entry!
+        let fault = emu.get_data_mut().fault_data.get(0).unwrap();
+        // Check for address
+        if fault.fault.address == address {
+            // Set first entry
+            emu.get_data_mut().trace_data.insert(address, record);
+        }
+    }
 }
 
 /// Code Hook for tracing functionality
