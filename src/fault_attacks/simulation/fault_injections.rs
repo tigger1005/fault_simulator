@@ -75,6 +75,7 @@ pub struct FaultInjections<'a> {
 #[derive(Default)]
 struct EmulationData {
     state: RunState,
+    start_trace: bool,
     negative_run: bool,
     deactivate_print: bool,
     trace_data: HashMap<u64, TraceRecord>,
@@ -345,6 +346,8 @@ impl<'a> FaultInjections<'a> {
         sim_faults
             .iter()
             .for_each(|sim_fault| self.set_fault(sim_fault.clone()));
+
+        self.emu.get_data_mut().start_trace = sim_faults.is_empty();
     }
 
     /// Set hook and data to internal emu structure for accessibility
