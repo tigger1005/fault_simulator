@@ -53,11 +53,11 @@ pub enum RunState {
 #[derive(Clone, Copy, Debug)]
 pub enum FaultType {
     Uninitialized,
-    NopCached(usize),
+    Glitch(usize),
     BitFlipCached(usize),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FaultData {
     pub data: Vec<u8>,
     pub data_changed: Vec<u8>,
@@ -68,7 +68,6 @@ pub struct FaultInjections<'a> {
     file_data: &'a ElfFile,
     emu: Unicorn<'a, EmulationData>,
     program_counter: u64,
-    system_hooks: Vec<UcHookId>,
     usage_hooks: Vec<UcHookId>,
 }
 
@@ -96,7 +95,7 @@ impl<'a> FaultInjections<'a> {
             file_data,
             emu,
             program_counter: 0,
-            system_hooks: Vec::new(),
+            //            system_hooks: Vec::new(),
             usage_hooks: Vec::new(),
         }
     }
@@ -251,7 +250,7 @@ impl<'a> FaultInjections<'a> {
         };
         // Generate data with fault specific handling
         match fault_data_entry.fault.fault_type {
-            FaultType::NopCached(number) => {
+            FaultType::Glitch(number) => {
                 fault_data_entry.fault.size = 0;
                 let mut address = fault_data_entry.fault.address;
                 for _count in 0..number {
@@ -285,15 +284,6 @@ impl<'a> FaultInjections<'a> {
                 panic!("No fault type set")
             }
         }
-
-        // Write generated data to address
-        self.emu
-            .mem_write(
-                fault_data_entry.fault.address,
-                &fault_data_entry.data_changed,
-            )
-            .unwrap();
-
         // Push to fault data vector
         self.emu.get_data_mut().fault_data.push(fault_data_entry);
     }
@@ -345,7 +335,7 @@ impl<'a> FaultInjections<'a> {
         );
         sim_faults
             .iter()
-            .for_each(|sim_fault| self.set_fault(sim_fault.clone()));
+            .for_each(|sim_fault| self.set_fault(*sim_fault));
 
         self.emu.get_data_mut().start_trace = sim_faults.is_empty();
     }
@@ -353,17 +343,16 @@ impl<'a> FaultInjections<'a> {
     /// Set hook and data to internal emu structure for accessibility
     /// during callback
     ///
-    pub fn set_usage_fault_hook(&mut self, sim_fault: SimulationFaultRecord) {
+    pub fn set_usage_fault_hook(&mut self, fault: &FaultData) {
         self.usage_hooks.push(
             self.emu
                 .add_code_hook(
-                    sim_fault.address,
-                    sim_fault.address + 1, //sim_fault.size as u64,
-                    hook_nop_code_callback::<EmulationData>,
+                    fault.fault.address,
+                    fault.fault.address + 1,
+                    hook_nop_code_callback,
                 )
                 .expect("failed to setup fault hook"),
         );
-        self.set_fault(sim_fault);
     }
 
     /// Release hook function and all stored data in internal structure

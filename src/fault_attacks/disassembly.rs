@@ -45,13 +45,16 @@ impl Disassembly {
 
     /// Print fault data of given fault_data_vec vector
     ///
-    pub fn print_fault_records(&self, fault_data_vec: &Vec<Vec<FaultData>>) {
-        fault_data_vec.iter().for_each(|fault_context| {
-            fault_context.iter().for_each(|fault_data| {
-                self.bin_to_asm(fault_data);
-                println!();
+    pub fn print_fault_records(&self, fault_data_vec: &[Vec<FaultData>]) {
+        fault_data_vec
+            .iter()
+            .enumerate()
+            .for_each(|(attack_num, fault_context)| {
+                println!("Attack number {}", attack_num + 1);
+                fault_context.iter().for_each(|fault_data| {
+                    self.bin_to_asm(fault_data);
+                });
+                println!("------------------------");
             });
-            println!();
-        });
     }
 }

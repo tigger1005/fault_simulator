@@ -141,7 +141,7 @@ impl FaultAttacks {
         let temp_file_data = &self.file_data;
 
         records.into_par_iter().for_each_with(sender, |s, record| {
-            record.set_fault_type(FaultType::NopCached(num_x));
+            record.set_fault_type(FaultType::Glitch(num_x));
 
             if num_y == 0 {
                 n.fetch_add(1, Ordering::Relaxed);
@@ -155,7 +155,7 @@ impl FaultAttacks {
                 intermediate_records
                     .into_iter()
                     .for_each(|mut intermediate_record| {
-                        intermediate_record.set_fault_type(FaultType::NopCached(num_y));
+                        intermediate_record.set_fault_type(FaultType::Glitch(num_y));
                         simulation_run(temp_file_data, &[*record, intermediate_record], s);
                     });
             }

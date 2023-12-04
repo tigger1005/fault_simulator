@@ -1,5 +1,6 @@
 use super::{
-    debug, EmulationData, MemType, RegisterARM, RunState, TraceRecord, Unicorn, BOOT_STAGE,
+    debug, EmulationData, FaultData, MemType, RegisterARM, RunState, TraceRecord, Unicorn,
+    BOOT_STAGE,
 };
 
 /// Callback for auth mem IO write access
@@ -84,9 +85,11 @@ pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64,
     } else {
         // Wait for recording till fault is reached
         // There should only one fault entry!
-        let fault = emu.get_data_mut().fault_data.get(0).unwrap();
+        let fault = emu.get_data_mut().fault_data.first().unwrap().clone();
         // Check for address
         if fault.fault.address == address {
+            // Skip instruction(s)
+            skip_asm_cmds(emu, &fault);
             // Start tracing
             emu.get_data_mut().start_trace = true;
         }
@@ -95,25 +98,28 @@ pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64,
 
 /// Code Hook for tracing functionality
 ///
-pub(super) fn hook_nop_code_callback<D>(
-    emu: &mut Unicorn<EmulationData>,
-    address: u64,
-    _size: u32,
-) {
+pub(super) fn hook_nop_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, _size: u32) {
     // search for corresponding fault
-    let fault = emu
-        .get_data()
-        .fault_data
-        .iter()
-        .filter(|f| f.fault.address == address)
-        .next()
-        .unwrap();
-    //println!("{fault:?}");
+    if let Some(fault) = emu.get_data().fault_data.first() {
+        let fault = fault.clone();
+        // Check address
+        if fault.fault.address == address {
+            // println!("Taken : 0x{:X}", fault.fault.address);
+            emu.get_data_mut().fault_data.remove(0);
+            // Skip instruction(s)
+            skip_asm_cmds(emu, &fault);
+        }
+    }
+}
 
-    // Skip one instruction
+// Skip instruction(s)
+fn skip_asm_cmds(emu: &mut Unicorn<EmulationData>, fault: &FaultData) {
     // Save and restore CPSR register as Unicorn changes its value
     let cpsr = emu.reg_read(RegisterARM::CPSR).unwrap();
-    emu.reg_write(RegisterARM::PC, (address + fault.fault.size as u64) | 1)
-        .unwrap();
+    emu.reg_write(
+        RegisterARM::PC,
+        (fault.fault.address + fault.fault.size as u64) | 1,
+    )
+    .unwrap();
     emu.reg_write(RegisterARM::CPSR, cpsr).unwrap();
 }

@@ -50,7 +50,6 @@ impl fmt::Debug for SimulationFaultRecord {
     }
 }
 
-
 pub struct Simulation<'a> {
     emu: FaultInjections<'a>,
 }
@@ -134,15 +133,32 @@ impl<'a> Simulation<'a> {
         self.init_and_load(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
-        // Set nop
+
+        // Write all faults into fault_data list
         external_record
             .iter()
-            .for_each(|record| self.emu.set_fault(*record));
-        // Run
-        let _ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
-        if self.emu.get_state() == RunState::Success {
-            return Some(self.emu.get_fault_data().clone());
+            .for_each(|attack| self.emu.set_fault(*attack));
+
+        // Inverse order of list
+
+        let fault_data = self.emu.get_fault_data().clone();
+        // Get the first one, set it and start
+        if !fault_data.is_empty() {
+            // Set fault hooks
+            fault_data
+                .iter()
+                .for_each(|fault_data_entry| self.emu.set_usage_fault_hook(fault_data_entry));
+
+            // Run
+            let _ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+            // Release all hooks
+            self.emu.release_usage_fault_hooks();
+            // Check state
+            if self.emu.get_state() == RunState::Success {
+                return Some(fault_data);
+            }
         }
+
         None
     }
 }
