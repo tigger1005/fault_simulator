@@ -7,8 +7,8 @@ void launch_oem_ram_app(void);
 #define GLOBAL_CFI_START_VALUE 0x123B
 #define GLOBAL_CFI_END_VALUE (GLOBAL_CFI_START_VALUE - 3)
 
-#define val1 (*(uint32_t *)IMG_LOAD_ADDR)
-#define val2 (*(uint32_t *)&image_good_val)
+#define val1 (*(volatile uint32_t *)IMG_LOAD_ADDR)
+#define val2 (*(volatile uint32_t *)&image_good_val)
 
 /*******************************************************************************
  * Function Name:  launch_oem_ram_app
@@ -32,15 +32,17 @@ int main() {
 
   if (val1 == val2) {
     serial_puts("Verification positive path  : OK\n");
-    // serial_puts("Verification positive path  : OK\n");
+//    serial_puts("Verification positive path  : OK\n");
 
-    if (val1 != val2) {
-      __SET_SIM_FAILED();
+    if (val1 != val2)
+    {
+        FIH_PANIC;
     }
+
     launch_oem_ram_app();
   } else {
     serial_puts("Verification negative path : OK\n");
-    __SET_SIM_FAILED();
+    FIH_PANIC;
   }
   return 0;
 }

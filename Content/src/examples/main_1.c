@@ -32,10 +32,16 @@ int main() {
 
   if (val1 == val2) {
     serial_puts("Verification positive path  : OK\n");
+
+    if (val1 != val2)
+    {
+        FIH_PANIC;
+    }
+
     launch_oem_ram_app();
   } else {
     serial_puts("Verification negative path : OK\n");
-    __SET_SIM_FAILED();
+    FIH_PANIC;
   }
   return 0;
 }
