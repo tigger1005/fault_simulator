@@ -56,7 +56,7 @@ fn main() {
             if !attack.single_glitch(1..=10).0 {
                 attack.double_glitch(1..=10);
             }
-            attack.single_bit_flip();
+//            attack.single_bit_flip();
         }
         "single" => {
             attack.single_glitch(1..=10);
