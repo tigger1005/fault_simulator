@@ -5,9 +5,6 @@
 
 void launch_oem_ram_app(void);
 
-#define GLOBAL_CFI_START_VALUE 0x123B
-#define GLOBAL_CFI_END_VALUE (GLOBAL_CFI_START_VALUE - 3)
-
 #define val1 (*(uint32_t *)IMG_LOAD_ADDR)
 #define val2 (*(uint32_t *)&image_good_val)
 
