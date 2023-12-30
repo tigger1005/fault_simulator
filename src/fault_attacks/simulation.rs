@@ -5,30 +5,28 @@ use fault_injections::*;
 pub use fault_injections::{FaultData, FaultType};
 
 use log::debug;
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
 #[derive(Copy, Clone)]
 pub struct TraceRecord {
+    address: u64,
     size: usize,
-    count: usize,
 }
 
 #[derive(Clone, Copy)]
 pub struct SimulationFaultRecord {
     pub address: u64,
     pub size: usize,
-    pub count: usize,
     pub fault_type: FaultType,
 }
 
 impl SimulationFaultRecord {
-    pub fn new(record_map: HashMap<u64, TraceRecord>) -> Vec<SimulationFaultRecord> {
+    pub fn new(record_map: Vec<TraceRecord>) -> Vec<SimulationFaultRecord> {
         let mut list: Vec<SimulationFaultRecord> = Vec::new();
         record_map.iter().for_each(|record| {
             list.push(SimulationFaultRecord {
-                address: *record.0,
-                size: record.1.size,
-                count: record.1.count,
+                address: record.address,
+                size: record.size,
                 fault_type: FaultType::Uninitialized,
             });
         });
@@ -44,8 +42,8 @@ impl fmt::Debug for SimulationFaultRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
             f,
-            "address: 0x{:X} size: 0x{:?} count: 0x{:?} fault_type: 0x{:?}",
-            self.address, self.size, self.count, self.fault_type
+            "address: 0x{:X} size: 0x{:?} fault_type: 0x{:?}",
+            self.address, self.size, self.fault_type
         )
     }
 }

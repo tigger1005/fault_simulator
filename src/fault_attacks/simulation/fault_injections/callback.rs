@@ -74,14 +74,10 @@ pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64,
         // Prepare data record
         let record = TraceRecord {
             size: size as usize,
-            count: 1,
+            address: address,
         };
         // Record data
-        emu.get_data_mut()
-            .trace_data
-            .entry(address)
-            .and_modify(|record| record.count += 1)
-            .or_insert(record);
+        emu.get_data_mut().trace_data.push(record);
     } else {
         // Wait for recording till fault is reached
         // There should only one fault entry!

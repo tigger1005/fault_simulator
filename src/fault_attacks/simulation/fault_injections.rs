@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::Shl;
 
 use super::{ElfFile, SimulationFaultRecord, TraceRecord};
@@ -77,7 +76,7 @@ struct EmulationData {
     start_trace: bool,
     negative_run: bool,
     deactivate_print: bool,
-    trace_data: HashMap<u64, TraceRecord>,
+    trace_data: Vec<TraceRecord>,
     fault_data: Vec<FaultData>,
 }
 
@@ -367,7 +366,7 @@ impl<'a> FaultInjections<'a> {
     }
 
     /// Copy trace data to caller
-    pub fn get_trace(&self) -> HashMap<u64, TraceRecord> {
+    pub fn get_trace(&self) -> Vec<TraceRecord> {
         self.emu.get_data().trace_data.clone()
     }
 }
