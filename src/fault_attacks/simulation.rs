@@ -7,34 +7,29 @@ pub use fault_injections::{FaultData, FaultType};
 use log::debug;
 use std::fmt;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct TraceRecord {
-    address: u64,
-    size: usize,
-}
-
-#[derive(Clone, Copy)]
-pub struct SimulationFaultRecord {
     pub address: u64,
     pub size: usize,
+    pub asm_instruction: Vec<u8>,
+    pub cpsr: u32,
+}
+
+#[derive(Clone)]
+pub struct SimulationFaultRecord {
+    pub index: usize,
+    pub record: TraceRecord,
     pub fault_type: FaultType,
 }
 
-impl SimulationFaultRecord {
-    pub fn new(record_map: Vec<TraceRecord>) -> Vec<SimulationFaultRecord> {
-        let mut list: Vec<SimulationFaultRecord> = Vec::new();
-        record_map.iter().for_each(|record| {
-            list.push(SimulationFaultRecord {
-                address: record.address,
-                size: record.size,
-                fault_type: FaultType::Uninitialized,
-            });
-        });
-
-        list
-    }
-    pub fn set_fault_type(&mut self, fault_type: FaultType) {
-        self.fault_type = fault_type;
+impl TraceRecord {
+    pub fn get_fault_record(&self, index: usize, fault_type: FaultType) -> SimulationFaultRecord {
+        let fault_record = SimulationFaultRecord {
+            index,
+            record: self.clone(),
+            fault_type,
+        };
+        fault_record
     }
 }
 
@@ -42,8 +37,8 @@ impl fmt::Debug for SimulationFaultRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(
             f,
-            "address: 0x{:X} size: 0x{:?} fault_type: 0x{:?}",
-            self.address, self.size, self.fault_type
+            "address: 0x{:X} size: 0x{:?} fault_type: {:?}",
+            self.record.address, self.record.size, self.fault_type
         )
     }
 }
@@ -87,19 +82,51 @@ impl<'a> Simulation<'a> {
     ///
     pub fn record_code_trace(
         &mut self,
+        full_trace: bool,
         faults: Vec<SimulationFaultRecord>,
-    ) -> Vec<SimulationFaultRecord> {
+    ) -> Vec<TraceRecord> {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
+        // Write all faults into fault_data list
+        faults
+            .iter()
+            .for_each(|attack| self.emu.set_fault(attack.clone()));
+
         // Set hook with faults and run program
         self.emu.set_trace_hook(faults);
-        let _ret = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+
+        let fault_data = self.emu.get_fault_data().clone();
+
+        // If full trace is required, switch on tracing from the beginning
+        if full_trace {
+            self.emu.start_tracing();
+        }
+
+        // Get the first one, set it and start
+        fault_data.iter().for_each(|fault| {
+            let mut ret_val = Ok(());
+            if fault.fault.index != 0 {
+                ret_val = self.emu.run_steps(fault.fault.index, false);
+            }
+            if ret_val.is_ok() {
+                self.emu.skip_asm_cmds(fault);
+                // If full trace is required, add fault cmds to trace
+                if full_trace {
+                    self.emu.add_to_trace(fault);
+                }
+            }
+        });
+        // Start tracing
+        self.emu.start_tracing();
+
+        // Run
+        let _ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+
         self.emu.release_usage_fault_hooks();
-        // Convert from hashmap to vector array
-        SimulationFaultRecord::new(self.emu.get_trace())
+        self.emu.get_trace()
     }
 
     fn run(&mut self, run_successful: bool) {
@@ -135,22 +162,28 @@ impl<'a> Simulation<'a> {
         // Write all faults into fault_data list
         external_record
             .iter()
-            .for_each(|attack| self.emu.set_fault(*attack));
-
-        // Inverse order of list
+            .for_each(|attack| self.emu.set_fault(attack.clone()));
 
         let fault_data = self.emu.get_fault_data().clone();
         // Get the first one, set it and start
         if !fault_data.is_empty() {
-            // Set fault hooks
-            fault_data
-                .iter()
-                .for_each(|fault_data_entry| self.emu.set_usage_fault_hook(fault_data_entry));
+            fault_data.iter().for_each(|fault| {
+                let mut ret_val = Ok(());
+                if fault.fault.index != 0 {
+                    ret_val = self.emu.run_steps(fault.fault.index, false);
+                }
+                if ret_val.is_ok() {
+                    self.emu.skip_asm_cmds(fault);
+                }
+            });
+
+            if self.emu.get_state() == RunState::Success {
+                println!("Da schein ein Fehler aufgetreten zu sein");
+                return None;
+            }
 
             // Run
             let _ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
-            // Release all hooks
-            self.emu.release_usage_fault_hooks();
             // Check state
             if self.emu.get_state() == RunState::Success {
                 return Some(fault_data);

@@ -1,5 +1,6 @@
-//#![allow(dead_code)]
 use clap::Parser;
+use std::io::stdout;
+use std::io::{self, Write};
 
 mod fault_attacks;
 use fault_attacks::FaultAttacks;
@@ -56,7 +57,7 @@ fn main() {
             if !attack.single_glitch(1..=10).0 {
                 attack.double_glitch(1..=10);
             }
-//            attack.single_bit_flip();
+            //            attack.single_bit_flip();
         }
         "single" => {
             attack.single_glitch(1..=10);
@@ -64,12 +65,24 @@ fn main() {
         "double" => {
             attack.double_glitch(1..=10);
         }
-        "bit_flip" => {
-            attack.single_bit_flip();
-        }
+        // "bit_flip" => {
+        //     attack.single_bit_flip();
+        // }
         _ => println!("No attack selected!"),
     }
 
+    attack.print_fault_data();
     ////////////////////////////////
     println!("Overall tests executed {}", attack.count_sum);
+
+    {
+        print!("\nList trace for attack number : (Return for no list): ");
+        stdout().flush().unwrap();
+        let mut buffer = String::new();
+        if io::stdin().read_line(&mut buffer).is_ok() {
+            if let Ok(number) = buffer.trim().parse::<usize>() {
+                attack.print_trace_for_fault(number - 1);
+            }
+        }
+    }
 }

@@ -1,6 +1,5 @@
 use super::{
-    debug, EmulationData, FaultData, MemType, RegisterARM, RunState, TraceRecord, Unicorn,
-    BOOT_STAGE,
+    debug, EmulationData, MemType, RegisterARM, RunState, TraceRecord, Unicorn, BOOT_STAGE,
 };
 
 /// Callback for auth mem IO write access
@@ -72,50 +71,81 @@ pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64,
     // Check if tracing is already started
     if emu.get_data().start_trace {
         // Prepare data record
-        let record = TraceRecord {
+        let mut record = TraceRecord {
             size: size as usize,
             address: address,
+            asm_instruction: vec![0x00; size as usize],
+            cpsr: emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
         };
+        emu.mem_read(address, &mut record.asm_instruction).unwrap();
+
         // Record data
         emu.get_data_mut().trace_data.push(record);
-    } else {
-        // Wait for recording till fault is reached
-        // There should only one fault entry!
-        let fault = emu.get_data_mut().fault_data.first().unwrap().clone();
-        // Check for address
-        if fault.fault.address == address {
-            // Skip instruction(s)
-            skip_asm_cmds(emu, &fault);
-            // Start tracing
-            emu.get_data_mut().start_trace = true;
-        }
     }
 }
 
-/// Code Hook for tracing functionality
-///
-pub(super) fn hook_nop_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, _size: u32) {
-    // search for corresponding fault
-    if let Some(fault) = emu.get_data().fault_data.first() {
-        let fault = fault.clone();
-        // Check address
-        if fault.fault.address == address {
-            // println!("Taken : 0x{:X}", fault.fault.address);
-            emu.get_data_mut().fault_data.remove(0);
-            // Skip instruction(s)
-            skip_asm_cmds(emu, &fault);
-        }
-    }
-}
+// Code Hook for attack simulation
+//
+// 1. Case: Single attack
+//     a. Record negative command trace: cmd_trace
+//         a1. Analyze trace to find double addresses -> Set count of double addresses from 1 to n
+//             Setup hashtable if value is already in list count++ in hash table and set count of vec array to new count value
+//     b. Attack inserted from start to beginning of neagtive test flow cmd_trace[0..]
+//         b1. Go through the list if address match check count: If count > 1: count-- else insert attack remove entry
+// 2. Case: Double attack
+//     a. Set single attack -> Start record after empty fault array
+//         a1. Analyze trace to find double addresses -> Set count of double addresses from 1 to n
+//             Setup hashtable if value is already in list count++ in hash table and set count of vec array to new count value
+//     b. Attack inserted from start to beginning of neagtive test flow cmd_trace[0..]
+//         b1. Go through the list if address match check count: If count > 1: count-- else insert attack remove entry
+//
+// pub(super) fn hook_nop_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, _size: u32) {
+//     // search for corresponding fault
+//     if let Some(fault) = emu.get_data().fault_data.first() {
+//         let fault = fault.clone();
+//         // Check address
+//         if fault.fault.address == address {
+//             // println!("Taken : 0x{:X}", fault.fault.address);
+//             emu.get_data_mut().fault_data.remove(0);
+//             // Skip instruction(s)
+//             skip_asm_cmds(emu, &fault);
+//         }
+//     }
+// }
+
+// Code Hook for tracing functionality with attack simulation
+//
+// pub(super) fn hook_nop_code_callback_trace(
+//     emu: &mut Unicorn<EmulationData>,
+//     address: u64,
+//     size: u32,
+// ) {
+//     // search for corresponding fault
+//     if let Some(fault) = emu.get_data().fault_data.first() {
+//         let fault = fault.clone();
+//         // Check address
+//         if fault.fault.address == address {
+//             // println!("Taken : 0x{:X}", fault.fault.address);
+//             emu.get_data_mut().fault_data.remove(0);
+//             // Skip instruction(s)
+//             skip_asm_cmds(emu, &fault);
+//         }
+//     }
+//     // Record complete trace flow
+//     emu.get_data_mut().trace_data.push(TraceRecord {
+//         size: size as usize,
+//         address: address,
+//     });
+// }
 
 // Skip instruction(s)
-fn skip_asm_cmds(emu: &mut Unicorn<EmulationData>, fault: &FaultData) {
-    // Save and restore CPSR register as Unicorn changes its value
-    let cpsr = emu.reg_read(RegisterARM::CPSR).unwrap();
-    emu.reg_write(
-        RegisterARM::PC,
-        (fault.fault.address + fault.fault.size as u64) | 1,
-    )
-    .unwrap();
-    emu.reg_write(RegisterARM::CPSR, cpsr).unwrap();
-}
+// fn skip_asm_cmds(emu: &mut Unicorn<EmulationData>, fault: &FaultData) {
+//     // Save and restore CPSR register as Unicorn changes its value
+//     let cpsr = emu.reg_read(RegisterARM::CPSR).unwrap();
+//     emu.reg_write(
+//         RegisterARM::PC,
+//         (fault.fault.address + fault.fault.size as u64) | 1,
+//     )
+//     .unwrap();
+//     emu.reg_write(RegisterARM::CPSR, cpsr).unwrap();
+// }

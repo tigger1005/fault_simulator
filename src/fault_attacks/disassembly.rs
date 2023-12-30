@@ -1,6 +1,8 @@
 use crate::fault_attacks::simulation::FaultData;
 use capstone::prelude::*;
 
+use super::simulation::TraceRecord;
+
 pub struct Disassembly {
     cs: Capstone,
 }
@@ -18,14 +20,14 @@ impl Disassembly {
         Self { cs }
     }
 
-    fn bin_to_asm(&self, fault_data: &FaultData) {
+    fn disassembly_fault_data(&self, fault_data: &FaultData) {
         let insns_data = self
             .cs
-            .disasm_all(&fault_data.data, fault_data.fault.address)
+            .disasm_all(&fault_data.data, fault_data.fault.record.address)
             .expect("Failed to disassemble");
         let insns_data_changed = self
             .cs
-            .disasm_all(&fault_data.data_changed, fault_data.fault.address)
+            .disasm_all(&fault_data.data_changed, fault_data.fault.record.address)
             .expect("Failed to disassemble");
 
         for i in 0..insns_data.as_ref().len() {
@@ -43,18 +45,56 @@ impl Disassembly {
         }
     }
 
+    fn disassembly_trace_record(&self, trace_record: &TraceRecord) {
+        let insns_data = self
+            .cs
+            .disasm_all(&trace_record.asm_instruction, trace_record.address)
+            .expect("Failed to disassemble");
+        for i in 0..insns_data.as_ref().len() {
+            let ins = &insns_data.as_ref()[i];
+            let flag_n = (trace_record.cpsr & 0x80000000) >> 31;
+            let flag_z = (trace_record.cpsr & 0x40000000) >> 30;
+            let flag_c = (trace_record.cpsr & 0x20000000) >> 29;
+            let flag_v = (trace_record.cpsr & 0x10000000) >> 28;
+
+            println!(
+                "0x{:X}:  {:6} {:40}       <NZCV:{}{}{}{}>",
+                ins.address(),
+                ins.mnemonic().unwrap(),
+                ins.op_str().unwrap(),
+                flag_n,
+                flag_z,
+                flag_c,
+                flag_v
+            );
+        }
+    }
+
     /// Print fault data of given fault_data_vec vector
     ///
-    pub fn print_fault_records(&self, fault_data_vec: &[Vec<FaultData>]) {
-        fault_data_vec
-            .iter()
-            .enumerate()
-            .for_each(|(attack_num, fault_context)| {
-                println!("Attack number {}", attack_num + 1);
-                fault_context.iter().for_each(|fault_data| {
-                    self.bin_to_asm(fault_data);
+    pub fn print_fault_records(&self, fault_data_vec: &Option<Vec<Vec<FaultData>>>) {
+        if let Some(fault_data_vec) = fault_data_vec {
+            fault_data_vec
+                .iter()
+                .enumerate()
+                .for_each(|(attack_num, fault_context)| {
+                    println!("Attack number {}", attack_num + 1);
+                    fault_context.iter().for_each(|fault_data| {
+                        self.disassembly_fault_data(fault_data);
+                    });
+                    println!("------------------------");
                 });
-                println!("------------------------");
+        }
+    }
+
+    /// Print trace_record of given trace_records vector
+    ///
+    pub fn print_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
+        if let Some(trace_records) = trace_records {
+            trace_records.iter().for_each(|trace_record| {
+                self.disassembly_trace_record(trace_record);
             });
+            println!("------------------------");
+        }
     }
 }
