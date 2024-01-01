@@ -99,10 +99,10 @@ impl FaultAttacks {
         let mut count;
 
         // Run cached double nop simulation
-        let it = range.combinations_with_replacement(2);
+        let it = range.clone().cartesian_product(range);
         for t in it {
             (self.fault_data, count) =
-                self.cached_nop_simulation_x_y(&mut records, low_complexity, t[0], t[1]);
+                self.cached_nop_simulation_x_y(&mut records, low_complexity, t.0, t.1);
             self.count_sum += count;
 
             if self.fault_data.is_some() {
