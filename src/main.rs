@@ -27,6 +27,14 @@ struct Args {
     /// Attacks to be executed. Possible values are: all, single, double, bit_flip
     #[arg(long, default_value_t = String::from("all"))]
     attack: String,
+
+    /// Activate trace analysis of picked fault
+    #[arg(short, long, default_value_t = false)]
+    analysis: bool,
+
+    /// Switch on low complexity attack-scan (same addresses are discarded)
+    #[arg(short, long, default_value_t = false)]
+    low_complexity: bool,
 }
 
 fn main() {
@@ -54,16 +62,16 @@ fn main() {
     // Run attack simulation
     match args.attack.as_str() {
         "all" => {
-            if !attack.single_glitch(1..=10).0 {
-                attack.double_glitch(1..=10);
+            if !attack.single_glitch(args.low_complexity, 1..=10).0 {
+                attack.double_glitch(args.low_complexity, 1..=10);
             }
             //            attack.single_bit_flip();
         }
         "single" => {
-            attack.single_glitch(1..=10);
+            attack.single_glitch(args.low_complexity, 1..=10);
         }
         "double" => {
-            attack.double_glitch(1..=10);
+            attack.double_glitch(args.low_complexity, 1..=10);
         }
         // "bit_flip" => {
         //     attack.single_bit_flip();
@@ -75,13 +83,19 @@ fn main() {
     ////////////////////////////////
     println!("Overall tests executed {}", attack.count_sum);
 
-    {
-        print!("\nList trace for attack number : (Return for no list): ");
-        stdout().flush().unwrap();
-        let mut buffer = String::new();
-        if io::stdin().read_line(&mut buffer).is_ok() {
-            if let Ok(number) = buffer.trim().parse::<usize>() {
-                attack.print_trace_for_fault(number - 1);
+    if args.analysis {
+        loop {
+            {
+                print!("\nList trace for attack number : (Return for no list): ");
+                stdout().flush().unwrap();
+                let mut buffer = String::new();
+                if io::stdin().read_line(&mut buffer).is_ok() {
+                    if let Ok(number) = buffer.trim().parse::<usize>() {
+                        attack.print_trace_for_fault(number - 1);
+                        continue;
+                    }
+                }
+                break;
             }
         }
     }

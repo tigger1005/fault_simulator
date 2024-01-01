@@ -5,14 +5,14 @@ use fault_injections::*;
 pub use fault_injections::{FaultData, FaultType};
 
 use log::debug;
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
-#[derive(Clone)]
+#[derive(Hash, PartialEq, Eq, Clone)]
 pub struct TraceRecord {
     pub address: u64,
     pub size: usize,
     pub asm_instruction: Vec<u8>,
-    pub cpsr: u32,
+    pub registers: Option<Vec<u32>>,
 }
 
 #[derive(Clone)]
@@ -83,6 +83,7 @@ impl<'a> Simulation<'a> {
     pub fn record_code_trace(
         &mut self,
         full_trace: bool,
+        low_complexity: bool,
         faults: Vec<SimulationFaultRecord>,
     ) -> Vec<TraceRecord> {
         // Initialize and load
@@ -103,6 +104,7 @@ impl<'a> Simulation<'a> {
         // If full trace is required, switch on tracing from the beginning
         if full_trace {
             self.emu.start_tracing();
+            self.emu.with_register_data();
         }
 
         // Get the first one, set it and start
@@ -126,7 +128,14 @@ impl<'a> Simulation<'a> {
         let _ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
 
         self.emu.release_usage_fault_hooks();
-        self.emu.get_trace()
+
+        // Remove duplicates to speed up testing
+        if low_complexity {
+            let hash_set: HashSet<TraceRecord> = HashSet::from_iter(self.emu.get_trace());
+            Vec::from_iter(hash_set)
+        } else {
+            self.emu.get_trace()
+        }
     }
 
     fn run(&mut self, run_successful: bool) {

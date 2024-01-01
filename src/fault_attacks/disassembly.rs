@@ -52,21 +52,31 @@ impl Disassembly {
             .expect("Failed to disassemble");
         for i in 0..insns_data.as_ref().len() {
             let ins = &insns_data.as_ref()[i];
-            let flag_n = (trace_record.cpsr & 0x80000000) >> 31;
-            let flag_z = (trace_record.cpsr & 0x40000000) >> 30;
-            let flag_c = (trace_record.cpsr & 0x20000000) >> 29;
-            let flag_v = (trace_record.cpsr & 0x10000000) >> 28;
+            // let flag_n = (trace_record.cpsr & 0x80000000) >> 31;
+            // let flag_z = (trace_record.cpsr & 0x40000000) >> 30;
+            // let flag_c = (trace_record.cpsr & 0x20000000) >> 29;
+            // let flag_v = (trace_record.cpsr & 0x10000000) >> 28;
+            //   <NZCV:{:X}>
+            // trace_record.registers.unwrap(,
+            // flag_n,
+            // flag_z,
+            // flag_c,
+            // flag_v
 
-            println!(
-                "0x{:X}:  {:6} {:40}       <NZCV:{}{}{}{}>",
+            print!(
+                "0x{:X}:  {:6} {:40}     < ",
                 ins.address(),
                 ins.mnemonic().unwrap(),
                 ins.op_str().unwrap(),
-                flag_n,
-                flag_z,
-                flag_c,
-                flag_v
             );
+            if let Some(registers) = &trace_record.registers {
+                registers
+                    .into_iter()
+                    .take(8)
+                    .enumerate()
+                    .for_each(|(index, reg)| print!("R{}=0x{:08X} ", index, reg));
+            }
+            println!(">");
         }
     }
 
@@ -81,6 +91,7 @@ impl Disassembly {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
                         self.disassembly_fault_data(fault_data);
+                        println!();
                     });
                     println!("------------------------");
                 });

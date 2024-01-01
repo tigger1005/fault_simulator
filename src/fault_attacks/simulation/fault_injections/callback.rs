@@ -1,6 +1,4 @@
-use super::{
-    debug, EmulationData, MemType, RegisterARM, RunState, TraceRecord, Unicorn, BOOT_STAGE,
-};
+use super::{debug, EmulationData, MemType, RunState, TraceRecord, Unicorn, ARM_REG, BOOT_STAGE};
 
 /// Callback for auth mem IO write access
 ///
@@ -68,16 +66,26 @@ pub(super) fn hook_code_flash_load_img_callback(
 /// Code Hook for tracing functionality
 ///
 pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, size: u32) {
+    let emu_data = &emu.get_data();
     // Check if tracing is already started
-    if emu.get_data().start_trace {
+    if emu_data.start_trace {
         // Prepare data record
         let mut record = TraceRecord {
             size: size as usize,
             address: address,
             asm_instruction: vec![0x00; size as usize],
-            cpsr: emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
+            registers: None,
+            //            cpsr: emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
         };
         emu.mem_read(address, &mut record.asm_instruction).unwrap();
+
+        if emu_data.with_register_data {
+            let mut registers = vec![];
+            ARM_REG.iter().for_each(|register| {
+                registers.push(emu.reg_read(*register).unwrap() as u32);
+            });
+            record.registers = Some(registers);
+        }
 
         // Record data
         emu.get_data_mut().trace_data.push(record);

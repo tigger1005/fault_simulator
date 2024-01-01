@@ -48,7 +48,7 @@ impl FaultAttacks {
             let fault_records =
                 FaultData::get_simulation_fault_records(fault_data.get(attack_number).unwrap());
             // Run full trace
-            let trace_records = Some(trace_run(&self.file_data, true, fault_records));
+            let trace_records = Some(trace_run(&self.file_data, true, false, fault_records));
             // Print trace
             println!("\nAssembler trace of attack number {}", attack_number + 1);
 
@@ -66,14 +66,19 @@ impl FaultAttacks {
     ///
     /// Parameter is the range of the single glitch size in commands
     /// Return (success: bool, number_of_attacks: usize)
-    pub fn single_glitch(&mut self, range: std::ops::RangeInclusive<usize>) -> (bool, usize) {
+    pub fn single_glitch(
+        &mut self,
+        low_complexity: bool,
+        range: std::ops::RangeInclusive<usize>,
+    ) -> (bool, usize) {
         // Get trace data from negative run
-        let mut records = trace_run(&self.file_data, false, vec![]);
+        let mut records = trace_run(&self.file_data, false, low_complexity, vec![]);
         let mut count;
         debug!("Number of trace steps: {}", records.len());
 
         for i in range {
-            (self.fault_data, count) = self.cached_nop_simulation_x_y(&mut records, i, 0);
+            (self.fault_data, count) =
+                self.cached_nop_simulation_x_y(&mut records, low_complexity, i, 0);
             self.count_sum += count;
 
             if self.fault_data.is_some() {
@@ -84,15 +89,20 @@ impl FaultAttacks {
         (self.fault_data.is_some(), self.count_sum)
     }
 
-    pub fn double_glitch(&mut self, range: std::ops::RangeInclusive<usize>) -> (bool, usize) {
+    pub fn double_glitch(
+        &mut self,
+        low_complexity: bool,
+        range: std::ops::RangeInclusive<usize>,
+    ) -> (bool, usize) {
         // Get trace data from negative run
-        let mut records = trace_run(&self.file_data, false, vec![]);
+        let mut records = trace_run(&self.file_data, false, low_complexity, vec![]);
         let mut count;
 
         // Run cached double nop simulation
         let it = range.combinations_with_replacement(2);
         for t in it {
-            (self.fault_data, count) = self.cached_nop_simulation_x_y(&mut records, t[0], t[1]);
+            (self.fault_data, count) =
+                self.cached_nop_simulation_x_y(&mut records, low_complexity, t[0], t[1]);
             self.count_sum += count;
 
             if self.fault_data.is_some() {
@@ -143,6 +153,7 @@ impl FaultAttacks {
     pub fn cached_nop_simulation_x_y(
         &self,
         records: &Vec<TraceRecord>,
+        low_complexity: bool,
         num_x: usize,
         num_y: usize,
     ) -> (Option<Vec<Vec<FaultData>>>, usize) {
@@ -165,17 +176,19 @@ impl FaultAttacks {
             .for_each_with(sender, |s, (index, record)| {
                 let fault_record = record.get_fault_record(index, FaultType::Glitch(num_x));
 
+                bar.set_position(index as u64 + 1);
+
                 if num_y == 0 {
                     n.fetch_add(1, Ordering::Relaxed);
                     simulation_run(temp_file_data, &[fault_record.clone()], s);
                 } else {
                     // Get intermediate trace data from negative run with inserted nop -> new program flow
-                    let intermediate_trace_records =
-                        trace_run(temp_file_data, false, vec![fault_record.clone()]);
-
-                    if intermediate_trace_records.len() > 200 {
-                        println!("Large trace");
-                    }
+                    let intermediate_trace_records = trace_run(
+                        temp_file_data,
+                        false,
+                        low_complexity,
+                        vec![fault_record.clone()],
+                    );
 
                     n.fetch_add(intermediate_trace_records.len(), Ordering::Relaxed);
                     // Run full test with intemediate trace data
@@ -191,7 +204,6 @@ impl FaultAttacks {
                         },
                     );
                 }
-                bar.inc(1);
             });
         bar.finish_and_clear();
         println!("-> {} attacks executed", n.load(Ordering::Relaxed));
@@ -208,10 +220,11 @@ impl FaultAttacks {
 fn trace_run(
     file_data: &ElfFile,
     full_trace: bool,
+    low_complexity: bool,
     records: Vec<SimulationFaultRecord>,
 ) -> Vec<TraceRecord> {
     let mut simulation = Simulation::new(file_data);
-    simulation.record_code_trace(full_trace, records)
+    simulation.record_code_trace(full_trace, low_complexity, records)
 }
 
 fn simulation_run(

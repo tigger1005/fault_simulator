@@ -21,7 +21,7 @@ const AUTH_BASE: u64 = 0xAA01000;
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
 const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 
-const ARM_REG: [RegisterARM; 16] = [
+const ARM_REG: [RegisterARM; 17] = [
     RegisterARM::R0,
     RegisterARM::R1,
     RegisterARM::R2,
@@ -38,6 +38,7 @@ const ARM_REG: [RegisterARM; 16] = [
     RegisterARM::SP,
     RegisterARM::LR,
     RegisterARM::PC,
+    RegisterARM::CPSR,
 ];
 
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
@@ -84,6 +85,7 @@ pub struct FaultInjections<'a> {
 struct EmulationData {
     state: RunState,
     start_trace: bool,
+    with_register_data: bool,
     negative_run: bool,
     deactivate_print: bool,
     trace_data: Vec<TraceRecord>,
@@ -134,6 +136,11 @@ impl<'a> FaultInjections<'a> {
             .expect("failed to write file data");
         // set initial program start address
         self.program_counter = self.file_data.program_header.p_paddr;
+
+        // Write wrong flash data to boot stage memory
+        let boot_stage: [u8; 4] = [0xB8, 0x45, 0x85, 0xFD];
+        self.emu.mem_write(BOOT_STAGE, &boot_stage)
+            .expect("failed to write boot stage data");
     }
 
     /// Function to deactivate printf of c program to
@@ -346,6 +353,10 @@ impl<'a> FaultInjections<'a> {
         self.emu.get_data_mut().start_trace = true;
     }
 
+    pub fn with_register_data(&mut self) {
+        self.emu.get_data_mut().with_register_data = true;
+    }
+
     /// Set hook and data to internal emu structure for accessibility
     /// during callback
     ///
@@ -372,13 +383,17 @@ impl<'a> FaultInjections<'a> {
     }
 
     pub fn add_to_trace(&mut self, fault: &FaultData) {
-        let record = TraceRecord {
+        let mut record = TraceRecord {
             size: fault.fault.record.size,
             address: fault.fault.record.address,
             asm_instruction: fault.data_changed.clone(),
-            cpsr: self.emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
+            registers: None,
         };
-
+        let mut registers = vec![];
+        ARM_REG.iter().for_each(|register| {
+            registers.push(self.emu.reg_read(*register).unwrap() as u32);
+        });
+        record.registers = Some(registers);
         // Record data
         self.emu.get_data_mut().trace_data.push(record);
     }
