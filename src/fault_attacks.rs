@@ -176,7 +176,7 @@ impl FaultAttacks {
             .for_each_with(sender, |s, (index, record)| {
                 let fault_record = record.get_fault_record(index, FaultType::Glitch(num_x));
 
-                bar.set_position(index as u64 + 1);
+                bar.inc(1);
 
                 if num_y == 0 {
                     n.fetch_add(1, Ordering::Relaxed);
