@@ -8,6 +8,7 @@ Attack 'C' project is in the folder "Content". Current compiler flags are set to
 
 Code examples for main.c in Content\src\examples
 
+Found vulnerabilities can be analysed with the "--analysis" switch (beta version).
 
 ``` make
 TARGET = armv8-m.main
@@ -52,4 +53,6 @@ program parameters:
 "--attack name"           [all], single, double, (bit_flip currently not supported)
 "--threads number"        0-n [1] (If set to 0 framework choose number)
 "--no_compilation bool"   [false] suppress compilation
+"--analysis"              Activate analysis mode. Attacks can be reviewed in a disassembly view with register values(beta version)
+"--low-complexity"        Reduce attack path from time based to address based-slightly faster (beta version)
 ```
