@@ -12,6 +12,8 @@ use unicorn_engine::{RegisterARM, Unicorn};
 
 use log::debug;
 
+use std::collections::HashSet;
+
 pub const MAX_INSTRUCTIONS: usize = 2000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
@@ -66,7 +68,7 @@ pub struct FaultData {
 
 impl FaultData {
     pub fn get_simulation_fault_records(
-        fault_data_records: &Vec<FaultData>,
+        fault_data_records: &[FaultData],
     ) -> Vec<SimulationFaultRecord> {
         fault_data_records
             .iter()
@@ -256,11 +258,11 @@ impl<'a> FaultInjections<'a> {
     ///
     /// Original and replaced data is stored for restauration
     /// and printing
-    pub fn set_fault(&mut self, record: SimulationFaultRecord) {
+    pub fn set_fault(&mut self, record: &SimulationFaultRecord) {
         let mut fault_data_entry = FaultData {
             data: Vec::new(),
             data_changed: Vec::new(),
-            fault: record,
+            fault: record.clone(),
         };
         // Generate data with fault specific handling
         match fault_data_entry.fault.fault_type {
@@ -357,19 +359,6 @@ impl<'a> FaultInjections<'a> {
         self.emu.get_data_mut().with_register_data = true;
     }
 
-    /// Set hook and data to internal emu structure for accessibility
-    /// during callback
-    ///
-    // pub fn set_usage_fault_hook(&mut self, fault: &FaultData) {
-    //     self.emu
-    //         .add_code_hook(
-    //             fault.fault.address,
-    //             fault.fault.address + 1,
-    //             hook_nop_code_callback,
-    //         )
-    //         .expect("failed to setup fault hook");
-    // }
-
     /// Release hook function and all stored data in internal structure
     ///
     pub fn release_usage_fault_hooks(&mut self) {
@@ -378,8 +367,15 @@ impl<'a> FaultInjections<'a> {
     }
 
     /// Copy trace data to caller
-    pub fn get_trace(&self) -> Vec<TraceRecord> {
-        self.emu.get_data().trace_data.clone()
+    pub fn get_trace(&self) -> &Vec<TraceRecord> {
+        &self.emu.get_data().trace_data
+    }
+
+    /// Remove duplicates to speed up testing
+    pub fn reduce_trace(&mut self){
+        let trace_data = &mut self.emu.get_data_mut().trace_data;
+        let hash_set: HashSet<TraceRecord> = HashSet::from_iter(trace_data.clone());
+        *trace_data = Vec::from_iter(hash_set);
     }
 
     pub fn add_to_trace(&mut self, fault: &FaultData) {
@@ -389,9 +385,10 @@ impl<'a> FaultInjections<'a> {
             asm_instruction: fault.data_changed.clone(),
             registers: None,
         };
-        let mut registers = vec![];
-        ARM_REG.iter().for_each(|register| {
-            registers.push(self.emu.reg_read(*register).unwrap() as u32);
+
+        let mut registers: [u32; 17] = [0; 17];
+        ARM_REG.iter().enumerate().for_each(|(index, register)| {
+            registers[index] = self.emu.reg_read(*register).unwrap() as u32;
         });
         record.registers = Some(registers);
         // Record data

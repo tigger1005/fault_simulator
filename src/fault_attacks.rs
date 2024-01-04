@@ -72,13 +72,13 @@ impl FaultAttacks {
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
         // Get trace data from negative run
-        let mut records = trace_run(&self.file_data, false, low_complexity, vec![]);
+        let records = trace_run(&self.file_data, false, low_complexity, vec![]);
         let mut count;
         debug!("Number of trace steps: {}", records.len());
 
         for i in range {
             (self.fault_data, count) =
-                self.cached_nop_simulation_x_y(&mut records, low_complexity, i, 0);
+                self.cached_nop_simulation_x_y(&records, low_complexity, i, 0);
             self.count_sum += count;
 
             if self.fault_data.is_some() {
@@ -95,14 +95,14 @@ impl FaultAttacks {
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
         // Get trace data from negative run
-        let mut records = trace_run(&self.file_data, false, low_complexity, vec![]);
+        let records = trace_run(&self.file_data, false, low_complexity, vec![]);
         let mut count;
 
         // Run cached double nop simulation
         let it = range.clone().cartesian_product(range);
         for t in it {
             (self.fault_data, count) =
-                self.cached_nop_simulation_x_y(&mut records, low_complexity, t.0, t.1);
+                self.cached_nop_simulation_x_y(&records, low_complexity, t.0, t.1);
             self.count_sum += count;
 
             if self.fault_data.is_some() {
@@ -224,7 +224,7 @@ fn trace_run(
     records: Vec<SimulationFaultRecord>,
 ) -> Vec<TraceRecord> {
     let mut simulation = Simulation::new(file_data);
-    simulation.record_code_trace(full_trace, low_complexity, records)
+    simulation.record_code_trace(full_trace, low_complexity, records).to_vec()
 }
 
 fn simulation_run(

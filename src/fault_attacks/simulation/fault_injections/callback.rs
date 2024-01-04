@@ -72,17 +72,17 @@ pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64,
         // Prepare data record
         let mut record = TraceRecord {
             size: size as usize,
-            address: address,
-            asm_instruction: vec![0x00; size as usize],
+            address,
+            asm_instruction:  vec![0x00; size as usize],
             registers: None,
             //            cpsr: emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
         };
         emu.mem_read(address, &mut record.asm_instruction).unwrap();
 
         if emu_data.with_register_data {
-            let mut registers = vec![];
-            ARM_REG.iter().for_each(|register| {
-                registers.push(emu.reg_read(*register).unwrap() as u32);
+            let mut registers: [u32; 17] = [0; 17];
+            ARM_REG.iter().enumerate().for_each(|(index, register)| {
+                registers[index] = emu.reg_read(*register).unwrap() as u32;
             });
             record.registers = Some(registers);
         }

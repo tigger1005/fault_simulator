@@ -5,14 +5,14 @@ use fault_injections::*;
 pub use fault_injections::{FaultData, FaultType};
 
 use log::debug;
-use std::{collections::HashSet, fmt};
+use std::fmt;
 
 #[derive(Hash, PartialEq, Eq, Clone)]
 pub struct TraceRecord {
     pub address: u64,
     pub size: usize,
     pub asm_instruction: Vec<u8>,
-    pub registers: Option<Vec<u32>>,
+    pub registers: Option<[u32;17]>,
 }
 
 #[derive(Clone)]
@@ -24,12 +24,11 @@ pub struct SimulationFaultRecord {
 
 impl TraceRecord {
     pub fn get_fault_record(&self, index: usize, fault_type: FaultType) -> SimulationFaultRecord {
-        let fault_record = SimulationFaultRecord {
+         SimulationFaultRecord {
             index,
             record: self.clone(),
             fault_type,
-        };
-        fault_record
+        } 
     }
 }
 
@@ -85,7 +84,7 @@ impl<'a> Simulation<'a> {
         full_trace: bool,
         low_complexity: bool,
         faults: Vec<SimulationFaultRecord>,
-    ) -> Vec<TraceRecord> {
+    ) -> &Vec<TraceRecord> {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
@@ -94,7 +93,7 @@ impl<'a> Simulation<'a> {
         // Write all faults into fault_data list
         faults
             .iter()
-            .for_each(|attack| self.emu.set_fault(attack.clone()));
+            .for_each(|attack| self.emu.set_fault(attack));
 
         // Set hook with faults and run program
         self.emu.set_trace_hook(faults);
@@ -108,16 +107,16 @@ impl<'a> Simulation<'a> {
         }
 
         // Get the first one, set it and start
-        fault_data.iter().for_each(|fault| {
+        fault_data.into_iter().for_each(|fault| {
             let mut ret_val = Ok(());
             if fault.fault.index != 0 {
                 ret_val = self.emu.run_steps(fault.fault.index, false);
             }
             if ret_val.is_ok() {
-                self.emu.skip_asm_cmds(fault);
+                self.emu.skip_asm_cmds(&fault);
                 // If full trace is required, add fault cmds to trace
                 if full_trace {
-                    self.emu.add_to_trace(fault);
+                    self.emu.add_to_trace(&fault);
                 }
             }
         });
@@ -129,13 +128,10 @@ impl<'a> Simulation<'a> {
 
         self.emu.release_usage_fault_hooks();
 
-        // Remove duplicates to speed up testing
         if low_complexity {
-            let hash_set: HashSet<TraceRecord> = HashSet::from_iter(self.emu.get_trace());
-            Vec::from_iter(hash_set)
-        } else {
-            self.emu.get_trace()
-        }
+            self.emu.reduce_trace();
+        } 
+        self.emu.get_trace()
     }
 
     fn run(&mut self, run_successful: bool) {
@@ -171,7 +167,7 @@ impl<'a> Simulation<'a> {
         // Write all faults into fault_data list
         external_record
             .iter()
-            .for_each(|attack| self.emu.set_fault(attack.clone()));
+            .for_each(|attack| self.emu.set_fault(attack));
 
         let fault_data = self.emu.get_fault_data().clone();
         // Get the first one, set it and start
