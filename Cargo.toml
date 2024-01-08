@@ -10,6 +10,13 @@ edition = "2021"
 [profile.dev.package."*"]
 opt-level = 3
 
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "my_benchmark"
+harness = false
+
 [dependencies]
 unicorn-engine = { git = 'https://github.com/unicorn-engine/unicorn.git', branch = 'dev' }
 # unicorn-engine = "2.0.1"
