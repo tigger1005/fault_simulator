@@ -3,7 +3,7 @@ use unicorn_1::FaultAttacks;
 
 fn criterion_benchmark(c: &mut Criterion) {
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("benches/bin/aarch32/bl1.elf"));
 
     c.bench_function("single attack", |b| {
         b.iter(|| {
