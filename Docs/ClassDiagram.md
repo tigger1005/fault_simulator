@@ -4,36 +4,44 @@ title: Fault simulation with unicorn
 ---
 classDiagram
     Main --> ElfFile
-    Main --> Simulation
+    Main --> Control
     Main --> Disassembly
     Main --> Fault_Attacks
-    Simulation --> FaultInjection
-    Fault_Attacks --> Simulation
-    FaultInjection --> Unicorn
-    FaultInjection --> Callbacks
-    Unicorn --> SimulationData
+    Cpu --o Control
+    Fault_Attacks --> Control
+    Unicorn --o Cpu
+    Callbacks --> Unicorn
+    CpuState --o Unicorn
     class Main {
         cs: Disassembly
         file_data: ElfFile
     }
-    class Simulation{
-        emu: FaultInjection
+    class Control{
+        emu: Cpu
+        new()
+        check_program()
+        init_and_load()
+        run()
+        run_with_faults()
     }
-    class FaultInjection{
+    class Cpu{
         file_data: ElfFile
-        emu: Unicorn
-        cpu: Cpu
-        fault_data: Vec<FaultData>
+        emu: Unicorn[CpuState]
+        program_data: u64
+    }
+    class CpuState{
+        state: RunState
+        start_trace: bool
+        with_register_data: bool
+        negative_run: bool
+        deactivate_print: bool
+        trace_data: Vec[TraceRecord]
+        fault_data: Vec[FaultData]
     }
     class Unicorn{
         data: SimulationData
     }
     class ElfFile{
-    }
-    class SimulationData{
-        state: RunState
-        is_positiv: bool
-        print_output: bool
     }
     class Callbacks{
 

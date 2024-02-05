@@ -1,7 +1,7 @@
-use crate::fault_attacks::simulation::FaultData;
+use crate::fault_attacks::control::FaultData;
 use capstone::prelude::*;
 
-use super::simulation::TraceRecord;
+use super::control::TraceRecord;
 
 pub struct Disassembly {
     cs: Capstone,

@@ -1,10 +1,10 @@
-use super::{debug, EmulationData, MemType, RunState, TraceRecord, Unicorn, ARM_REG, BOOT_STAGE};
+use super::{debug, CpuState, MemType, RunState, TraceRecord, Unicorn, ARM_REG, BOOT_STAGE};
 
 /// Callback for auth mem IO write access
 ///
 /// This IO call signalize the Successful or Failed boot flow
 pub(super) fn mmio_auth_write_callback(
-    emu: &mut Unicorn<EmulationData>,
+    emu: &mut Unicorn<CpuState>,
     _mem_type: MemType,
     _address: u64,
     _size: usize,
@@ -32,7 +32,7 @@ pub(super) fn mmio_auth_write_callback(
 ///
 /// This IO write displays printed messages
 pub(super) fn mmio_serial_write_callback(
-    emu: &mut Unicorn<EmulationData>,
+    emu: &mut Unicorn<CpuState>,
     _address: u64,
     _size: usize,
     value: u64,
@@ -45,7 +45,7 @@ pub(super) fn mmio_serial_write_callback(
 /// Hook for flash_load_img callback handling
 ///
 pub(super) fn hook_code_flash_load_img_callback(
-    emu: &mut Unicorn<EmulationData>,
+    emu: &mut Unicorn<CpuState>,
     _address: u64,
     _size: u32,
 ) {
@@ -65,7 +65,7 @@ pub(super) fn hook_code_flash_load_img_callback(
 
 /// Code Hook for tracing functionality
 ///
-pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64, size: u32) {
+pub(super) fn hook_code_callback(emu: &mut Unicorn<CpuState>, address: u64, size: u32) {
     let emu_data = &emu.get_data();
     // Check if tracing is already started
     if emu_data.start_trace {
@@ -73,7 +73,7 @@ pub(super) fn hook_code_callback(emu: &mut Unicorn<EmulationData>, address: u64,
         let mut record = TraceRecord {
             size: size as usize,
             address,
-            asm_instruction:  vec![0x00; size as usize],
+            asm_instruction: vec![0x00; size as usize],
             registers: None,
             //            cpsr: emu.reg_read(RegisterARM::CPSR).unwrap() as u32,
         };

@@ -1,5 +1,3 @@
-// use std::ops::Shl;
-
 use super::{ElfFile, SimulationFaultRecord, TraceRecord};
 
 mod callback;
@@ -77,14 +75,14 @@ impl FaultData {
     }
 }
 
-pub struct FaultInjections<'a> {
+pub struct Cpu<'a> {
     file_data: &'a ElfFile,
-    emu: Unicorn<'a, EmulationData>,
+    emu: Unicorn<'a, CpuState>,
     program_counter: u64,
 }
 
 #[derive(Default)]
-struct EmulationData {
+struct CpuState {
     state: RunState,
     start_trace: bool,
     with_register_data: bool,
@@ -94,13 +92,13 @@ struct EmulationData {
     fault_data: Vec<FaultData>,
 }
 
-impl<'a> FaultInjections<'a> {
+impl<'a> Cpu<'a> {
     pub fn new(file_data: &'a ElfFile) -> Self {
         // Setup platform -> ARMv8-m.base
         let emu = Unicorn::new_with_data(
             Arch::ARM,
             Mode::LITTLE_ENDIAN | Mode::MCLASS,
-            EmulationData::default(),
+            CpuState::default(),
         )
         .expect("failed to initialize Unicorn instance");
 
