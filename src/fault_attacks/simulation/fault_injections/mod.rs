@@ -141,7 +141,8 @@ impl<'a> FaultInjections<'a> {
 
         // Write wrong flash data to boot stage memory
         let boot_stage: [u8; 4] = [0xB8, 0x45, 0x85, 0xFD];
-        self.emu.mem_write(BOOT_STAGE, &boot_stage)
+        self.emu
+            .mem_write(BOOT_STAGE, &boot_stage)
             .expect("failed to write boot stage data");
     }
 
@@ -372,7 +373,7 @@ impl<'a> FaultInjections<'a> {
     }
 
     /// Remove duplicates to speed up testing
-    pub fn reduce_trace(&mut self){
+    pub fn reduce_trace(&mut self) {
         let trace_data = &mut self.emu.get_data_mut().trace_data;
         let hash_set: HashSet<TraceRecord> = HashSet::from_iter(trace_data.clone());
         *trace_data = Vec::from_iter(hash_set);

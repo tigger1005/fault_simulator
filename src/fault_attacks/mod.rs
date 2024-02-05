@@ -224,7 +224,9 @@ fn trace_run(
     records: Vec<SimulationFaultRecord>,
 ) -> Vec<TraceRecord> {
     let mut simulation = Simulation::new(file_data);
-    simulation.record_code_trace(full_trace, low_complexity, records).to_vec()
+    simulation
+        .record_code_trace(full_trace, low_complexity, records)
+        .to_vec()
 }
 
 fn simulation_run(

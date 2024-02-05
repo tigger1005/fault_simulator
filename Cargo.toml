@@ -17,15 +17,20 @@ criterion = { version = "0.5.1", features = ["html_reports"] }
 name = "my_benchmark"
 harness = false
 
+build = "build.rs"
+[build-dependencies]
+mml = { git = 'https://github.com/adjivas/ml.git', branch = 'master' }
+
 [dependencies]
 unicorn-engine = { git = 'https://github.com/unicorn-engine/unicorn.git', branch = 'dev' }
 # unicorn-engine = "2.0.1"
 elf = "0.7.0"
 log = "0.4.17"
-env_logger = "0.10.0"
+env_logger = "0.11.1"
 capstone = "0.11.0"
 indicatif = "0.17.2"
 git-version = "0.3.5"
-rayon = "1.6.1"
+rayon = "1.8.1"
 itertools = "0.12.0"
 clap = { version = "4.1.4", features = ["derive"] }
+mml = { git = 'https://github.com/adjivas/ml.git', branch = 'master' }

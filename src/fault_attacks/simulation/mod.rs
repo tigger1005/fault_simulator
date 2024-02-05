@@ -12,7 +12,7 @@ pub struct TraceRecord {
     pub address: u64,
     pub size: usize,
     pub asm_instruction: Vec<u8>,
-    pub registers: Option<[u32;17]>,
+    pub registers: Option<[u32; 17]>,
 }
 
 #[derive(Clone)]
@@ -24,11 +24,11 @@ pub struct SimulationFaultRecord {
 
 impl TraceRecord {
     pub fn get_fault_record(&self, index: usize, fault_type: FaultType) -> SimulationFaultRecord {
-         SimulationFaultRecord {
+        SimulationFaultRecord {
             index,
             record: self.clone(),
             fault_type,
-        } 
+        }
     }
 }
 
@@ -91,9 +91,7 @@ impl<'a> Simulation<'a> {
         self.emu.deactivate_printf_function();
 
         // Write all faults into fault_data list
-        faults
-            .iter()
-            .for_each(|attack| self.emu.set_fault(attack));
+        faults.iter().for_each(|attack| self.emu.set_fault(attack));
 
         // Set hook with faults and run program
         self.emu.set_trace_hook(faults);
@@ -130,7 +128,7 @@ impl<'a> Simulation<'a> {
 
         if low_complexity {
             self.emu.reduce_trace();
-        } 
+        }
         self.emu.get_trace()
     }
 
