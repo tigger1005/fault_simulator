@@ -253,7 +253,7 @@ impl<'a> Cpu<'a> {
         ret_val
     }
 
-    /// Set fault at specified address with given parameters
+    /// Generate fault injection data record and add it to internal fault vector
     ///
     /// Original and replaced data is stored for restauration
     /// and printing
@@ -285,21 +285,7 @@ impl<'a> Cpu<'a> {
                         &mut fault_data_entry.data,
                     )
                     .unwrap();
-            } // FaultType::BitFlipCached(pos) => {
-              //     let temp_size = self
-              //         .get_asm_cmd_size(fault_data_entry.fault.address)
-              //         .unwrap();
-              //     fault_data_entry.data = vec![0; temp_size];
-              //     // Read original data
-              //     self.emu
-              //         .mem_read(fault_data_entry.fault.address, &mut fault_data_entry.data)
-              //         .unwrap();
-              //     fault_data_entry.data_changed = fault_data_entry.data.clone();
-              //     fault_data_entry.data_changed[pos / 8] ^= (0x01_u8).shl(pos % 8);
-              // }
-              // _ => {
-              //     panic!("No fault type set")
-              // }
+            }
         }
         // Push to fault data vector
         self.emu.get_data_mut().fault_data.push(fault_data_entry);
@@ -394,7 +380,12 @@ impl<'a> Cpu<'a> {
         self.emu.get_data_mut().trace_data.push(record);
     }
 
-    pub fn skip_asm_cmds(&mut self, fault: &FaultData) {
-        self.program_counter += fault.fault.record.size as u64;
+    /// Execute fault injection according to fault type
+    /// Program is stopped and will be continued after fault injection
+    /// 
+    pub fn execute_fault_injection(&mut self, fault: &FaultData) {
+        match fault.fault.fault_type {
+            FaultType::Glitch(_) => {self.program_counter += fault.fault.record.size as u64;}
+        }
     }
 }

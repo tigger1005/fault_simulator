@@ -138,7 +138,7 @@ impl<'a> Control<'a> {
                 ret_val = self.emu.run_steps(fault.fault.index, false);
             }
             if ret_val.is_ok() {
-                self.emu.skip_asm_cmds(fault);
+                self.emu.execute_fault_injection(&fault);
                 // If full trace is required, add fault cmds to trace
                 if run_type == RunType::RecordFullTrace {
                     self.emu.add_to_trace(fault);
