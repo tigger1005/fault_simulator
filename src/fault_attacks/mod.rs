@@ -1,3 +1,5 @@
+use addr2line::gimli;
+
 mod control;
 use control::*;
 
@@ -21,7 +23,7 @@ use log::debug;
 
 pub struct FaultAttacks {
     cs: Disassembly,
-    file_data: ElfFile,
+    pub file_data: ElfFile,
     fault_data: Option<Vec<Vec<FaultData>>>,
     pub count_sum: usize,
 }
@@ -39,8 +41,13 @@ impl FaultAttacks {
         }
     }
 
-    pub fn print_fault_data(&self) {
-        self.cs.print_fault_records(&self.fault_data);
+    pub fn print_fault_data(
+        &self,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
+        self.cs.print_fault_records(&self.fault_data, debug_context);
     }
 
     pub fn print_trace_for_fault(&self, attack_number: usize) {

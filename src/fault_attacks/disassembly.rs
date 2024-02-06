@@ -1,7 +1,8 @@
-use crate::fault_attacks::control::FaultData;
-use capstone::prelude::*;
-
 use super::control::TraceRecord;
+use crate::fault_attacks::control::FaultData;
+use addr2line::fallible_iterator::FallibleIterator;
+use addr2line::gimli;
+use capstone::prelude::*;
 
 pub struct Disassembly {
     cs: Capstone,
@@ -82,7 +83,13 @@ impl Disassembly {
 
     /// Print fault data of given fault_data_vec vector
     ///
-    pub fn print_fault_records(&self, fault_data_vec: &Option<Vec<Vec<FaultData>>>) {
+    pub fn print_fault_records(
+        &self,
+        fault_data_vec: &Option<Vec<Vec<FaultData>>>,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
         if let Some(fault_data_vec) = fault_data_vec {
             fault_data_vec
                 .iter()
@@ -91,10 +98,34 @@ impl Disassembly {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
                         self.disassembly_fault_data(fault_data);
+                        self.print_debug_info(fault_data.fault.record.address, debug_context);
                         println!();
                     });
                     println!("------------------------");
                 });
+        }
+    }
+
+    fn print_debug_info(
+        &self,
+        address: u64,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
+        if let Ok(frames) = debug_context.find_frames(address).skip_all_loads() {
+            for frame in frames.iterator().flatten() {
+                if let Some(location) = frame.location {
+                    match (location.file, location.line) {
+                        (Some(file), Some(line)) => {
+                            println!("\t\t{:?}:{:?}", file, line)
+                        }
+
+                        (Some(file), None) => println!("\t\t{:?}", file),
+                        _ => println!("No debug info available"),
+                    }
+                }
+            }
         }
     }
 

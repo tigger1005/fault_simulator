@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
+use fault_simulator::FaultAttacks;
 use std::env;
-use unicorn_1::FaultAttacks;
 
 fn criterion_benchmark(c: &mut Criterion) {
     // Load victim data for attack simulation

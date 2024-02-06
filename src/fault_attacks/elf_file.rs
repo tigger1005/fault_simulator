@@ -1,3 +1,4 @@
+use addr2line::gimli;
 use elf::endian::AnyEndian;
 use elf::file::FileHeader;
 use elf::segment::ProgramHeader;
@@ -11,6 +12,7 @@ pub struct ElfFile {
     pub program: Vec<u8>,
     pub flash_load_img: Symbol,
     pub serial_puts: Symbol,
+    file_data: Vec<u8>,
 }
 
 impl ElfFile {
@@ -59,7 +61,15 @@ impl ElfFile {
             program: program.to_vec(),
             flash_load_img,
             serial_puts,
+            file_data,
         }
+    }
+
+    pub fn get_debug_context(
+        &self,
+    ) -> addr2line::Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>> {
+        addr2line::Context::new(&addr2line::object::read::File::parse(&*self.file_data).unwrap())
+            .unwrap()
     }
 }
 
