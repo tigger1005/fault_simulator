@@ -48,7 +48,12 @@ impl FaultAttacks {
             let fault_records =
                 FaultData::get_simulation_fault_records(fault_data.get(attack_number).unwrap());
             // Run full trace
-            let trace_records = Some(trace_run(&self.file_data, RunType::RecordFullTrace, false, fault_records));
+            let trace_records = Some(trace_run(
+                &self.file_data,
+                RunType::RecordFullTrace,
+                false,
+                fault_records,
+            ));
             // Print trace
             println!("\nAssembler trace of attack number {}", attack_number + 1);
 
@@ -72,7 +77,12 @@ impl FaultAttacks {
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
         // Get trace data from negative run
-        let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, vec![]);
+        let records = trace_run(
+            &self.file_data,
+            RunType::RecordTrace,
+            low_complexity,
+            vec![],
+        );
         let mut count;
         debug!("Number of trace steps: {}", records.len());
 
@@ -95,7 +105,12 @@ impl FaultAttacks {
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
         // Get trace data from negative run
-        let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, vec![]);
+        let records = trace_run(
+            &self.file_data,
+            RunType::RecordTrace,
+            low_complexity,
+            vec![],
+        );
         let mut count;
 
         // Run cached double nop simulation
@@ -190,7 +205,9 @@ fn trace_run(
 ) -> Vec<TraceRecord> {
     let mut simulation = Control::new(file_data);
     simulation
-        .run_with_faults(run_type, low_complexity, records).1.unwrap()
+        .run_with_faults(run_type, low_complexity, records)
+        .1
+        .unwrap()
         .to_vec()
 }
 
@@ -200,7 +217,7 @@ fn simulation_run(
     s: &mut Sender<Vec<FaultData>>,
 ) {
     let mut simulation = Control::new(file_data);
-    if let Some(fault_data_vec) = simulation.run_with_faults(RunType::Run,false, records).0 {
+    if let Some(fault_data_vec) = simulation.run_with_faults(RunType::Run, false, records).0 {
         s.send(fault_data_vec).unwrap();
     }
 }

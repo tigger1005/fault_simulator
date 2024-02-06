@@ -119,15 +119,18 @@ impl<'a> Control<'a> {
         // Write all faults into fault_data list
         faults.iter().for_each(|attack| self.emu.set_fault(attack));
 
-        if run_type != RunType::Run {
-            // Set hook with faults and run program
-            self.emu.set_trace_hook(faults);
-        }
-
-        // If full trace is required, switch on tracing from the beginning
-        if run_type == RunType::RecordFullTrace {
-            self.emu.start_tracing();
-            self.emu.with_register_data();
+        match run_type {
+            RunType::RecordTrace => {
+                // Set trace hook
+                self.emu.set_trace_hook();
+            }
+            RunType::RecordFullTrace => {
+                // Set trace hook
+                self.emu.set_trace_hook();
+                // Switch on tracing from the beginning and record also register values
+                self.emu.start_tracing(true);
+            }
+            _ => (),
         }
 
         let fault_data = self.emu.get_fault_data().clone();
@@ -138,7 +141,7 @@ impl<'a> Control<'a> {
                 ret_val = self.emu.run_steps(fault.fault.index, false);
             }
             if ret_val.is_ok() {
-                self.emu.execute_fault_injection(&fault);
+                self.emu.execute_fault_injection(fault);
                 // If full trace is required, add fault cmds to trace
                 if run_type == RunType::RecordFullTrace {
                     self.emu.add_to_trace(fault);
@@ -148,36 +151,39 @@ impl<'a> Control<'a> {
 
         // Start tracing or check previous run state
         match run_type {
-            RunType::RecordTrace | RunType::RecordFullTrace => {
-                self.emu.start_tracing();
+            RunType::RecordTrace => {
+                self.emu.start_tracing(false);
             }
-            _ => {
+            RunType::Run => {
                 if self.emu.get_state() == RunState::Success {
                     println!("Da schein ein Fehler aufgetreten zu sein");
                     return (None, None);
                 }
             }
+            _ => (),
         }
 
-        // Run
+        // Run to completion
         let _ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
-        if run_type != RunType::Run {
-            self.emu.release_usage_fault_hooks();
 
-            if low_complexity_trace {
-                self.emu.reduce_trace();
+        // Cleanup and return data to caller
+        match run_type {
+            RunType::RecordTrace | RunType::RecordFullTrace => {
+                self.emu.release_usage_fault_hooks();
+
+                // Reduce traces if necessary
+                if low_complexity_trace {
+                    self.emu.reduce_trace();
+                }
+                (None, Some(self.emu.get_trace()))
             }
-        }
-
-        // Check for available trace data
-        if run_type != RunType::Run {
-            (None, Some(self.emu.get_trace()))
-        } else {
-            // Check if fault attack was successful
-            if self.emu.get_state() == RunState::Success {
-                (Some(fault_data), None)
-            } else {
-                (None, None)
+            RunType::Run => {
+                // Check if fault attack was successful if yes return faults
+                if self.emu.get_state() == RunState::Success {
+                    (Some(fault_data), None)
+                } else {
+                    (None, None)
+                }
             }
         }
     }

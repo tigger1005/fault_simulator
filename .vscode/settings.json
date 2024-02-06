@@ -1,8 +1,0 @@
-{
-    "makefile.configurations": [
-        {
-            "makeDirectory": "${workspaceFolder}/Content",
-            "name": "Unnamed configuration 1"
-        }
-    ]
-}

@@ -326,7 +326,7 @@ impl<'a> Cpu<'a> {
 
     /// Set code hook for tracing
     ///
-    pub fn set_trace_hook(&mut self, _sim_faults: Vec<SimulationFaultRecord>) {
+    pub fn set_trace_hook(&mut self) {
         self.emu
             .add_code_hook(
                 self.file_data.program_header.p_paddr,
@@ -336,12 +336,10 @@ impl<'a> Cpu<'a> {
             .expect("failed to setup trace hook");
     }
 
-    pub fn start_tracing(&mut self) {
-        self.emu.get_data_mut().start_trace = true;
-    }
-
-    pub fn with_register_data(&mut self) {
-        self.emu.get_data_mut().with_register_data = true;
+    pub fn start_tracing(&mut self, with_register_data: bool) {
+        let cpu_state = self.emu.get_data_mut();
+        cpu_state.with_register_data = with_register_data;
+        cpu_state.start_trace = true;
     }
 
     /// Release hook function and all stored data in internal structure
@@ -382,10 +380,12 @@ impl<'a> Cpu<'a> {
 
     /// Execute fault injection according to fault type
     /// Program is stopped and will be continued after fault injection
-    /// 
+    ///
     pub fn execute_fault_injection(&mut self, fault: &FaultData) {
         match fault.fault.fault_type {
-            FaultType::Glitch(_) => {self.program_counter += fault.fault.record.size as u64;}
+            FaultType::Glitch(_) => {
+                self.program_counter += fault.fault.record.size as u64;
+            }
         }
     }
 }

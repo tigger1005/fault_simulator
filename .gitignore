@@ -5,3 +5,4 @@ Content/bin/aarch32/*.elf
 *.o
 **/.DS_Store
 Cargo.lock
+/.vscode
