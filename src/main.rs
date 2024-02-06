@@ -2,8 +2,7 @@ use clap::Parser;
 use std::io::stdout;
 use std::io::{self, Write};
 
-mod fault_attacks;
-use fault_attacks::FaultAttacks;
+use fault_simulator::FaultAttacks;
 
 use std::env;
 
@@ -79,8 +78,9 @@ fn main() {
         _ => println!("No attack selected!"),
     }
 
-    attack.print_fault_data();
-    ////////////////////////////////
+    let debug_context = attack.file_data.get_debug_context();
+    attack.print_fault_data(&debug_context);
+
     println!("Overall tests executed {}", attack.count_sum);
 
     if args.analysis {
