@@ -22,11 +22,14 @@ impl Disassembly {
     fn disassembly_fault_data(&self, fault_data: &FaultData) {
         let insns_data = self
             .cs
-            .disasm_all(&fault_data.data, fault_data.fault.record.address)
+            .disasm_all(&fault_data.original_instructions, fault_data.record.address)
             .expect("Failed to disassemble");
         let insns_data_changed = self
             .cs
-            .disasm_all(&fault_data.data_changed, fault_data.fault.record.address)
+            .disasm_all(
+                &fault_data.record.asm_instruction,
+                fault_data.record.address,
+            )
             .expect("Failed to disassemble");
 
         for i in 0..insns_data.as_ref().len() {
@@ -80,7 +83,6 @@ impl Disassembly {
     }
 
     /// Print fault data of given fault_data_vec vector
-    ///
     pub fn print_fault_records(
         &self,
         fault_data_vec: &Option<Vec<Vec<FaultData>>>,
@@ -96,7 +98,7 @@ impl Disassembly {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
                         self.disassembly_fault_data(fault_data);
-                        self.print_debug_info(fault_data.fault.record.address, debug_context);
+                        self.print_debug_info(fault_data.record.address, debug_context);
                         println!();
                     });
                     println!("------------------------");
@@ -128,7 +130,6 @@ impl Disassembly {
     }
 
     /// Print trace_record of given trace_records vector
-    ///
     pub fn print_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
         if let Some(trace_records) = trace_records {
             trace_records.iter().for_each(|trace_record| {

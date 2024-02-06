@@ -1,51 +1,33 @@
-use std::fmt;
-
 #[derive(Clone, Copy, Debug)]
 /// Types of faults which can be simulated.
 pub enum FaultType {
+    /// A fault which skips `n` consecutive instructions.
     Glitch(usize),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Debug)]
+/// Representation for a fault which shall be executed at step `index` of a simulation.
 pub struct SimulationFaultRecord {
     pub index: usize,
-    pub record: TraceRecord,
     pub fault_type: FaultType,
 }
 
-#[derive(Hash, PartialEq, Eq, Clone)]
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
 /// One recorded step of a simulation
 pub struct TraceRecord {
     pub address: u64,
-    pub size: usize,
     pub asm_instruction: Vec<u8>,
     pub registers: Option<[u32; 17]>,
 }
 
-impl TraceRecord {
-    pub fn get_fault_record(&self, index: usize, fault_type: FaultType) -> SimulationFaultRecord {
-        SimulationFaultRecord {
-            index,
-            record: self.clone(),
-            fault_type,
-        }
-    }
-}
-
-impl fmt::Debug for SimulationFaultRecord {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            "address: 0x{:X} size: 0x{:?} fault_type: {:?}",
-            self.record.address, self.record.size, self.fault_type
-        )
-    }
-}
-
 #[derive(Clone, Debug)]
+/// Representation of an fault which was executed in a simulation.
 pub struct FaultData {
-    pub data: Vec<u8>,
-    pub data_changed: Vec<u8>,
+    /// The original instructions which would have been performed without the fault.
+    pub original_instructions: Vec<u8>,
+    /// The recorded execution trace of this fault.
+    pub record: TraceRecord,
+    /// SimulationFaultRecord which caused this FaultData to be simulated.
     pub fault: SimulationFaultRecord,
 }
 
@@ -55,7 +37,7 @@ impl FaultData {
     ) -> Vec<SimulationFaultRecord> {
         fault_data_records
             .iter()
-            .map(|record| record.fault.clone())
+            .map(|record| record.fault)
             .collect()
     }
 }

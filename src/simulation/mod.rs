@@ -23,7 +23,6 @@ impl<'a> Control<'a> {
     /// Create a new instance of the control module
     /// The elf file is used to load the program code
     /// and to setup the cpu emulation
-    ///
     pub fn new(program_data: &'a ElfFile) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(program_data);
@@ -34,8 +33,7 @@ impl<'a> Control<'a> {
     }
 
     /// Setup system state to a successful or failed state
-    /// and run the program. Return the state of the program after complition
-    ///
+    /// and run the program. Return the state of the program after compilation
     fn run(&mut self, run_successful: bool) -> RunState {
         // Initial and load program
         self.init_and_load(run_successful);
@@ -49,7 +47,6 @@ impl<'a> Control<'a> {
 
     /// Initialize registers and load the program code into the cpu
     /// and set the initial state
-    ///
     fn init_and_load(&mut self, run_successful: bool) {
         self.emu.init_register();
         // Write code to memory area
@@ -60,7 +57,6 @@ impl<'a> Control<'a> {
 
     /// Check if code under investigation is working correct for
     /// positive and negative execution
-    ///
     pub fn check_program(&mut self) {
         assert_eq!(self.run(true), RunState::Success);
         assert_eq!(self.run(false), RunState::Failed);
@@ -68,21 +64,17 @@ impl<'a> Control<'a> {
 
     /// Execute or trace loaded code with the given faults
     /// If code execution with successful state, a vector array will be returned with the injected faults
-    /// If code traceing was activated a vector array with the trace records will be returned
-    ///
+    /// If code tracing was activated a vector array with the trace records will be returned
     pub fn run_with_faults(
         &mut self,
         run_type: RunType,
         low_complexity_trace: bool,
-        faults: Vec<SimulationFaultRecord>,
+        faults: &[SimulationFaultRecord],
     ) -> (Option<Vec<FaultData>>, Option<&Vec<TraceRecord>>) {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
-
-        // Write all faults into fault_data list
-        faults.iter().for_each(|attack| self.emu.set_fault(attack));
 
         match run_type {
             RunType::RecordTrace => {
@@ -98,19 +90,14 @@ impl<'a> Control<'a> {
             _ => (),
         }
 
-        let fault_data = self.emu.get_fault_data().clone();
         // Iterate over all faults and run the program step by step
-        fault_data.iter().for_each(|fault| {
+        faults.iter().for_each(|fault| {
             let mut ret_val = Ok(());
-            if fault.fault.index != 0 {
-                ret_val = self.emu.run_steps(fault.fault.index, false);
+            if fault.index != 0 {
+                ret_val = self.emu.run_steps(fault.index, false);
             }
             if ret_val.is_ok() {
                 self.emu.execute_fault_injection(fault);
-                // If full trace is required, add fault cmds to trace
-                if run_type == RunType::RecordFullTrace {
-                    self.emu.add_to_trace(fault);
-                }
             }
         });
 
@@ -121,7 +108,7 @@ impl<'a> Control<'a> {
             }
             RunType::Run => {
                 if self.emu.get_state() == RunState::Success {
-                    println!("Da schein ein Fehler aufgetreten zu sein");
+                    println!("Da scheint ein Fehler aufgetreten zu sein");
                     return (None, None);
                 }
             }
@@ -145,7 +132,7 @@ impl<'a> Control<'a> {
             RunType::Run => {
                 // Check if fault attack was successful if yes return faults
                 if self.emu.get_state() == RunState::Success {
-                    (Some(fault_data), None)
+                    (Some(self.emu.get_fault_data().clone()), None)
                 } else {
                     (None, None)
                 }

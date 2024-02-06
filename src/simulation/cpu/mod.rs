@@ -121,7 +121,6 @@ impl<'a> Cpu<'a> {
 
     /// Function to deactivate printf of c program to
     /// avoid unexpected output
-    ///
     pub fn deactivate_printf_function(&mut self) {
         self.emu.get_data_mut().deactivate_print = true;
         self.emu
@@ -153,7 +152,6 @@ impl<'a> Cpu<'a> {
     }
 
     /// Setup memory mapping, stack, io mapping
-    ///
     pub fn setup_mmio(&mut self) {
         const MINIMUM_MEMORY_SIZE: usize = 0x1000;
         // Next boot stage mem
@@ -194,7 +192,6 @@ impl<'a> Cpu<'a> {
     /// Execute code on pc set in internal structure till cycles
     ///
     /// If debug is set to true, execution is done by single steps
-    ///
     pub fn run_steps(&mut self, cycles: usize, debug: bool) -> Result<(), uc_error> {
         let mut ret_val;
         if debug {
@@ -228,44 +225,6 @@ impl<'a> Cpu<'a> {
         ret_val
     }
 
-    /// Generate fault injection data record and add it to internal fault vector
-    ///
-    /// Original and replaced data is stored for restauration
-    /// and printing
-    pub fn set_fault(&mut self, record: &SimulationFaultRecord) {
-        let mut fault_data_entry = FaultData {
-            data: Vec::new(),
-            data_changed: Vec::new(),
-            fault: record.clone(),
-        };
-        // Generate data with fault specific handling
-        match fault_data_entry.fault.fault_type {
-            FaultType::Glitch(number) => {
-                fault_data_entry.fault.record.size = 0;
-                let mut address = fault_data_entry.fault.record.address;
-                for _count in 0..number {
-                    let temp_size = self.get_asm_cmd_size(address).unwrap();
-                    for i in 0..temp_size {
-                        fault_data_entry.data_changed.push(*T1_NOP.get(i).unwrap())
-                    }
-                    address += temp_size as u64;
-                    fault_data_entry.fault.record.size += temp_size;
-                }
-                // Set to same size as data_changed
-                fault_data_entry.data = fault_data_entry.data_changed.clone();
-                // Read original data
-                self.emu
-                    .mem_read(
-                        fault_data_entry.fault.record.address,
-                        &mut fault_data_entry.data,
-                    )
-                    .unwrap();
-            }
-        }
-        // Push to fault data vector
-        self.emu.get_data_mut().fault_data.push(fault_data_entry);
-    }
-
     fn get_asm_cmd_size(&self, address: u64) -> Option<usize> {
         let mut data: [u8; 2] = [0; 2];
         // Check for 32bit cmd (0b11101... 0b1111....)
@@ -279,7 +238,6 @@ impl<'a> Cpu<'a> {
     }
 
     /// Initialize the internal program state
-    ///
     pub fn init_states(&mut self, run_state: bool) {
         // Set run type
         self.emu.get_data_mut().negative_run = !run_state;
@@ -289,7 +247,6 @@ impl<'a> Cpu<'a> {
     }
 
     /// Get current state of simulation
-    ///
     pub fn get_state(&self) -> RunState {
         self.emu.get_data().state
     }
@@ -300,7 +257,6 @@ impl<'a> Cpu<'a> {
     }
 
     /// Set code hook for tracing
-    ///
     pub fn set_trace_hook(&mut self) {
         self.emu
             .add_code_hook(
@@ -318,7 +274,6 @@ impl<'a> Cpu<'a> {
     }
 
     /// Release hook function and all stored data in internal structure
-    ///
     pub fn release_usage_fault_hooks(&mut self) {
         // Remove hooks from list
         self.emu.get_data_mut().fault_data.clear();
@@ -336,30 +291,51 @@ impl<'a> Cpu<'a> {
         *trace_data = Vec::from_iter(hash_set);
     }
 
-    pub fn add_to_trace(&mut self, fault: &FaultData) {
-        let mut record = TraceRecord {
-            size: fault.fault.record.size,
-            address: fault.fault.record.address,
-            asm_instruction: fault.data_changed.clone(),
-            registers: None,
-        };
+    /// Execute a glitch skipping `n` instructions.
+    fn execute_glitch(&mut self, n: usize, fault: &SimulationFaultRecord) {
+        let address = self.program_counter;
+        let mut offset = 0;
+        let mut manipulated_instructions = Vec::new();
+        for _count in 0..n {
+            let instruction_size = self.get_asm_cmd_size(address + offset).unwrap();
+            manipulated_instructions.extend_from_slice(&T1_NOP[..instruction_size]);
+            offset += instruction_size as u64;
+        }
+        self.program_counter += offset;
 
+        // Set to same size as data_changed
+        let mut original_instructions = manipulated_instructions.clone();
+        // Read original instructions
+        self.emu
+            .mem_read(address, &mut original_instructions)
+            .unwrap();
+
+        // Read registers
         let mut registers: [u32; 17] = [0; 17];
         ARM_REG.iter().enumerate().for_each(|(index, register)| {
             registers[index] = self.emu.reg_read(*register).unwrap() as u32;
         });
-        record.registers = Some(registers);
-        // Record data
-        self.emu.get_data_mut().trace_data.push(record);
+        let record = TraceRecord {
+            address,
+            asm_instruction: manipulated_instructions,
+            registers: Some(registers),
+        };
+        self.emu.get_data_mut().trace_data.push(record.clone());
+
+        // Push to fault data vector
+        self.emu.get_data_mut().fault_data.push(FaultData {
+            original_instructions,
+            record,
+            fault: *fault,
+        });
     }
 
     /// Execute fault injection according to fault type
     /// Program is stopped and will be continued after fault injection
-    ///
-    pub fn execute_fault_injection(&mut self, fault: &FaultData) {
-        match fault.fault.fault_type {
-            FaultType::Glitch(_) => {
-                self.program_counter += fault.fault.record.size as u64;
+    pub fn execute_fault_injection(&mut self, fault: &SimulationFaultRecord) {
+        match fault.fault_type {
+            FaultType::Glitch(n) => {
+                self.execute_glitch(n, fault);
             }
         }
     }

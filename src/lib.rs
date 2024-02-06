@@ -58,7 +58,7 @@ impl FaultAttacks {
                 &self.file_data,
                 RunType::RecordFullTrace,
                 false,
-                fault_records,
+                &fault_records,
             ));
             // Print trace
             println!("\nAssembler trace of attack number {}", attack_number + 1);
@@ -83,12 +83,7 @@ impl FaultAttacks {
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
         // Get trace data from negative run
-        let records = trace_run(
-            &self.file_data,
-            RunType::RecordTrace,
-            low_complexity,
-            vec![],
-        );
+        let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[]);
         let mut count;
         debug!("Number of trace steps: {}", records.len());
 
@@ -111,12 +106,7 @@ impl FaultAttacks {
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
         // Get trace data from negative run
-        let records = trace_run(
-            &self.file_data,
-            RunType::RecordTrace,
-            low_complexity,
-            vec![],
-        );
+        let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[]);
         let mut count;
 
         // Run cached double nop simulation
@@ -135,7 +125,6 @@ impl FaultAttacks {
     }
 
     /// Run program with a single nop instruction injected as an fault attack
-    ///
     pub fn cached_nop_simulation_x_y(
         &self,
         records: &Vec<TraceRecord>,
@@ -156,39 +145,41 @@ impl FaultAttacks {
         let (sender, receiver) = channel();
         let temp_file_data = &self.file_data;
 
-        records
+        (0..records.len())
             .into_par_iter()
-            .enumerate()
-            .for_each_with(sender, |s, (index, record)| {
-                let fault_record = record.get_fault_record(index, FaultType::Glitch(num_x));
+            .for_each_with(sender, |s, index| {
+                let fault_record = SimulationFaultRecord {
+                    index,
+                    fault_type: FaultType::Glitch(num_x),
+                };
 
                 bar.inc(1);
 
                 if num_y == 0 {
                     n.fetch_add(1, Ordering::Relaxed);
-                    simulation_run(temp_file_data, vec![fault_record.clone()], s);
+                    simulation_run(temp_file_data, &[fault_record], s);
                 } else {
                     // Get intermediate trace data from negative run with inserted nop -> new program flow
                     let intermediate_trace_records = trace_run(
                         temp_file_data,
                         RunType::RecordTrace,
                         low_complexity,
-                        vec![fault_record.clone()],
+                        &[fault_record],
                     );
 
                     n.fetch_add(intermediate_trace_records.len(), Ordering::Relaxed);
-                    // Run full test with intemediate trace data
-                    intermediate_trace_records.into_iter().enumerate().for_each(
-                        |(index, intermediate_trace_records)| {
-                            let intermediate_fault_record = intermediate_trace_records
-                                .get_fault_record(index, FaultType::Glitch(num_y));
-                            simulation_run(
-                                temp_file_data,
-                                vec![fault_record.clone(), intermediate_fault_record],
-                                s,
-                            );
-                        },
-                    );
+                    // Run full test with intermediate trace data
+                    for index in 0..intermediate_trace_records.len() {
+                        let intermediate_fault_record = SimulationFaultRecord {
+                            index,
+                            fault_type: FaultType::Glitch(num_y),
+                        };
+                        simulation_run(
+                            temp_file_data,
+                            &[fault_record, intermediate_fault_record],
+                            s,
+                        );
+                    }
                 }
             });
         bar.finish_and_clear();
@@ -207,7 +198,7 @@ fn trace_run(
     file_data: &ElfFile,
     run_type: RunType,
     low_complexity: bool,
-    records: Vec<SimulationFaultRecord>,
+    records: &[SimulationFaultRecord],
 ) -> Vec<TraceRecord> {
     let mut simulation = Control::new(file_data);
     simulation
@@ -219,7 +210,7 @@ fn trace_run(
 
 fn simulation_run(
     file_data: &ElfFile,
-    records: Vec<SimulationFaultRecord>,
+    records: &[SimulationFaultRecord],
     s: &mut Sender<Vec<FaultData>>,
 ) {
     let mut simulation = Control::new(file_data);
