@@ -1,5 +1,5 @@
-use super::control::TraceRecord;
-use crate::fault_attacks::control::FaultData;
+use super::simulation::TraceRecord;
+use crate::simulation::FaultData;
 use addr2line::fallible_iterator::FallibleIterator;
 use addr2line::gimli;
 use capstone::prelude::*;

@@ -75,7 +75,7 @@ impl ElfFile {
 
 #[cfg(test)]
 mod tests {
-    use crate::fault_attacks::elf_file::ElfFile;
+    use crate::elf_file::ElfFile;
 
     #[test]
     fn parse_elf_file() {
