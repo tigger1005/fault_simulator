@@ -4,11 +4,11 @@ title: Fault simulation with unicorn
 ---
 classDiagram
     Main --> ElfFile
-    Main --> Control
+    Main --> Simulation
     Main --> Disassembly
     Main --> Fault_Attacks
-    Cpu --o Control
-    Fault_Attacks --> Control
+    Cpu --o Simulation
+    Fault_Attacks --> Simulation
     Unicorn --o Cpu
     Callbacks --> Unicorn
     CpuState --o Unicorn
@@ -16,7 +16,8 @@ classDiagram
         cs: Disassembly
         file_data: ElfFile
     }
-    class Control{
+    class Simulation{
+        file_data: ElfFile
         emu: Cpu
         new()
         check_program()
@@ -25,7 +26,6 @@ classDiagram
         run_with_faults()
     }
     class Cpu{
-        file_data: ElfFile
         emu: Unicorn[CpuState]
         program_data: u64
     }
