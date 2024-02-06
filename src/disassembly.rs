@@ -1,7 +1,5 @@
-use super::simulation::TraceRecord;
-use crate::simulation::FaultData;
-use addr2line::fallible_iterator::FallibleIterator;
-use addr2line::gimli;
+use crate::simulation::{FaultData, TraceRecord};
+use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
 
 pub struct Disassembly {

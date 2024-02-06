@@ -6,7 +6,6 @@ use simulation::*;
 mod elf_file;
 use elf_file::ElfFile;
 
-// Set number of threads: RAYON_NUM_THREADS="1" cargo run
 use rayon::prelude::*;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -2,46 +2,11 @@ use super::ElfFile;
 
 mod cpu;
 use cpu::*;
-pub use cpu::{FaultData, FaultType};
 
-use std::fmt;
+mod fault;
+pub use fault::{FaultData, FaultType, SimulationFaultRecord, TraceRecord};
 
 use log::info;
-
-#[derive(Hash, PartialEq, Eq, Clone)]
-pub struct TraceRecord {
-    pub address: u64,
-    pub size: usize,
-    pub asm_instruction: Vec<u8>,
-    pub registers: Option<[u32; 17]>,
-}
-
-#[derive(Clone)]
-pub struct SimulationFaultRecord {
-    pub index: usize,
-    pub record: TraceRecord,
-    pub fault_type: FaultType,
-}
-
-impl TraceRecord {
-    pub fn get_fault_record(&self, index: usize, fault_type: FaultType) -> SimulationFaultRecord {
-        SimulationFaultRecord {
-            index,
-            record: self.clone(),
-            fault_type,
-        }
-    }
-}
-
-impl fmt::Debug for SimulationFaultRecord {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(
-            f,
-            "address: 0x{:X} size: 0x{:?} fault_type: {:?}",
-            self.record.address, self.record.size, self.fault_type
-        )
-    }
-}
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum RunType {

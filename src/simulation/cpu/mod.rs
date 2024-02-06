@@ -1,4 +1,4 @@
-use super::{ElfFile, SimulationFaultRecord, TraceRecord};
+use crate::{ElfFile, FaultData, FaultType, SimulationFaultRecord, TraceRecord};
 
 mod callback;
 use callback::*;
@@ -48,31 +48,6 @@ pub enum RunState {
     Success,
     Failed,
     Error,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum FaultType {
-    //    Uninitialized,
-    Glitch(usize),
-    // BitFlipCached(usize),
-}
-
-#[derive(Clone, Debug)]
-pub struct FaultData {
-    pub data: Vec<u8>,
-    pub data_changed: Vec<u8>,
-    pub fault: SimulationFaultRecord,
-}
-
-impl FaultData {
-    pub fn get_simulation_fault_records(
-        fault_data_records: &[FaultData],
-    ) -> Vec<SimulationFaultRecord> {
-        fault_data_records
-            .iter()
-            .map(|record| record.fault.clone())
-            .collect()
-    }
 }
 
 pub struct Cpu<'a> {
