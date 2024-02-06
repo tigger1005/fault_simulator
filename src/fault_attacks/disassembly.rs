@@ -53,7 +53,7 @@ impl Disassembly {
 
         for i in 0..insns_data.as_ref().len() {
             let ins = &insns_data.as_ref()[i];
-    
+
             print!(
                 "0x{:X}:  {:6} {:40}     < ",
                 ins.address(),
@@ -61,24 +61,20 @@ impl Disassembly {
                 ins.op_str().unwrap(),
             );
             if let Some(registers) = &trace_record.registers {
-                let reg_list: [usize;9] = [16,0,1,2,3,4,5,6,7];
+                let reg_list: [usize; 9] = [16, 0, 1, 2, 3, 4, 5, 6, 7];
 
-                reg_list
-                    .iter()
-                    .for_each(|index| {
-                        if *index == 16 {
-                            let cpsr =  registers[*index];
-                            let flag_n = ( cpsr & 0x80000000) >> 31;
-                            let flag_z = (cpsr & 0x40000000) >> 30;
-                            let flag_c = (cpsr & 0x20000000) >> 29;
-                            let flag_v = (cpsr & 0x10000000) >> 28;
-                            print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
-                        }
-                        else
-                        {
-                            print!("R{}=0x{:08X} ", index, registers[*index]);
-                        }
-                    });
+                reg_list.iter().for_each(|index| {
+                    if *index == 16 {
+                        let cpsr = registers[*index];
+                        let flag_n = (cpsr & 0x80000000) >> 31;
+                        let flag_z = (cpsr & 0x40000000) >> 30;
+                        let flag_c = (cpsr & 0x20000000) >> 29;
+                        let flag_v = (cpsr & 0x10000000) >> 28;
+                        print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+                    } else {
+                        print!("R{}=0x{:08X} ", index, registers[*index]);
+                    }
+                });
             }
             println!(">");
         }
