@@ -63,23 +63,26 @@ pub fn hook_code_callback(emu: &mut Unicorn<CpuState>, address: u64, size: u32) 
     let emu_data = &emu.get_data();
     // Check if tracing is already started
     if emu_data.start_trace {
-        // Prepare data record
-        let mut record = TraceRecord {
-            address,
-            asm_instruction: vec![0x00; size as usize],
-            registers: None,
-        };
-        emu.mem_read(address, &mut record.asm_instruction).unwrap();
+        let mut asm_instruction = vec![0x00; size as usize];
+        emu.mem_read(address, &mut asm_instruction).unwrap();
 
-        if emu_data.with_register_data {
+        let registers = if emu_data.with_register_data {
             let mut registers: [u32; 17] = [0; 17];
             ARM_REG.iter().enumerate().for_each(|(index, register)| {
                 registers[index] = emu.reg_read(*register).unwrap() as u32;
             });
-            record.registers = Some(registers);
-        }
+            Some(registers)
+        } else {
+            None
+        };
 
         // Record data
-        emu.get_data_mut().trace_data.push(record);
+        emu.get_data_mut()
+            .trace_data
+            .push(TraceRecord::Instruction {
+                address,
+                asm_instruction,
+                registers,
+            });
     }
 }
