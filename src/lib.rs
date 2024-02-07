@@ -192,13 +192,13 @@ impl FaultAttacks {
         let (&fault_type, remaining_faults) = faults.split_first().unwrap();
         for index in 0..records.len() {
             let fault_record = SimulationFaultRecord { index, fault_type };
+            let mut fault_records = fixed_fault_records.to_vec();
+            fault_records.push(fault_record);
 
             if remaining_faults.is_empty() {
                 n += 1;
-                simulation_run(file_data, &[fault_record], s);
+                simulation_run(file_data, &fault_records, s);
             } else {
-                let mut fault_records = fixed_fault_records.to_vec();
-                fault_records.push(fault_record);
                 n += Self::fault_simulation_inner(
                     file_data,
                     remaining_faults,
