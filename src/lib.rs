@@ -129,6 +129,7 @@ impl FaultAttacks {
         faults: &[FaultType],
         low_complexity: bool,
     ) -> (Option<Vec<Vec<FaultData>>>, usize) {
+        println!("Running simulation for faults: {faults:?}");
         if faults.is_empty() {
             return (None, 0);
         }
