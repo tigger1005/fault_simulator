@@ -22,63 +22,71 @@ impl Disassembly {
     fn disassembly_fault_data(&self, fault_data: &FaultData) {
         let insns_data = self
             .cs
-            .disasm_all(&fault_data.original_instructions, fault_data.record.address)
-            .expect("Failed to disassemble");
-        let insns_data_changed = self
-            .cs
             .disasm_all(
-                &fault_data.record.asm_instruction,
-                fault_data.record.address,
+                &fault_data.original_instructions,
+                fault_data.record.address(),
             )
             .expect("Failed to disassemble");
 
         for i in 0..insns_data.as_ref().len() {
             let ins = &insns_data.as_ref()[i];
-            let ins_changed = &insns_data_changed.as_ref()[i];
 
             println!(
-                "0x{:X}:  {} {} -> {} {}",
+                "0x{:X}:  {} {} -> {:?}",
                 ins.address(),
                 ins.mnemonic().unwrap(),
                 ins.op_str().unwrap(),
-                ins_changed.mnemonic().unwrap(),
-                ins_changed.op_str().unwrap()
+                fault_data.fault.fault_type
             );
         }
     }
 
     fn disassembly_trace_record(&self, trace_record: &TraceRecord) {
-        let insns_data = self
-            .cs
-            .disasm_all(&trace_record.asm_instruction, trace_record.address)
-            .expect("Failed to disassemble");
+        match trace_record {
+            TraceRecord::Instruction {
+                address,
+                asm_instruction,
+                registers,
+            } => {
+                let insns_data = self
+                    .cs
+                    .disasm_all(asm_instruction, *address)
+                    .expect("Failed to disassemble");
 
-        for i in 0..insns_data.as_ref().len() {
-            let ins = &insns_data.as_ref()[i];
+                for i in 0..insns_data.as_ref().len() {
+                    let ins = &insns_data.as_ref()[i];
 
-            print!(
-                "0x{:X}:  {:6} {:40}     < ",
-                ins.address(),
-                ins.mnemonic().unwrap(),
-                ins.op_str().unwrap(),
-            );
-            if let Some(registers) = &trace_record.registers {
-                let reg_list: [usize; 9] = [16, 0, 1, 2, 3, 4, 5, 6, 7];
+                    print!(
+                        "0x{:X}:  {:6} {:40}     < ",
+                        ins.address(),
+                        ins.mnemonic().unwrap(),
+                        ins.op_str().unwrap(),
+                    );
+                    if let Some(registers) = registers {
+                        let reg_list: [usize; 9] = [16, 0, 1, 2, 3, 4, 5, 6, 7];
 
-                reg_list.iter().for_each(|index| {
-                    if *index == 16 {
-                        let cpsr = registers[*index];
-                        let flag_n = (cpsr & 0x80000000) >> 31;
-                        let flag_z = (cpsr & 0x40000000) >> 30;
-                        let flag_c = (cpsr & 0x20000000) >> 29;
-                        let flag_v = (cpsr & 0x10000000) >> 28;
-                        print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
-                    } else {
-                        print!("R{}=0x{:08X} ", index, registers[*index]);
+                        reg_list.iter().for_each(|index| {
+                            if *index == 16 {
+                                let cpsr = registers[*index];
+                                let flag_n = (cpsr & 0x80000000) >> 31;
+                                let flag_z = (cpsr & 0x40000000) >> 30;
+                                let flag_c = (cpsr & 0x20000000) >> 29;
+                                let flag_v = (cpsr & 0x10000000) >> 28;
+                                print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+                            } else {
+                                print!("R{}=0x{:08X} ", index, registers[*index]);
+                            }
+                        });
                     }
-                });
+                    println!(">");
+                }
             }
-            println!(">");
+            TraceRecord::Fault {
+                address: _,
+                fault_type,
+            } => {
+                println!("{:?}", fault_type)
+            }
         }
     }
 
@@ -98,7 +106,7 @@ impl Disassembly {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
                         self.disassembly_fault_data(fault_data);
-                        self.print_debug_info(fault_data.record.address, debug_context);
+                        self.print_debug_info(fault_data.record.address(), debug_context);
                         println!();
                     });
                     println!("------------------------");

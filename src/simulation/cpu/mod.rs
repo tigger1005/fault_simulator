@@ -315,10 +315,9 @@ impl<'a> Cpu<'a> {
         ARM_REG.iter().enumerate().for_each(|(index, register)| {
             registers[index] = self.emu.reg_read(*register).unwrap() as u32;
         });
-        let record = TraceRecord {
+        let record = TraceRecord::Fault {
             address,
-            asm_instruction: manipulated_instructions,
-            registers: Some(registers),
+            fault_type: fault.fault_type,
         };
         self.emu.get_data_mut().trace_data.push(record.clone());
 

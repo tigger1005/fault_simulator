@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 /// Types of faults which can be simulated.
 pub enum FaultType {
     /// A fault which skips `n` consecutive instructions.
@@ -14,10 +14,25 @@ pub struct SimulationFaultRecord {
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug)]
 /// One recorded step of a simulation
-pub struct TraceRecord {
-    pub address: u64,
-    pub asm_instruction: Vec<u8>,
-    pub registers: Option<[u32; 17]>,
+pub enum TraceRecord {
+    Instruction {
+        address: u64,
+        asm_instruction: Vec<u8>,
+        registers: Option<[u32; 17]>,
+    },
+    Fault {
+        address: u64,
+        fault_type: FaultType,
+    },
+}
+
+impl TraceRecord {
+    pub fn address(&self) -> u64 {
+        match self {
+            TraceRecord::Instruction { address, .. } => *address,
+            TraceRecord::Fault { address, .. } => *address,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

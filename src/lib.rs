@@ -89,7 +89,7 @@ impl FaultAttacks {
 
         for i in range {
             (self.fault_data, count) =
-                self.cached_nop_simulation_x_y(&records, low_complexity, i, 0);
+                self.fault_simulation(&[FaultType::Glitch(i)], low_complexity);
             self.count_sum += count;
 
             if self.fault_data.is_some() {
@@ -105,15 +105,15 @@ impl FaultAttacks {
         low_complexity: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
-        // Get trace data from negative run
-        let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[]);
         let mut count;
 
         // Run cached double nop simulation
         let it = range.clone().cartesian_product(range);
         for t in it {
-            (self.fault_data, count) =
-                self.cached_nop_simulation_x_y(&records, low_complexity, t.0, t.1);
+            (self.fault_data, count) = self.fault_simulation(
+                &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
+                low_complexity,
+            );
             self.count_sum += count;
 
             if self.fault_data.is_some() {
@@ -124,62 +124,43 @@ impl FaultAttacks {
         (self.fault_data.is_some(), self.count_sum)
     }
 
-    /// Run program with a single nop instruction injected as an fault attack
-    pub fn cached_nop_simulation_x_y(
+    fn fault_simulation(
         &self,
-        records: &Vec<TraceRecord>,
+        faults: &[FaultType],
         low_complexity: bool,
-        num_x: usize,
-        num_y: usize,
     ) -> (Option<Vec<Vec<FaultData>>>, usize) {
-        // Print overview
+        println!("Running simulation for faults: {faults:?}");
+        if faults.is_empty() {
+            return (None, 0);
+        }
         let n = AtomicUsize::new(0);
-        println!(
-            "Fault injection - Insert {} cached-NOP areas - with A: {} and B: {} consecutive nops",
-            if num_x == 0 || num_y == 0 { 1 } else { 2 },
-            num_x,
-            num_y
-        );
+        let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[]);
         let bar = ProgressBar::new(records.len() as u64);
-        // Setup sender and receiver
         let (sender, receiver) = channel();
         let temp_file_data = &self.file_data;
 
+        let (&fault_type, remaining_faults) = faults.split_first().unwrap();
         (0..records.len())
             .into_par_iter()
             .for_each_with(sender, |s, index| {
-                let fault_record = SimulationFaultRecord {
-                    index,
-                    fault_type: FaultType::Glitch(num_x),
-                };
+                let fault_record = SimulationFaultRecord { index, fault_type };
 
                 bar.inc(1);
 
-                if num_y == 0 {
+                if remaining_faults.is_empty() {
                     n.fetch_add(1, Ordering::Relaxed);
                     simulation_run(temp_file_data, &[fault_record], s);
                 } else {
-                    // Get intermediate trace data from negative run with inserted nop -> new program flow
-                    let intermediate_trace_records = trace_run(
-                        temp_file_data,
-                        RunType::RecordTrace,
-                        low_complexity,
-                        &[fault_record],
-                    );
-
-                    n.fetch_add(intermediate_trace_records.len(), Ordering::Relaxed);
-                    // Run full test with intermediate trace data
-                    for index in 0..intermediate_trace_records.len() {
-                        let intermediate_fault_record = SimulationFaultRecord {
-                            index,
-                            fault_type: FaultType::Glitch(num_y),
-                        };
-                        simulation_run(
+                    n.fetch_add(
+                        Self::fault_simulation_inner(
                             temp_file_data,
-                            &[fault_record, intermediate_fault_record],
+                            remaining_faults,
+                            &[fault_record],
+                            low_complexity,
                             s,
-                        );
-                    }
+                        ),
+                        Ordering::Relaxed,
+                    );
                 }
             });
         bar.finish_and_clear();
@@ -191,6 +172,43 @@ impl FaultAttacks {
         } else {
             (Some(data), n.load(Ordering::Relaxed))
         }
+    }
+
+    fn fault_simulation_inner(
+        file_data: &ElfFile,
+        faults: &[FaultType],
+        fixed_fault_records: &[SimulationFaultRecord],
+        low_complexity: bool,
+        s: &mut Sender<Vec<FaultData>>,
+    ) -> usize {
+        let mut n = 0;
+        let records = trace_run(
+            file_data,
+            RunType::RecordTrace,
+            low_complexity,
+            fixed_fault_records,
+        );
+
+        let (&fault_type, remaining_faults) = faults.split_first().unwrap();
+        for index in 0..records.len() {
+            let fault_record = SimulationFaultRecord { index, fault_type };
+            let mut fault_records = fixed_fault_records.to_vec();
+            fault_records.push(fault_record);
+
+            if remaining_faults.is_empty() {
+                n += 1;
+                simulation_run(file_data, &fault_records, s);
+            } else {
+                n += Self::fault_simulation_inner(
+                    file_data,
+                    remaining_faults,
+                    &fault_records,
+                    low_complexity,
+                    s,
+                );
+            }
+        }
+        n
     }
 }
 
