@@ -19,7 +19,13 @@ impl Disassembly {
         Self { cs }
     }
 
-    fn disassembly_fault_data(&self, fault_data: &FaultData) {
+    fn disassembly_fault_data(
+        &self,
+        fault_data: &FaultData,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
         let insns_data = self
             .cs
             .disasm_all(
@@ -38,6 +44,7 @@ impl Disassembly {
                 ins.op_str().unwrap(),
                 fault_data.fault.fault_type
             );
+            self.print_debug_info(ins.address(), debug_context);
         }
     }
 
@@ -105,8 +112,7 @@ impl Disassembly {
                 .for_each(|(attack_num, fault_context)| {
                     println!("Attack number {}", attack_num + 1);
                     fault_context.iter().for_each(|fault_data| {
-                        self.disassembly_fault_data(fault_data);
-                        self.print_debug_info(fault_data.record.address(), debug_context);
+                        self.disassembly_fault_data(fault_data, debug_context);
                         println!();
                     });
                     println!("------------------------");
