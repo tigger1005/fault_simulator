@@ -27,6 +27,10 @@ struct Args {
     #[arg(long, default_value_t = String::from("all"))]
     attack: String,
 
+    /// Run a command line defined sequence of faults. Alternative to --attack
+    #[arg(long, value_delimiter = ',')]
+    faults: Vec<fault_simulator::FaultType>,
+
     /// Activate trace analysis of picked fault
     #[arg(short, long, default_value_t = false)]
     analysis: bool,
@@ -59,23 +63,27 @@ fn main() {
     println!("\nRun fault simulations:");
 
     // Run attack simulation
-    match args.attack.as_str() {
-        "all" => {
-            if !attack.single_glitch(args.low_complexity, 1..=10).0 {
+    if args.faults.is_empty() {
+        match args.attack.as_str() {
+            "all" => {
+                if !attack.single_glitch(args.low_complexity, 1..=10).0 {
+                    attack.double_glitch(args.low_complexity, 1..=10);
+                }
+                //            attack.single_bit_flip();
+            }
+            "single" => {
+                attack.single_glitch(args.low_complexity, 1..=10);
+            }
+            "double" => {
                 attack.double_glitch(args.low_complexity, 1..=10);
             }
-            //            attack.single_bit_flip();
+            // "bit_flip" => {
+            //     attack.single_bit_flip();
+            // }
+            _ => println!("No attack selected!"),
         }
-        "single" => {
-            attack.single_glitch(args.low_complexity, 1..=10);
-        }
-        "double" => {
-            attack.double_glitch(args.low_complexity, 1..=10);
-        }
-        // "bit_flip" => {
-        //     attack.single_bit_flip();
-        // }
-        _ => println!("No attack selected!"),
+    } else {
+        attack.fault_simulation(&args.faults, args.low_complexity);
     }
 
     let debug_context = attack.file_data.get_debug_context();

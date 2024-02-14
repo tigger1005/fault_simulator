@@ -70,7 +70,7 @@ impl<'a> Control<'a> {
         run_type: RunType,
         low_complexity_trace: bool,
         faults: &[SimulationFaultRecord],
-    ) -> (Option<Vec<FaultData>>, Option<&Vec<TraceRecord>>) {
+    ) -> (Option<Vec<FaultData>>, Option<Vec<TraceRecord>>) {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
@@ -91,15 +91,17 @@ impl<'a> Control<'a> {
         }
 
         // Iterate over all faults and run the program step by step
-        faults.iter().for_each(|fault| {
+        for fault in faults {
             let mut ret_val = Ok(());
             if fault.index != 0 {
                 ret_val = self.emu.run_steps(fault.index, false);
             }
             if ret_val.is_ok() {
                 self.emu.execute_fault_injection(fault);
+            } else {
+                return (None, Some(Vec::new()));
             }
-        });
+        }
 
         // Start tracing or check previous run state
         match run_type {
@@ -116,7 +118,10 @@ impl<'a> Control<'a> {
         }
 
         // Run to completion
-        let _ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+        let ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+        if ret_val.is_err() {
+            return (None, Some(Vec::new()));
+        }
 
         // Cleanup and return data to caller
         match run_type {
@@ -127,7 +132,7 @@ impl<'a> Control<'a> {
                 if low_complexity_trace {
                     self.emu.reduce_trace();
                 }
-                (None, Some(self.emu.get_trace()))
+                (None, Some(self.emu.get_trace().clone()))
             }
             RunType::Run => {
                 // Check if fault attack was successful if yes return faults

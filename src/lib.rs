@@ -1,6 +1,7 @@
 use addr2line::gimli;
 
 mod simulation;
+pub use simulation::FaultType;
 use simulation::*;
 
 mod elf_file;
@@ -8,7 +9,6 @@ use elf_file::ElfFile;
 
 use rayon::prelude::*;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 
 use indicatif::ProgressBar;
@@ -84,13 +84,10 @@ impl FaultAttacks {
     ) -> (bool, usize) {
         // Get trace data from negative run
         let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[]);
-        let mut count;
         debug!("Number of trace steps: {}", records.len());
 
         for i in range {
-            (self.fault_data, count) =
-                self.fault_simulation(&[FaultType::Glitch(i)], low_complexity);
-            self.count_sum += count;
+            self.fault_data = self.fault_simulation(&[FaultType::Glitch(i)], low_complexity);
 
             if self.fault_data.is_some() {
                 break;
@@ -105,16 +102,13 @@ impl FaultAttacks {
         low_complexity: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> (bool, usize) {
-        let mut count;
-
         // Run cached double nop simulation
         let it = range.clone().cartesian_product(range);
         for t in it {
-            (self.fault_data, count) = self.fault_simulation(
+            self.fault_data = self.fault_simulation(
                 &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
                 low_complexity,
             );
-            self.count_sum += count;
 
             if self.fault_data.is_some() {
                 break;
@@ -124,53 +118,52 @@ impl FaultAttacks {
         (self.fault_data.is_some(), self.count_sum)
     }
 
-    fn fault_simulation(
-        &self,
+    pub fn fault_simulation(
+        &mut self,
         faults: &[FaultType],
         low_complexity: bool,
-    ) -> (Option<Vec<Vec<FaultData>>>, usize) {
+    ) -> Option<Vec<Vec<FaultData>>> {
         println!("Running simulation for faults: {faults:?}");
         if faults.is_empty() {
-            return (None, 0);
+            return None;
         }
-        let n = AtomicUsize::new(0);
         let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[]);
         let bar = ProgressBar::new(records.len() as u64);
-        let (sender, receiver) = channel();
+        let (mut sender, receiver) = channel();
         let temp_file_data = &self.file_data;
 
+        simulation_run(temp_file_data, &[], &mut sender); // Run once without any fault
         let (&fault_type, remaining_faults) = faults.split_first().unwrap();
-        (0..records.len())
+        let n: usize = (0..records.len())
             .into_par_iter()
-            .for_each_with(sender, |s, index| {
+            .map_with(sender, |s, index| {
                 let fault_record = SimulationFaultRecord { index, fault_type };
 
                 bar.inc(1);
 
                 if remaining_faults.is_empty() {
-                    n.fetch_add(1, Ordering::Relaxed);
                     simulation_run(temp_file_data, &[fault_record], s);
+                    1
                 } else {
-                    n.fetch_add(
-                        Self::fault_simulation_inner(
-                            temp_file_data,
-                            remaining_faults,
-                            &[fault_record],
-                            low_complexity,
-                            s,
-                        ),
-                        Ordering::Relaxed,
-                    );
+                    Self::fault_simulation_inner(
+                        temp_file_data,
+                        remaining_faults,
+                        &[fault_record],
+                        low_complexity,
+                        s,
+                    )
                 }
-            });
+            })
+            .sum();
         bar.finish_and_clear();
-        println!("-> {} attacks executed", n.load(Ordering::Relaxed));
+        self.count_sum += n;
+        println!("-> {} attacks executed", n);
         // Return collected successful attacks to caller
         let data: Vec<_> = receiver.iter().collect();
         if data.is_empty() {
-            (None, n.load(Ordering::Relaxed))
+            None
         } else {
-            (Some(data), n.load(Ordering::Relaxed))
+            Some(data)
         }
     }
 
@@ -190,6 +183,19 @@ impl FaultAttacks {
         );
 
         let (&fault_type, remaining_faults) = faults.split_first().unwrap();
+        // Run without this fault
+        if remaining_faults.is_empty() {
+            n += 1;
+            simulation_run(file_data, &fixed_fault_records, s);
+        } else {
+            n += Self::fault_simulation_inner(
+                file_data,
+                remaining_faults,
+                &fixed_fault_records,
+                low_complexity,
+                s,
+            );
+        }
         for index in 0..records.len() {
             let fault_record = SimulationFaultRecord { index, fault_type };
             let mut fault_records = fixed_fault_records.to_vec();
@@ -223,7 +229,6 @@ fn trace_run(
         .run_with_faults(run_type, low_complexity, records)
         .1
         .unwrap()
-        .to_vec()
 }
 
 fn simulation_run(
