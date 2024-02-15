@@ -1,4 +1,9 @@
-use super::{debug, CpuState, MemType, RunState, TraceRecord, Unicorn, ARM_REG, BOOT_STAGE};
+use super::{CpuState, RunState, TraceRecord, ARM_REG, BOOT_STAGE};
+
+use unicorn_engine::unicorn_const::MemType;
+use unicorn_engine::Unicorn;
+
+use log::debug;
 
 /// Callback for auth mem IO write access
 ///

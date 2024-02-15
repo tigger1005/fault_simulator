@@ -1,17 +1,19 @@
-use crate::{ElfFile, FaultData, FaultType, SimulationFaultRecord, TraceRecord};
+pub use crate::elf_file::ElfFile;
+use crate::{
+    simulation::fault::{SimulationFaultRecord, TraceRecord},
+    simulation::{FaultData, FaultType},
+};
 
 mod callback;
 use callback::*;
 
-pub use unicorn_engine::unicorn_const::uc_error;
-use unicorn_engine::unicorn_const::{Arch, HookType, MemType, Mode, Permission, SECOND_SCALE};
-
+use unicorn_engine::unicorn_const::uc_error;
+use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
 use unicorn_engine::{RegisterARM, Unicorn};
-
-use log::debug;
 
 use std::collections::HashSet;
 
+// Constant variable definitions
 pub const MAX_INSTRUCTIONS: usize = 2000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;

@@ -1,7 +1,5 @@
-use super::ElfFile;
-
 mod cpu;
-use cpu::*;
+pub use cpu::*;
 
 mod fault;
 pub use fault::{FaultData, FaultType, SimulationFaultRecord, TraceRecord};

@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use fault_simulator::FaultAttacks;
+use fault_simulator::fault_attacks::FaultAttacks;
 use std::env;
 
 fn criterion_benchmark(c: &mut Criterion) {

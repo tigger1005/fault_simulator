@@ -2,7 +2,7 @@ use clap::Parser;
 use std::io::stdout;
 use std::io::{self, Write};
 
-use fault_simulator::FaultAttacks;
+use fault_simulator::prelude::*;
 
 use std::env;
 
@@ -29,7 +29,7 @@ struct Args {
 
     /// Run a command line defined sequence of faults. Alternative to --attack
     #[arg(long, value_delimiter = ',')]
-    faults: Vec<fault_simulator::FaultType>,
+    faults: Vec<FaultType>,
 
     /// Activate trace analysis of picked fault
     #[arg(short, long, default_value_t = false)]
