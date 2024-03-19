@@ -47,16 +47,33 @@ pub fn mmio_serial_write_callback(
     }
 }
 
+const POSITIVE_VALUE: u32 = 0x5555AAAAu;
+const NEGATIVE_VALUE: u32 = 0xAAAA5555u;
+const FIH_UINT_MASK_VALUE: u32 = 0xB779A31C;
+#[repr(C)]
+struct FihUint {
+    val: u32,
+    msk: u32,
+}
+const FIH_SUCCESS: FihUint = FihUint {
+    val: POSITIVE_VALUE,
+    msk: (POSITIVE_VALUE ^ FIH_UINT_MASK_VALUE),
+};
+const FIH_FAILURE: FihUint = FihUint {
+    val: POSITIVE_VALUE,
+    msk: (POSITIVE_VALUE ^ FIH_UINT_MASK_VALUE),
+};
+
 /// Hook for flash_load_img callback handling
 pub fn hook_code_flash_load_img_callback(emu: &mut Unicorn<CpuState>, _address: u64, _size: u32) {
     if emu.get_data_mut().negative_run {
         // Write flash data to boot stage memory
-        let boot_stage: [u8; 4] = [0xB8, 0x45, 0x85, 0xFD];
+        let boot_stage: [u8; 8] = FIH_FAILURE;
         emu.mem_write(BOOT_STAGE, &boot_stage)
             .expect("failed to write boot stage data");
     } else {
         // Write flash data to boot stage memory
-        let boot_stage: [u8; 4] = [0x78, 0x56, 0x34, 0x12];
+        let boot_stage: [u8; 8] = FIH_SUCCESS;
         emu.mem_write(BOOT_STAGE, &boot_stage)
             .expect("failed to write boot stage data");
     }

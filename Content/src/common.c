@@ -7,7 +7,7 @@
 fih_uint glob_cfi_counter;
 
 // Global variable definition
-const fih_uint image_good_val = FIH_UINT_INIT(0x12345678);
+const fih_uint image_good_val = FIH_SUCCESS;
 
 // Success condition
 volatile unsigned char success_condition = 0x02;
