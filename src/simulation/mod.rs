@@ -56,6 +56,8 @@ impl<'a> Control<'a> {
     /// Check if code under investigation is working correct for
     /// positive and negative execution
     pub fn check_program(&mut self) -> Result<(), String> {
+        // Deactivate io print
+        self.emu.deactivate_printf_function();
         if self.run(true) != RunState::Success {
             return Err(
                 "Program function check failed. Success path is not working properly!".to_string(),
@@ -66,6 +68,7 @@ impl<'a> Control<'a> {
                 "Program function check failed. Failure path is not working properly!".to_string(),
             );
         }
+        println!("Program behaivor checked successfully");
         Ok(())
     }
 
