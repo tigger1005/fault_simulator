@@ -1,4 +1,4 @@
-use super::{CpuState, RunState, TraceRecord, ARM_REG, BOOT_STAGE};
+use super::{CpuState, RunState, TraceRecord, ARM_REG};
 
 use unicorn_engine::unicorn_const::MemType;
 use unicorn_engine::Unicorn;
@@ -7,7 +7,7 @@ use log::debug;
 
 /// Callback for auth mem IO write access
 ///
-/// This IO call signalize the Successful or Failed boot flow
+/// This IO call signalize the Successful or Failed DECISION_DATA flow
 pub fn mmio_auth_write_callback(
     emu: &mut Unicorn<CpuState>,
     _mem_type: MemType,
@@ -47,37 +47,17 @@ pub fn mmio_serial_write_callback(
     }
 }
 
-const POSITIVE_VALUE: u32 = 0x5555AAAAu;
-const NEGATIVE_VALUE: u32 = 0xAAAA5555u;
-const FIH_UINT_MASK_VALUE: u32 = 0xB779A31C;
-#[repr(C)]
-struct FihUint {
-    val: u32,
-    msk: u32,
-}
-const FIH_SUCCESS: FihUint = FihUint {
-    val: POSITIVE_VALUE,
-    msk: (POSITIVE_VALUE ^ FIH_UINT_MASK_VALUE),
-};
-const FIH_FAILURE: FihUint = FihUint {
-    val: POSITIVE_VALUE,
-    msk: (POSITIVE_VALUE ^ FIH_UINT_MASK_VALUE),
-};
-
-/// Hook for flash_load_img callback handling
-pub fn hook_code_flash_load_img_callback(emu: &mut Unicorn<CpuState>, _address: u64, _size: u32) {
-    if emu.get_data_mut().negative_run {
-        // Write flash data to boot stage memory
-        let boot_stage: [u8; 8] = FIH_FAILURE;
-        emu.mem_write(BOOT_STAGE, &boot_stage)
-            .expect("failed to write boot stage data");
-    } else {
-        // Write flash data to boot stage memory
-        let boot_stage: [u8; 8] = FIH_SUCCESS;
-        emu.mem_write(BOOT_STAGE, &boot_stage)
-            .expect("failed to write boot stage data");
-    }
-    debug!("Call of flash_load_img");
+/// Hook for decision_activation callback handling
+///
+pub fn hook_code_decision_activation_callback(
+    emu: &mut Unicorn<CpuState>,
+    _address: u64,
+    _size: u32,
+) {
+    debug!("Call of decision_activation");
+    // Set decision data according the run (negative/positive)
+    let success: bool = !emu.get_data_mut().negative_run;
+    write_decision_element(emu, success);
 }
 
 /// Code Hook for tracing functionality
@@ -107,4 +87,36 @@ pub fn hook_code_callback(emu: &mut Unicorn<CpuState>, address: u64, size: u32) 
                 registers,
             });
     }
+}
+
+/// Write data to the decision data element according to given bool value
+/// true: success data will be copied to decision data element
+/// false: false data will be copied to decision data element
+///
+pub fn write_decision_element(emu: &mut Unicorn<CpuState>, success: bool) {
+    let mut decision_element_size: [u8; 4] = [0x0; 4];
+    let decision_struct_address: u64 = emu.get_data().file_data.decision_data.st_value;
+    let decision_data_address: u64 = decision_struct_address + 4;
+
+    // Read size of decision element
+    emu.mem_read(decision_struct_address, &mut decision_element_size)
+        .expect("failed to read decision element size");
+    let element_size: u32 = u32::from_le_bytes(decision_element_size);
+
+    let success_data_address = decision_data_address + element_size as u64;
+    let failure_data_address = decision_data_address + (element_size as u64 * 2);
+
+    let mut data: Vec<u8> = vec![0x00; element_size as usize];
+    // Read specific data (success/failure)
+    if success {
+        emu.mem_read(success_data_address, &mut data)
+            .expect("failed to read failure data");
+    } else {
+        emu.mem_read(failure_data_address, &mut data)
+            .expect("failed to read success data");
+    }
+    //debug!("Data written {:?}", &data);
+    // Write specifc data to decision data
+    emu.mem_write(decision_data_address, &data)
+        .expect("failed to write to decision data element");
 }

@@ -59,7 +59,7 @@ void fih_cfi_decrement(void)
 }
 #endif /* FIH_ENABLE_CFI */
 
-#ifdef FIH_ENABLE_GLOBAL_FAIL
+
 /* Global failure loop for bootloader code. Uses attribute used to prevent
  * compiler removing due to non-standard calling procedure. Multiple loop jumps
  * used to make unlooping difficult.
@@ -87,18 +87,22 @@ void fih_panic_loop(void)
     while (true) {} /* Satisfy noreturn */
 #endif
 }
-#endif /* FIH_ENABLE_GLOBAL_FAIL */
 
-#ifdef FIH_ENABLE_DELAY
 void fih_delay_init(void)
 {
     /* Implement here */
 }
 
-uint8_t fih_delay_random(void)
+uint32_t fih_delay_random(void)
 {
     /* Implement here */
 
     return 0xFF;
 }
-#endif /* FIH_ENABLE_DELAY */
+
+bool fih_delay(void)
+{
+    /* Implement here */
+
+    return 0x01;
+};

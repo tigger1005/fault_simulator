@@ -10,20 +10,12 @@
 
 __attribute__((always_inline)) static inline uint32_t fih_uint_msk(fih_uint x)
 {
-#ifdef FIH_ENABLE_DOUBLE_VARS
     return x.msk ^ FIH_UINT_MASK_VALUE;
-#else
-    return x;
-#endif
 }
 
 __attribute__((always_inline)) static inline uint32_t fih_uint_val(fih_uint x)
 {
-#ifdef FIH_ENABLE_DOUBLE_VARS
     return x.val;
-#else
-    return x;
-#endif
 }
 
 /**
@@ -98,6 +90,6 @@ fih_uint fih_memcpy(fih_uint dst, fih_uint src, fih_uint length);
  * \param[in] length Length
  * \return fih_int Either fih_int_encode(FIH_TRUE) or fih_int_encode(FIH_FALSE)
  */
-fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length);
+fih_uint fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length);
 
 #endif

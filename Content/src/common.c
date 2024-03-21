@@ -13,4 +13,4 @@ const fih_uint image_good_val = FIH_SUCCESS;
 volatile unsigned char success_condition = 0x02;
 
 // Function implementation
-__attribute__((used, noinline)) void flash_load_img(void) {}
+__attribute__((used, noinline)) void decision_activation(void) {}

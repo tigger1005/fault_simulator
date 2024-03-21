@@ -8,5 +8,6 @@ void __attribute__ ((noinline)) memcpy (void* dst, const void* src, size_t count
 // void __attribute__ ((noinline)) memset (void* dst, uint8_t val, size_t count);
 void __attribute__ ((noinline)) serial_putc(char c);
 void serial_puts (char* s);
+void serial_puts_hex(char *bin, uint16_t length);
 
 #endif

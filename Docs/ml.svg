@@ -39,7 +39,7 @@
 <text text-anchor="middle" x="974.88" y="-913.2" font-family="Times,serif" font-size="14.00">+ header: FileHeader&lt;AnyEndian&gt;</text>
 <text text-anchor="middle" x="974.88" y="-896.7" font-family="Times,serif" font-size="14.00">+ program_header: ProgramHeader</text>
 <text text-anchor="middle" x="974.88" y="-880.2" font-family="Times,serif" font-size="14.00">+ program: Vec&lt;u8&gt;</text>
-<text text-anchor="middle" x="974.88" y="-863.7" font-family="Times,serif" font-size="14.00">+ flash_load_img: Symbol</text>
+<text text-anchor="middle" x="974.88" y="-863.7" font-family="Times,serif" font-size="14.00">+ decision_activation: Symbol</text>
 <text text-anchor="middle" x="974.88" y="-847.2" font-family="Times,serif" font-size="14.00">+ serial_puts: Symbol</text>
 <polyline fill="none" stroke="black" points="859.62,-840 1090.12,-840"/>
 <text text-anchor="middle" x="974.88" y="-822.7" font-family="Times,serif" font-size="14.00">+ new(path: std::path::PathBuf) &#45;&gt; Self</text>

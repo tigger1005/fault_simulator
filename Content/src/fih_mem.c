@@ -49,17 +49,13 @@ fih_uint fih_memcpy(fih_uint dst, fih_uint src, fih_uint length) {
   }
 
   // Return final destination address as fih_uint
-#ifdef FIH_ENABLE_DOUBLE_VARS
   fih_uint ret = {(uint32_t)(uintptr_t)dst8,
-                  (fih_uint_msk(dst) + fih_uint_msk(length)) ^ FIH_MASK_VALUE};
-#else
-  fih_uint ret = (fih_uint)dst8;
-#endif
+                  (fih_uint_msk(dst) + fih_uint_msk(length)) ^ FIH_UINT_MASK_VALUE};
   return ret;
 }
 
-fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
-  fih_int ret = FIH_INT_INIT(FIH_FALSE);
+fih_uint fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
+  fih_uint ret = FIH_UINT_INIT(FIH_FALSE);
   fih_uint_validate(length);
   {
     size_t u = 0;
@@ -72,12 +68,8 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
     }
 
     if (u != len || fih_uint_val(data1) == fih_uint_val(data2)) {
-      return fih_int_encode(FIH_FALSE);
+      return fih_uint_encode(FIH_FALSE);
     }
-#ifndef FIH_ENABLE_DOUBLE_VARS
-    return FIH_TRUE;
-  }
-#else
     ret.val = FIH_TRUE;
   }
   fih_uint_validate(data1);
@@ -110,9 +102,8 @@ fih_int fih_memcmp(fih_uint data1, fih_uint data2, fih_uint length) {
     if (u != len || fih_uint_msk(data1) == fih_uint_val(data2)) {
       FIH_PANIC;
     }
-    ret.msk ^= FIH_MASK_VALUE;
+    ret.msk ^= FIH_UINT_MASK_VALUE;
   }
-  fih_int_validate(ret);
+  fih_uint_validate(ret);
   return ret;
-#endif
 }

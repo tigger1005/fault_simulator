@@ -11,13 +11,13 @@ use unicorn_engine::unicorn_const::uc_error;
 use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
 use unicorn_engine::{RegisterARM, Unicorn};
 
+use log::debug;
 use std::collections::HashSet;
 
 // Constant variable definitions
 pub const MAX_INSTRUCTIONS: usize = 2000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
-const BOOT_STAGE: u64 = 0x32000000;
 const AUTH_BASE: u64 = 0xAA01000;
 
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
@@ -53,13 +53,11 @@ pub enum RunState {
 }
 
 pub struct Cpu<'a> {
-    file_data: &'a ElfFile,
-    emu: Unicorn<'a, CpuState>,
+    emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
 }
 
-#[derive(Default)]
-struct CpuState {
+struct CpuState<'a> {
     state: RunState,
     start_trace: bool,
     with_register_data: bool,
@@ -67,6 +65,7 @@ struct CpuState {
     deactivate_print: bool,
     trace_data: Vec<TraceRecord>,
     fault_data: Vec<FaultData>,
+    file_data: &'a ElfFile,
 }
 
 impl<'a> Cpu<'a> {
@@ -75,12 +74,22 @@ impl<'a> Cpu<'a> {
         let emu = Unicorn::new_with_data(
             Arch::ARM,
             Mode::LITTLE_ENDIAN | Mode::MCLASS,
-            CpuState::default(),
+            CpuState {
+                state: Default::default(),
+                start_trace: false,
+                with_register_data: false,
+                negative_run: false,
+                deactivate_print: false,
+                trace_data: Vec::new(),
+                fault_data: Vec::new(),
+                file_data,
+            },
         )
         .expect("failed to initialize Unicorn instance");
 
+        debug!("Setup new unicorn instance");
+
         Self {
-            file_data,
             emu,
             program_counter: 0,
         }
@@ -107,18 +116,15 @@ impl<'a> Cpu<'a> {
     pub fn load_code(&mut self) {
         self.emu
             .mem_write(
-                self.file_data.program_header.p_paddr,
-                &self.file_data.program,
+                self.emu.get_data().file_data.program_header.p_paddr,
+                &self.emu.get_data().file_data.program,
             )
             .expect("failed to write file data");
         // set initial program start address
-        self.program_counter = self.file_data.program_header.p_paddr;
+        self.program_counter = self.emu.get_data().file_data.program_header.p_paddr;
 
-        // Write wrong flash data to boot stage memory
-        let boot_stage: [u8; 4] = [0xB8, 0x45, 0x85, 0xFD];
-        self.emu
-            .mem_write(BOOT_STAGE, &boot_stage)
-            .expect("failed to write boot stage data");
+        // Write wrong flash data to DECISION_DATA stage memory
+        write_decision_element(&mut self.emu, false);
     }
 
     /// Function to deactivate printf of c program to
@@ -126,22 +132,25 @@ impl<'a> Cpu<'a> {
     pub fn deactivate_printf_function(&mut self) {
         self.emu.get_data_mut().deactivate_print = true;
         self.emu
-            .mem_write(self.file_data.serial_puts.st_value & 0xfffffffe, &T1_RET)
+            .mem_write(
+                self.emu.get_data().file_data.serial_puts.st_value & 0xfffffffe,
+                &T1_RET,
+            )
             .unwrap();
     }
 
     /// Setup all breakpoints
     ///
     /// BreakPoints
-    /// { binInfo.Symbols["flash_load_img"].Address }
+    /// { binInfo.Symbols["decision_activation"].Address }
     pub fn setup_breakpoints(&mut self) {
         self.emu
             .add_code_hook(
-                self.file_data.flash_load_img.st_value,
-                self.file_data.flash_load_img.st_value + 1,
-                hook_code_flash_load_img_callback,
+                self.emu.get_data().file_data.decision_activation.st_value,
+                self.emu.get_data().file_data.decision_activation.st_value + 1,
+                hook_code_decision_activation_callback,
             )
-            .expect("failed to set flash_load_img code hook");
+            .expect("failed to set decision_activation code hook");
 
         self.emu
             .add_mem_hook(
@@ -156,20 +165,12 @@ impl<'a> Cpu<'a> {
     /// Setup memory mapping, stack, io mapping
     pub fn setup_mmio(&mut self) {
         const MINIMUM_MEMORY_SIZE: usize = 0x1000;
-        // Next boot stage mem
-        self.emu
-            .mem_map(
-                0x32000000,
-                MINIMUM_MEMORY_SIZE,
-                Permission::READ | Permission::WRITE,
-            )
-            .expect("failed to map boot stage page");
-
         // Code
-        let code_size = (self.file_data.program.len() + MINIMUM_MEMORY_SIZE) & 0xfffff000;
+        let code_size =
+            (self.emu.get_data().file_data.program.len() + MINIMUM_MEMORY_SIZE) & 0xfffff000;
         self.emu
             .mem_map(
-                self.file_data.program_header.p_paddr,
+                self.emu.get_data().file_data.program_header.p_paddr,
                 code_size,
                 Permission::ALL,
             )
@@ -210,8 +211,8 @@ impl<'a> Cpu<'a> {
                 }
             }
         } else {
-            let end_address =
-                self.file_data.program_header.p_paddr + self.file_data.program_header.p_filesz;
+            let end_address = self.emu.get_data().file_data.program_header.p_paddr
+                + self.emu.get_data().file_data.program_header.p_filesz;
 
             // Start from last PC
             ret_val = self.emu.emu_start(
@@ -262,8 +263,8 @@ impl<'a> Cpu<'a> {
     pub fn set_trace_hook(&mut self) {
         self.emu
             .add_code_hook(
-                self.file_data.program_header.p_paddr,
-                self.file_data.program_header.p_memsz,
+                self.emu.get_data().file_data.program_header.p_paddr,
+                self.emu.get_data().file_data.program_header.p_memsz,
                 hook_code_callback,
             )
             .expect("failed to setup trace hook");

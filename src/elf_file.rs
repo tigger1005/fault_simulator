@@ -10,8 +10,9 @@ pub struct ElfFile {
     pub header: FileHeader<AnyEndian>,
     pub program_header: ProgramHeader,
     pub program: Vec<u8>,
-    pub flash_load_img: Symbol,
+    pub decision_activation: Symbol,
     pub serial_puts: Symbol,
+    pub decision_data: Symbol,
     file_data: Vec<u8>,
 }
 
@@ -39,9 +40,9 @@ impl ElfFile {
             .collect();
 
         // Find needed symbols
-        let flash_load_img = symbols_with_names
+        let decision_activation = symbols_with_names
             .iter()
-            .find(|&x| x.0 == "flash_load_img")
+            .find(|&x| x.0 == "decision_activation")
             .unwrap()
             .1
             .clone();
@@ -54,14 +55,23 @@ impl ElfFile {
             .1
             .clone();
 
+        // Find needed symbols
+        let decision_data = symbols_with_names
+            .iter()
+            .find(|&x| x.0 == "desiciondata")
+            .unwrap()
+            .1
+            .clone();
+
         // Fill struct
         Self {
             header: file.ehdr,
             program_header,
             program: program.to_vec(),
-            flash_load_img,
+            decision_activation,
             serial_puts,
             file_data,
+            decision_data,
         }
     }
 
@@ -92,10 +102,10 @@ mod tests {
             elf_struct.program_header.p_vaddr
         );
 
-        assert_eq!(elf_struct.flash_load_img.st_size, 6);
+        assert_eq!(elf_struct.decision_activation.st_size, 6);
 
         println!("{:?}", elf_struct.header);
         println!("{:?}", elf_struct.program_header);
-        println!("{:?}", elf_struct.flash_load_img);
+        println!("{:?}", elf_struct.decision_activation);
     }
 }

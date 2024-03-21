@@ -180,12 +180,12 @@ impl FaultAttacks {
         // Run without this fault
         if remaining_faults.is_empty() {
             n += 1;
-            simulation_run(file_data, &fixed_fault_records, s);
+            simulation_run(file_data, fixed_fault_records, s);
         } else {
             n += Self::fault_simulation_inner(
                 file_data,
                 remaining_faults,
-                &fixed_fault_records,
+                fixed_fault_records,
                 low_complexity,
                 s,
             );

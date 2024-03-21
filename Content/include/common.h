@@ -8,54 +8,29 @@
 
 // ------------------------------------------------------------
 // Framework defines and macros definitions
-extern const fih_uint image_good_val;
+#define DECISION_DATA_STRUCTURE(element_type, success, failure) \
+typedef struct _decision_data { \
+  uint32_t  decision_element_size; \
+  element_type data_element; \
+  element_type success_data_element; \
+  element_type failure_data_element; \
+} decision_data; \
+decision_data desiciondata  = {(sizeof(decision_data) - sizeof(uint32_t)) / 3, failure, success, failure}
+#define DECISION_DATA desiciondata.data_element
 
-#define IMG_LOAD_ADDR ((void *)0x32000000)
 #define UART_OUT_BUF_ADDR ((void *)0x11000000)
-#define IMAGE_VALUE (*(uint32_t *)IMG_LOAD_ADDR)
 
-#ifdef FIH_ENABLE_DOUBLE_VARS
 // Macro to remove initial warning for fih template project
 #define FIH_IF_UINT_EQUAL(x, y) if (x.val == y.val)
 #define FIH_IF_UINT_EQUAL_BODY_CHECK(x, y)                                     \
   {                                                                            \
     fih_uint_validate(x);                                                      \
     fih_delay();                                                               \
-    if (x.msk != y.msk) {                                    \
+    if (x.msk != y.msk) {                                                      \
       FIH_PANIC;                                                               \
     }                                                                          \
   }
 
-#define FIH_IF_INT_EQUAL(x, y) if (x.val == y.val)
-#define FIH_IF_INT_EQUAL_BODY_CHECK(x, y)                                      \
-  {                                                                            \
-    fih_int_validate(x);                                                       \
-    fih_delay();                                                               \
-    if (x.msk != y.msk || x.val != y.val) {                                    \
-      FIH_PANIC;                                                               \
-    }                                                                          \
-  }
-#else
-#define FIH_IF_UINT_EQUAL(x, y) if (x == y)
-#define FIH_IF_UINT_EQUAL_BODY_CHECK(x, y)                                     \
-  {                                                                            \
-    fih_uint_validate(x);                                                      \
-    fih_delay();                                                               \
-    if (x != y) {                                                              \
-      FIH_PANIC;                                                               \
-    }                                                                          \
-  }
-
-#define FIH_IF_INT_EQUAL(x, y) if (x == y)
-#define FIH_IF_INT_EQUAL_BODY_CHECK(x, y)                                      \
-  {                                                                            \
-    fih_int_validate(x);                                                       \
-    fih_delay();                                                               \
-    if (x != y) {                                                              \
-      FIH_PANIC;                                                               \
-    }                                                                          \
-  }
-#endif
 
 extern fih_uint glob_cfi_counter;
 
@@ -85,7 +60,7 @@ extern fih_uint glob_cfi_counter;
                                fih_uint_encode(GLOBAL_CFI_END_VALUE))
 
 // Dummy functions
-extern void flash_load_img(void);
+extern void decision_activation(void);
 
 extern volatile unsigned char success_condition;
 

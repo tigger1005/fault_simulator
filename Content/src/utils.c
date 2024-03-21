@@ -44,3 +44,17 @@ void serial_puts(char *s) {
     s++;
   }
 }
+
+void serial_puts_hex(char *s, uint16_t length) {
+  while (length--) {
+    char data = (*s) >> 4;
+    char chr = data < 10 ? data + '0' : data + 'A' - 10;
+    serial_putc(chr);
+    data = (*s) & 0xF;
+    chr = data < 10 ? data + '0' : data + 'A' - 10;
+    serial_putc(chr);
+    s++;
+  }
+
+
+}
