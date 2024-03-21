@@ -61,10 +61,10 @@ impl FaultAttacks {
         }
     }
 
-    pub fn check_for_correct_behavior(&self) {
+    pub fn check_for_correct_behavior(&self) -> Result<(), String> {
         // Get trace data from negative run
         let mut simulation = Control::new(&self.file_data);
-        simulation.check_program();
+        simulation.check_program()
     }
 
     /// Run single glitch attacks
@@ -151,9 +151,10 @@ impl FaultAttacks {
             .sum();
         bar.finish_and_clear();
         self.count_sum += n;
-        println!("-> {} attacks executed", n);
+
         // Return collected successful attacks to caller
         let data: Vec<_> = receiver.iter().collect();
+        println!("-> {} attacks executed, {} successful", n, data.len());
         if data.is_empty() {
             None
         } else {

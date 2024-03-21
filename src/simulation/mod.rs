@@ -55,9 +55,18 @@ impl<'a> Control<'a> {
 
     /// Check if code under investigation is working correct for
     /// positive and negative execution
-    pub fn check_program(&mut self) {
-        assert_eq!(self.run(true), RunState::Success);
-        assert_eq!(self.run(false), RunState::Failed);
+    pub fn check_program(&mut self) -> Result<(), String> {
+        if self.run(true) != RunState::Success {
+            return Err(
+                "Program function check failed. Success path is not working properly!".to_string(),
+            );
+        }
+        if self.run(false) != RunState::Failed {
+            return Err(
+                "Program function check failed. Failure path is not working properly!".to_string(),
+            );
+        }
+        Ok(())
     }
 
     /// Execute or trace loaded code with the given faults

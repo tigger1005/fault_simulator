@@ -40,7 +40,7 @@ struct Args {
     low_complexity: bool,
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     // Get parameter from command line
     let args = Args::parse();
     // Set parameter from cli
@@ -58,7 +58,7 @@ fn main() {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
     println!("Check for correct program behavior:");
     // Check for correct program behavior
-    attack.check_for_correct_behavior();
+    attack.check_for_correct_behavior()?;
 
     println!("\nRun fault simulations:");
 
@@ -107,4 +107,5 @@ fn main() {
             }
         }
     }
+    Ok(())
 }
