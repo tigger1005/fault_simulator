@@ -68,7 +68,7 @@ impl<'a> Control<'a> {
                 "Program function check failed. Failure path is not working properly!".to_string(),
             );
         }
-        println!("Program behaivor checked successfully");
+        println!("Program checked successfully");
         Ok(())
     }
 
