@@ -4,8 +4,11 @@
 
 void launch_oem_ram_app(void);
 
-#define val1 (*(uint32_t *)IMG_LOAD_ADDR)
-#define val2 (*(uint32_t *)&image_good_val)
+#define success 0x01234567
+#define failure 0xFEFEFEFE
+
+DECISION_DATA_STRUCTURE(uint32_t, success, failure);
+
 
 /*******************************************************************************
  * Function Name:  launch_oem_ram_app
@@ -25,9 +28,11 @@ void launch_oem_ram_app(void) { __SET_SIM_SUCCESS(); }
  *
  *******************************************************************************/
 int main() {
-  flash_load_img();
+  decision_activation();
 
-  if (val1 == val2) {
+  serial_puts("Some code 1...\n");
+
+  if (DECISION_DATA == success) {
     serial_puts("Verification positive path  : OK\n");
 
     launch_oem_ram_app();

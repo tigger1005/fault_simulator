@@ -55,6 +55,5 @@ void serial_puts_hex(char *s, uint16_t length) {
     serial_putc(chr);
     s++;
   }
-
-
+  serial_putc('\n');
 }

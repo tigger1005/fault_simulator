@@ -15,8 +15,8 @@ typedef struct _decision_data { \
   element_type success_data_element; \
   element_type failure_data_element; \
 } decision_data; \
-decision_data desiciondata  = {(sizeof(decision_data) - sizeof(uint32_t)) / 3, failure, success, failure}
-#define DECISION_DATA desiciondata.data_element
+decision_data decisiondata  = {(sizeof(decision_data) - sizeof(uint32_t)) / 3, failure, success, failure}
+#define DECISION_DATA decisiondata.data_element
 
 #define UART_OUT_BUF_ADDR ((void *)0x11000000)
 

@@ -1,21 +1,42 @@
 #include "common.h"
 #include "utils.h"
+#include "fih_mem.h"
+
 
 void launch_oem_ram_app(void);
 
-int main() {
-  fih_uint var_a_global = (*(fih_uint *)IMG_LOAD_ADDR);
-  fih_uint var_b_global = FIH_SUCCESS;
+typedef struct {
+  uint8_t val[24];
+} data_el;
 
-  flash_load_img();
+#define SUCCESS_DATA {{ \
+  0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, \
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, \
+  0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18 \
+}}
 
-  serial_puts("Some code ...\n");
-  serial_puts("Some code ...\n");
+#define FAILED_DATA {{ \
+  0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, \
+  0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, \
+  0x11, 0x12, 0x13, 0x14, 0x14, 0x16, 0x17, 0x18 \
+}}
 
-  if (fih_uint_eq(var_a_global, var_b_global)) {
-    //    if (fih_uint_eq(var_a_global, FIH_SUCCESS)) {
+DECISION_DATA_STRUCTURE(data_el, SUCCESS_DATA, FAILED_DATA);
+
+/*******************************************************************************
+ * Function Name:  main
+ *******************************************************************************
+ * \brief This is the main function executed at start.
+ *
+ *******************************************************************************/
+ int main() {
+  decision_activation();
+
+  int res = memcmp(&decisiondata.data_element, &decisiondata.success_data_element, decisiondata.decision_element_size);
+  if (res == 0) {
+    serial_puts("Verification positive path  : OK\n");
+
     launch_oem_ram_app();
-    //    }
   } else {
     serial_puts("Verification negative path : OK\n");
     __SET_SIM_FAILED();

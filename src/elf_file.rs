@@ -58,7 +58,7 @@ impl ElfFile {
         // Find needed symbols
         let decision_data = symbols_with_names
             .iter()
-            .find(|&x| x.0 == "desiciondata")
+            .find(|&x| x.0 == "decisiondata")
             .unwrap()
             .1
             .clone();
