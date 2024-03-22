@@ -9,13 +9,13 @@
 // ------------------------------------------------------------
 // Framework defines and macros definitions
 #define DECISION_DATA_STRUCTURE(element_type, success, failure) \
-typedef struct _decision_data { \
+typedef struct __attribute__((packed)) { \
   uint32_t  decision_element_size; \
   element_type data_element; \
   element_type success_data_element; \
   element_type failure_data_element; \
 } decision_data; \
-decision_data decisiondata  = {(sizeof(decision_data) - sizeof(uint32_t)) / 3, failure, success, failure}
+decision_data decisiondata  = {sizeof(element_type), failure, success, failure}
 #define DECISION_DATA decisiondata.data_element
 
 #define UART_OUT_BUF_ADDR ((void *)0x11000000)
