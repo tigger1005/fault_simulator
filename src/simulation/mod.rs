@@ -80,7 +80,7 @@ impl<'a> Control<'a> {
         run_type: RunType,
         low_complexity_trace: bool,
         faults: &[SimulationFaultRecord],
-    ) -> (Option<Vec<FaultData>>, Option<Vec<TraceRecord>>) {
+    ) -> Result<(Vec<FaultData>, Vec<TraceRecord>), String> {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
@@ -109,7 +109,7 @@ impl<'a> Control<'a> {
             if ret_val.is_ok() {
                 self.emu.execute_fault_injection(fault);
             } else {
-                return (None, Some(Vec::new()));
+                return Ok((Vec::new(), Vec::new()));
             }
         }
 
@@ -120,8 +120,7 @@ impl<'a> Control<'a> {
             }
             RunType::Run => {
                 if self.emu.get_state() == RunState::Success {
-                    println!("Da scheint ein Fehler aufgetreten zu sein");
-                    return (None, None);
+                    return Err("This should not happen. Successfull state reached before critical glitch inserted!".to_string());
                 }
             }
             _ => (),
@@ -130,7 +129,7 @@ impl<'a> Control<'a> {
         // Run to completion
         let ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
         if ret_val.is_err() {
-            return (None, Some(Vec::new()));
+            return Ok((Vec::new(), Vec::new()));
         }
 
         // Cleanup and return data to caller
@@ -142,14 +141,14 @@ impl<'a> Control<'a> {
                 if low_complexity_trace {
                     self.emu.reduce_trace();
                 }
-                (None, Some(self.emu.get_trace().clone()))
+                Ok((Vec::new(), self.emu.get_trace().clone()))
             }
             RunType::Run => {
                 // Check if fault attack was successful if yes return faults
                 if self.emu.get_state() == RunState::Success {
-                    (Some(self.emu.get_fault_data().clone()), None)
+                    Ok((self.emu.get_fault_data().clone(), Vec::new()))
                 } else {
-                    (None, None)
+                    Ok((Vec::new(), Vec::new()))
                 }
             }
         }

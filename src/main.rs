@@ -66,16 +66,16 @@ fn main() -> Result<(), String> {
     if args.faults.is_empty() {
         match args.attack.as_str() {
             "all" => {
-                if !attack.single_glitch(args.low_complexity, 1..=10).0 {
-                    attack.double_glitch(args.low_complexity, 1..=10);
+                if !attack.single_glitch(args.low_complexity, 1..=10)?.0 {
+                    attack.double_glitch(args.low_complexity, 1..=10)?;
                 }
                 //            attack.single_bit_flip();
             }
             "single" => {
-                attack.single_glitch(args.low_complexity, 1..=10);
+                attack.single_glitch(args.low_complexity, 1..=10)?;
             }
             "double" => {
-                attack.double_glitch(args.low_complexity, 1..=10);
+                attack.double_glitch(args.low_complexity, 1..=10)?;
             }
             // "bit_flip" => {
             //     attack.single_bit_flip();
@@ -83,7 +83,7 @@ fn main() -> Result<(), String> {
             _ => println!("No attack selected!"),
         }
     } else {
-        attack.fault_simulation(&args.faults, args.low_complexity);
+        attack.fault_simulation(&args.faults, args.low_complexity)?;
     }
 
     let debug_context = attack.file_data.get_debug_context();
@@ -99,7 +99,7 @@ fn main() -> Result<(), String> {
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
                     if let Ok(number) = buffer.trim().parse::<usize>() {
-                        attack.print_trace_for_fault(number - 1);
+                        attack.print_trace_for_fault(number - 1)?;
                         continue;
                     }
                 }
