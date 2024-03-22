@@ -16,7 +16,6 @@ typedef struct {
           0x18                                                                 \
     }                                                                          \
   }
-
 #define FAILED_DATA                                                            \
   {                                                                            \
     {                                                                          \

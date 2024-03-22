@@ -55,7 +55,7 @@ fn main() -> Result<(), String> {
     }
 
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("Content/bin/aarch32/bl1.elf"));
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("content/bin/aarch32/bl1.elf"));
     println!("Check for correct program behavior:");
     // Check for correct program behavior
     attack.check_for_correct_behavior()?;

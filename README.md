@@ -4,9 +4,9 @@ This project is used as a tool to simulate fault attacks to ARM-M processors (Th
 It includes a C project in the "content" folder which is loaded into the simulation.
 Glitches are introduces in a range from 1 to 10 assembler commands, from 1 glitch to double glitching.
 
-Attack 'C' project is in the folder "Content". Current compiler flags are set to:
+Attack 'C' project is in the folder "content". Current compiler flags are set to:
 
-Code examples for main.c in Content\src\examples
+Code examples for main.c in content\src\examples
 
 Found vulnerabilities can be analysed with the "--analysis" switch (beta version).
 

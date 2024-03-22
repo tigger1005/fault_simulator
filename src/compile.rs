@@ -4,7 +4,7 @@ pub fn compile() {
     // Compile victim
     println!("Compile victim if necessary:");
     let output = Command::new("make")
-        .current_dir("./Content")
+        .current_dir("./content")
         .output()
         .expect("failed to execute process");
     if !output.status.success() {
