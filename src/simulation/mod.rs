@@ -13,6 +13,12 @@ pub enum RunType {
     RecordFullTrace,
 }
 
+pub enum Data {
+    Fault(Vec<FaultData>),
+    Trace(Vec<TraceRecord>),
+    None,
+}
+
 pub struct Control<'a> {
     emu: Cpu<'a>,
 }
@@ -80,7 +86,7 @@ impl<'a> Control<'a> {
         run_type: RunType,
         low_complexity_trace: bool,
         faults: &[SimulationFaultRecord],
-    ) -> Result<(Vec<FaultData>, Vec<TraceRecord>), String> {
+    ) -> Result<Data, String> {
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
@@ -109,7 +115,7 @@ impl<'a> Control<'a> {
             if ret_val.is_ok() {
                 self.emu.execute_fault_injection(fault);
             } else {
-                return Ok((Vec::new(), Vec::new()));
+                return Ok(Data::None);
             }
         }
 
@@ -129,7 +135,7 @@ impl<'a> Control<'a> {
         // Run to completion
         let ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
         if ret_val.is_err() {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok(Data::None);
         }
 
         // Cleanup and return data to caller
@@ -141,14 +147,14 @@ impl<'a> Control<'a> {
                 if low_complexity_trace {
                     self.emu.reduce_trace();
                 }
-                Ok((Vec::new(), self.emu.get_trace().clone()))
+                Ok(Data::Trace(self.emu.get_trace().clone()))
             }
             RunType::Run => {
                 // Check if fault attack was successful if yes return faults
                 if self.emu.get_state() == RunState::Success {
-                    Ok((self.emu.get_fault_data().clone(), Vec::new()))
+                    Ok(Data::Fault(self.emu.get_fault_data().clone()))
                 } else {
-                    Ok((Vec::new(), Vec::new()))
+                    Ok(Data::None)
                 }
             }
         }

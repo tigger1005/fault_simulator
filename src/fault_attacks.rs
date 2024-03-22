@@ -223,8 +223,11 @@ fn trace_run(
     records: &[SimulationFaultRecord],
 ) -> Result<Vec<TraceRecord>, String> {
     let mut simulation = Control::new(file_data);
-    let result = simulation.run_with_faults(run_type, low_complexity, records)?;
-    Ok(result.1)
+    let data = simulation.run_with_faults(run_type, low_complexity, records)?;
+    match data {
+        Data::Trace(trace) => Ok(trace),
+        _ => Ok(Vec::new()),
+    }
 }
 
 fn simulation_run(
@@ -233,9 +236,12 @@ fn simulation_run(
     s: &mut Sender<Vec<FaultData>>,
 ) -> Result<(), String> {
     let mut simulation = Control::new(file_data);
-    let fault_data_vec = simulation.run_with_faults(RunType::Run, false, records)?.0;
-    if !fault_data_vec.is_empty() {
-        s.send(fault_data_vec).unwrap();
+    let data = simulation.run_with_faults(RunType::Run, false, records)?;
+    if let Data::Fault(fault) = data {
+        if !fault.is_empty() {
+            s.send(fault).unwrap();
+        }
     }
+
     Ok(())
 }
