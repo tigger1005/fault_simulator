@@ -1,7 +1,7 @@
 #include "common.h"
 #include "utils.h"
 
-void launch_oem_ram_app(void);
+void start_success_handling(void);
 
 DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
 
@@ -22,7 +22,7 @@ DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
       FIH_PANIC;
     }
 
-    launch_oem_ram_app();
+    start_success_handling();
   } else {
     serial_puts("Verification negative path : OK\n");
     __SET_SIM_FAILED();
@@ -31,7 +31,7 @@ DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
 }
 
 /*******************************************************************************
- * Function Name:  launch_oem_ram_app
+ * Function Name:  start_success_handling
  *******************************************************************************
  * \brief This function launch CM33 OEM RAM App.
  *
@@ -39,4 +39,4 @@ DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
  * \param ram_app_start_addr    The start address of RAM App.
  *
  *******************************************************************************/
-void launch_oem_ram_app(void) { __SET_SIM_SUCCESS(); }
+void start_success_handling(void) { __SET_SIM_SUCCESS(); }

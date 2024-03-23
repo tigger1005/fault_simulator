@@ -38,11 +38,11 @@ impl<'a> Control<'a> {
 
     /// Setup system state to a successful or failed state
     /// and run the program. Return the state of the program after compilation
-    fn run(&mut self, run_successful: bool) -> RunState {
+    fn run(&mut self, cycles: usize, run_successful: bool) -> RunState {
         // Initial and load program
         self.init_and_load(run_successful);
         // Start execution with the given amount of instructions
-        let ret_info = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+        let ret_info = self.emu.run_steps(cycles, false);
 
         info!("Program stopped successful {:?}", ret_info);
         // Return emulation state
@@ -61,15 +61,15 @@ impl<'a> Control<'a> {
 
     /// Check if code under investigation is working correct for
     /// positive and negative execution
-    pub fn check_program(&mut self) -> Result<(), String> {
+    pub fn check_program(&mut self, cycles: usize) -> Result<(), String> {
         // Deactivate io print
         self.emu.deactivate_printf_function();
-        if self.run(true) != RunState::Success {
+        if self.run(cycles, true) != RunState::Success {
             return Err(
                 "Program function check failed. Success path is not working properly!".to_string(),
             );
         }
-        if self.run(false) != RunState::Failed {
+        if self.run(cycles, false) != RunState::Failed {
             return Err(
                 "Program function check failed. Failure path is not working properly!".to_string(),
             );
@@ -83,6 +83,7 @@ impl<'a> Control<'a> {
     /// If code tracing was activated a vector array with the trace records will be returned
     pub fn run_with_faults(
         &mut self,
+        cycles: usize,
         run_type: RunType,
         low_complexity_trace: bool,
         faults: &[SimulationFaultRecord],
@@ -133,7 +134,7 @@ impl<'a> Control<'a> {
         }
 
         // Run to completion
-        let ret_val = self.emu.run_steps(MAX_INSTRUCTIONS, false);
+        let ret_val = self.emu.run_steps(cycles, false);
         if ret_val.is_err() {
             return Ok(Data::None);
         }

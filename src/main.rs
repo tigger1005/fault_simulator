@@ -38,6 +38,10 @@ struct Args {
     /// Switch on low complexity attack-scan (same addresses are discarded)
     #[arg(short, long, default_value_t = false)]
     low_complexity: bool,
+
+    /// Maximum number of instructions to be executed
+    #[arg(short, long, default_value_t = 2000)]
+    max_instructions: usize,
 }
 
 fn main() -> Result<(), String> {
@@ -58,7 +62,7 @@ fn main() -> Result<(), String> {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("content/bin/aarch32/bl1.elf"));
     println!("Check for correct program behavior:");
     // Check for correct program behavior
-    attack.check_for_correct_behavior()?;
+    attack.check_for_correct_behavior(args.max_instructions)?;
 
     println!("\nRun fault simulations:");
 
@@ -66,16 +70,19 @@ fn main() -> Result<(), String> {
     if args.faults.is_empty() {
         match args.attack.as_str() {
             "all" => {
-                if !attack.single_glitch(args.low_complexity, 1..=10)?.0 {
-                    attack.double_glitch(args.low_complexity, 1..=10)?;
+                if !attack
+                    .single_glitch(args.max_instructions, args.low_complexity, 1..=10)?
+                    .0
+                {
+                    attack.double_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
                 }
                 //            attack.single_bit_flip();
             }
             "single" => {
-                attack.single_glitch(args.low_complexity, 1..=10)?;
+                attack.single_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
             }
             "double" => {
-                attack.double_glitch(args.low_complexity, 1..=10)?;
+                attack.double_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
             }
             // "bit_flip" => {
             //     attack.single_bit_flip();
@@ -83,7 +90,7 @@ fn main() -> Result<(), String> {
             _ => println!("No attack selected!"),
         }
     } else {
-        attack.fault_simulation(&args.faults, args.low_complexity)?;
+        attack.fault_simulation(args.max_instructions, &args.faults, args.low_complexity)?;
     }
 
     let debug_context = attack.file_data.get_debug_context();
@@ -99,7 +106,7 @@ fn main() -> Result<(), String> {
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
                     if let Ok(number) = buffer.trim().parse::<usize>() {
-                        attack.print_trace_for_fault(number - 1)?;
+                        attack.print_trace_for_fault(args.max_instructions, number - 1)?;
                         continue;
                     }
                 }

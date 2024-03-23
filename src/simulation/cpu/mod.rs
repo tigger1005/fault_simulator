@@ -15,7 +15,6 @@ use log::debug;
 use std::collections::HashSet;
 
 // Constant variable definitions
-pub const MAX_INSTRUCTIONS: usize = 10000;
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
 const AUTH_BASE: u64 = 0xAA01000;
