@@ -100,24 +100,22 @@ impl Disassembly {
     /// Print fault data of given fault_data_vec vector
     pub fn print_fault_records(
         &self,
-        fault_data_vec: &Option<Vec<Vec<FaultData>>>,
+        fault_data_vec: &[Vec<FaultData>],
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,
     ) {
-        if let Some(fault_data_vec) = fault_data_vec {
-            fault_data_vec
-                .iter()
-                .enumerate()
-                .for_each(|(attack_num, fault_context)| {
-                    println!("Attack number {}", attack_num + 1);
-                    fault_context.iter().for_each(|fault_data| {
-                        self.disassembly_fault_data(fault_data, debug_context);
-                        println!();
-                    });
-                    println!("------------------------");
+        fault_data_vec
+            .iter()
+            .enumerate()
+            .for_each(|(attack_num, fault_context)| {
+                println!("Attack number {}", attack_num + 1);
+                fault_context.iter().for_each(|fault_data| {
+                    self.disassembly_fault_data(fault_data, debug_context);
+                    println!();
                 });
-        }
+                println!("------------------------");
+            });
     }
 
     fn print_debug_info(

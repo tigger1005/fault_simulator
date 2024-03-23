@@ -126,7 +126,7 @@ impl<'a> Control<'a> {
             }
             RunType::Run => {
                 if self.emu.get_state() == RunState::Success {
-                    return Err("This should not happen. Successfull state reached before critical glitch inserted!".to_string());
+                    return Err("Successfull state reached before critical glitch inserted! Maybe failure can be triggered with less glitches".to_string());
                 }
             }
             _ => (),

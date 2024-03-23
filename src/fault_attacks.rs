@@ -17,7 +17,7 @@ use log::debug;
 pub struct FaultAttacks {
     cs: Disassembly,
     pub file_data: ElfFile,
-    fault_data: Option<Vec<Vec<FaultData>>>,
+    fault_data: Vec<Vec<FaultData>>,
     pub count_sum: usize,
 }
 
@@ -29,7 +29,7 @@ impl FaultAttacks {
         Self {
             cs: Disassembly::new(),
             file_data,
-            fault_data: None,
+            fault_data: Vec::new(),
             count_sum: 0,
         }
     }
@@ -44,9 +44,10 @@ impl FaultAttacks {
     }
 
     pub fn print_trace_for_fault(&self, attack_number: usize) -> Result<(), String> {
-        if let Some(fault_data) = &self.fault_data {
-            let fault_records =
-                FaultData::get_simulation_fault_records(fault_data.get(attack_number).unwrap());
+        if !self.fault_data.is_empty() {
+            let fault_records = FaultData::get_simulation_fault_records(
+                self.fault_data.get(attack_number).unwrap(),
+            );
             // Run full trace
             let trace_records = Some(trace_run(
                 &self.file_data,
@@ -77,21 +78,22 @@ impl FaultAttacks {
         low_complexity: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
-        // Get trace data from negative run
-        let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[])?;
-        debug!("Number of trace steps: {}", records.len());
-
+        // Run cached single nop simulation
         for i in range {
-            self.fault_data = Some(self.fault_simulation(&[FaultType::Glitch(i)], low_complexity)?);
+            self.fault_data = self.fault_simulation(&[FaultType::Glitch(i)], low_complexity)?;
 
-            if self.fault_data.is_some() {
+            if !self.fault_data.is_empty() {
                 break;
             }
         }
 
-        Ok((self.fault_data.is_some(), self.count_sum))
+        Ok((!self.fault_data.is_empty(), self.count_sum))
     }
 
+    /// Run double glitch attacks
+    ///
+    /// Parameter is the range of the double glitch size in commands
+    /// Return (success: bool, number_of_attacks: usize)
     pub fn double_glitch(
         &mut self,
         low_complexity: bool,
@@ -100,17 +102,17 @@ impl FaultAttacks {
         // Run cached double nop simulation
         let it = range.clone().cartesian_product(range);
         for t in it {
-            self.fault_data = Some(self.fault_simulation(
+            self.fault_data = self.fault_simulation(
                 &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
                 low_complexity,
-            )?);
+            )?;
 
-            if self.fault_data.is_some() {
+            if !self.fault_data.is_empty() {
                 break;
             }
         }
 
-        Ok((self.fault_data.is_some(), self.count_sum))
+        Ok((!self.fault_data.is_empty(), self.count_sum))
     }
 
     pub fn fault_simulation(
@@ -122,7 +124,10 @@ impl FaultAttacks {
         if faults.is_empty() {
             return Ok(Vec::new());
         }
+        // Run simulation to record normal fault program flow as a base for fault injection
         let records = trace_run(&self.file_data, RunType::RecordTrace, low_complexity, &[])?;
+        debug!("Number of trace steps: {}", records.len());
+
         let bar = ProgressBar::new(records.len() as u64);
         let (mut sender, receiver) = channel();
         let temp_file_data = &self.file_data;
