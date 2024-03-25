@@ -53,6 +53,7 @@ Program parameters:
     --faults <FAULTS>    Run a command line defined sequence of faults. Alternative to --attack [possible values: Glitch, Glitch2, Glitch3, Glitch4, Glitch5]
 -a, --analysis           Activate trace analysis of picked fault
 -l, --low-complexity     Switch on low complexity attack-scan (same addresses are discarded)
+-m, --max_instructions   Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
 -h, --help               Print help
 -V, --version            Print version
 ```
