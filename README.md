@@ -54,6 +54,7 @@ Program parameters:
 -a, --analysis           Activate trace analysis of picked fault
 -l, --low-complexity     Switch on low complexity attack-scan (same addresses are discarded)
 -m, --max_instructions   Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
+-e, --elf <FILE>         Run attack simulation from external elf file w/o compilation step
 -h, --help               Print help
 -V, --version            Print version
 ```

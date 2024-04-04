@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::io::stdout;
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 use fault_simulator::prelude::*;
 
@@ -42,6 +43,10 @@ struct Args {
     /// Maximum number of instructions to be executed
     #[arg(short, long, default_value_t = 2000)]
     max_instructions: usize,
+
+    /// Load elf file w/o compilation step
+    #[arg(short, long)]
+    elf: Option<PathBuf>,
 }
 
 fn main() -> Result<(), String> {
@@ -53,13 +58,27 @@ fn main() -> Result<(), String> {
 
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
 
-    // Compilation according cli parameter
-    if !args.no_compilation {
-        compile::compile();
-    }
+    // Check for compilation flag and provided elf file
+    let path = match args.elf.is_some() {
+        false => {
+            // Compilation according cli parameter
+            if !args.no_compilation {
+                compile::compile();
+            }
+            std::path::PathBuf::from("content/bin/aarch32/bl1.elf")
+        }
+        true => {
+            println!(
+                "Provided elf file: {}\n",
+                &args.elf.as_ref().unwrap().display()
+            );
+            args.elf.unwrap()
+        }
+    };
 
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("content/bin/aarch32/bl1.elf"));
+    let mut attack = FaultAttacks::new(path)?;
+
     println!("Check for correct program behavior:");
     // Check for correct program behavior
     attack.check_for_correct_behavior(args.max_instructions)?;
@@ -74,7 +93,7 @@ fn main() -> Result<(), String> {
                     .single_glitch(args.max_instructions, args.low_complexity, 1..=10)?
                     .0
                 {
-                    attack.double_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
+                    attack.double_glitch(args.max_instructions, args.low_complexity, 1..=9)?;
                 }
                 //            attack.single_bit_flip();
             }

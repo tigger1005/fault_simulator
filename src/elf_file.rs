@@ -17,7 +17,7 @@ pub struct ElfFile {
 }
 
 impl ElfFile {
-    pub fn new(path: std::path::PathBuf) -> Self {
+    pub fn new(path: std::path::PathBuf) -> Result<Self, String> {
         let file_data = std::fs::read(path).expect("Could not read file.");
         let slice = file_data.as_slice();
         let file = ElfBytes::<AnyEndian>::minimal_parse(slice).expect("Open file data failed");
@@ -64,7 +64,7 @@ impl ElfFile {
             .clone();
 
         // Fill struct
-        Self {
+        Ok(Self {
             header: file.ehdr,
             program_header,
             program: program.to_vec(),
@@ -72,7 +72,7 @@ impl ElfFile {
             serial_puts,
             file_data,
             decision_data,
-        }
+        })
     }
 
     pub fn get_debug_context(

@@ -22,16 +22,16 @@ pub struct FaultAttacks {
 }
 
 impl FaultAttacks {
-    pub fn new(path: std::path::PathBuf) -> Self {
+    pub fn new(path: std::path::PathBuf) -> Result<Self, String> {
         // Load victim data
-        let file_data: ElfFile = ElfFile::new(path);
+        let file_data: ElfFile = ElfFile::new(path)?;
 
-        Self {
+        Ok(Self {
             cs: Disassembly::new(),
             file_data,
             fault_data: Vec::new(),
             count_sum: 0,
-        }
+        })
     }
 
     pub fn print_fault_data(
