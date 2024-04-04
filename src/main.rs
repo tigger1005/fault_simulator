@@ -65,7 +65,7 @@ fn main() -> Result<(), String> {
             if !args.no_compilation {
                 compile::compile();
             }
-            std::path::PathBuf::from("content/bin/aarch32/bl1.elf")
+            std::path::PathBuf::from("content/bin/aarch32/victim.elf")
         }
         true => {
             println!(

@@ -4,7 +4,7 @@ use std::env;
 
 fn criterion_benchmark(c: &mut Criterion) {
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("benches/bin/aarch32/bl1.elf"));
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("benches/bin/aarch32/victim.elf"));
     // Set threads to one because of current MacOS problems
     env::set_var("RAYON_NUM_THREADS", "1");
 

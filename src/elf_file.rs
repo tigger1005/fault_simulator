@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn parse_elf_file() {
         let elf_struct: ElfFile =
-            ElfFile::new(std::path::PathBuf::from("content/bin/aarch32/bl1.elf"));
+            ElfFile::new(std::path::PathBuf::from("content/bin/aarch32/victim.elf"));
         // File header
         assert_eq!(elf_struct.header.endianness, elf::endian::AnyEndian::Little);
         assert_eq!(elf_struct.header.version, 1);
