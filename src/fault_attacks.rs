@@ -59,7 +59,7 @@ impl FaultAttacks {
             // Print trace
             println!("\nAssembler trace of attack number {}", attack_number + 1);
 
-            self.cs.print_trace_records(&trace_records);
+            self.cs.disassembly_trace_records(&trace_records);
         }
         Ok(())
     }

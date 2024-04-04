@@ -48,52 +48,63 @@ impl Disassembly {
         }
     }
 
-    fn disassembly_trace_record(&self, trace_record: &TraceRecord) {
-        match trace_record {
-            TraceRecord::Instruction {
-                address,
-                asm_instruction,
-                registers,
-            } => {
-                let insns_data = self
-                    .cs
-                    .disasm_all(asm_instruction, *address)
-                    .expect("Failed to disassemble");
+    /// Print trace_record of given trace_records vector
+    pub fn disassembly_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
+        let mut pre_registers: Option<[u32; 17]> = None;
 
-                for i in 0..insns_data.as_ref().len() {
-                    let ins = &insns_data.as_ref()[i];
+        if let Some(trace_records) = trace_records {
+            trace_records
+                .iter()
+                .for_each(|trace_record| match trace_record {
+                    TraceRecord::Instruction {
+                        address,
+                        asm_instruction,
+                        registers,
+                    } => {
+                        let insns_data = self
+                            .cs
+                            .disasm_all(asm_instruction, *address)
+                            .expect("Failed to disassemble");
 
-                    print!(
-                        "0x{:X}:  {:6} {:40}     < ",
-                        ins.address(),
-                        ins.mnemonic().unwrap(),
-                        ins.op_str().unwrap(),
-                    );
-                    if let Some(registers) = registers {
-                        let reg_list: [usize; 9] = [16, 0, 1, 2, 3, 4, 5, 6, 7];
+                        for i in 0..insns_data.as_ref().len() {
+                            let ins = &insns_data.as_ref()[i];
 
-                        reg_list.iter().for_each(|index| {
-                            if *index == 16 {
-                                let cpsr = registers[*index];
+                            print!(
+                                "0x{:X}:  {:6} {:40}     < ",
+                                ins.address(),
+                                ins.mnemonic().unwrap(),
+                                ins.op_str().unwrap(),
+                            );
+                            if let Some(registers) = registers {
+                                // Allways print CPU flags
+                                let cpsr = registers[16];
                                 let flag_n = (cpsr & 0x80000000) >> 31;
                                 let flag_z = (cpsr & 0x40000000) >> 30;
                                 let flag_c = (cpsr & 0x20000000) >> 29;
                                 let flag_v = (cpsr & 0x10000000) >> 28;
                                 print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
-                            } else {
-                                print!("R{}=0x{:08X} ", index, registers[*index]);
+                                // Print only changed register values
+                                if let Some(pre_registers) = pre_registers {
+                                    (0..15).for_each(|index| {
+                                        if pre_registers[index] != registers[index] {
+                                            print!("R{}=0x{:08X} ", index, registers[index]);
+                                        }
+                                    });
+                                }
                             }
-                        });
+                            println!(">");
+                            // Remember register state
+                            pre_registers = registers.clone();
+                        }
                     }
-                    println!(">");
-                }
-            }
-            TraceRecord::Fault {
-                address: _,
-                fault_type,
-            } => {
-                println!("{:?}", fault_type)
-            }
+                    TraceRecord::Fault {
+                        address: _,
+                        fault_type,
+                    } => {
+                        println!("{:?}", fault_type)
+                    }
+                });
+            println!("------------------------");
         }
     }
 
@@ -138,16 +149,6 @@ impl Disassembly {
                     }
                 }
             }
-        }
-    }
-
-    /// Print trace_record of given trace_records vector
-    pub fn print_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
-        if let Some(trace_records) = trace_records {
-            trace_records.iter().for_each(|trace_record| {
-                self.disassembly_trace_record(trace_record);
-            });
-            println!("------------------------");
         }
     }
 }
