@@ -94,7 +94,7 @@ impl Disassembly {
                             }
                             println!(">");
                             // Remember register state
-                            pre_registers = registers.clone();
+                            pre_registers = *registers;
                         }
                     }
                     TraceRecord::Fault {
