@@ -42,7 +42,7 @@ CFLAGS_LD = -N -Wl,--build-id=none -fPIC -fPIE -g -gdwarf -Os -Wno-unused-but-se
 
 ## Execution
 
-To run the simulation use the command `cargo run` or `./target/debug/fault_simulation`
+To run the simulation use the command `cargo run` or `./target/debug/fault_simulator
 
 Program parameters:
 
