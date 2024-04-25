@@ -126,10 +126,14 @@ impl FaultAttacks {
         faults: &[FaultType],
         low_complexity: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
+        //
         println!("Running simulation for faults: {faults:?}");
+
+        // Check if faults are empty
         if faults.is_empty() {
             return Ok(Vec::new());
         }
+
         // Run simulation to record normal fault program flow as a base for fault injection
         let records = trace_run(
             &self.file_data,
@@ -140,36 +144,41 @@ impl FaultAttacks {
         )?;
         debug!("Number of trace steps: {}", records.len());
 
+        // Setup progress bar and channel for fault data
         let bar = ProgressBar::new(records.len() as u64);
-        let (mut sender, receiver) = channel();
-        let temp_file_data = &self.file_data;
+        let (sender, receiver) = channel();
 
-        simulation_run(temp_file_data, cycles, &[], &mut sender)?; // Run once without any fault
-        let (&fault_type, remaining_faults) = faults.split_first().unwrap();
+        // Split faults into first and remaining faults
+        let (&first_fault, remaining_faults) = faults.split_first().unwrap();
+
+        // Run main fault simulation loop
+        let temp_file_data = &self.file_data;
         let n_result: Result<usize, String> = (0..records.len())
             .into_par_iter()
             .map_with(sender, |s, index| -> Result<usize, String> {
-                let fault_record = SimulationFaultRecord { index, fault_type };
-
                 bar.inc(1);
 
-                if remaining_faults.is_empty() {
-                    simulation_run(temp_file_data, cycles, &[fault_record], s)?;
-                    Ok(1)
-                } else {
-                    let number = Self::fault_simulation_inner(
-                        temp_file_data,
-                        cycles,
-                        remaining_faults,
-                        &[fault_record],
-                        low_complexity,
-                        s,
-                    )?;
-                    Ok(number)
-                }
+                // Create a simulation fault record list with the first fault in the list
+                let mut simulation_fault_records = vec![SimulationFaultRecord {
+                    index,
+                    fault_type: first_fault,
+                }];
+
+                // Call recursive fault simulation with first simulation fault record
+                let number = Self::fault_simulation_inner(
+                    temp_file_data,
+                    cycles,
+                    remaining_faults,
+                    &mut simulation_fault_records,
+                    low_complexity,
+                    s,
+                )?;
+                Ok(number)
             })
             .sum();
+
         bar.finish_and_clear();
+        // Sum up successful attacks
         let n = n_result?;
         self.count_sum += n;
 
@@ -187,53 +196,52 @@ impl FaultAttacks {
         file_data: &ElfFile,
         cycles: usize,
         faults: &[FaultType],
-        fixed_fault_records: &[SimulationFaultRecord],
+        simulation_fault_records: &Vec<SimulationFaultRecord>,
         low_complexity: bool,
         s: &mut Sender<Vec<FaultData>>,
     ) -> Result<usize, String> {
         let mut n = 0;
-        let records = trace_run(
-            file_data,
-            cycles,
-            RunType::RecordTrace,
-            low_complexity,
-            fixed_fault_records,
-        )?;
 
-        let (&fault_type, remaining_faults) = faults.split_first().unwrap();
-        // Run without this fault
-        if remaining_faults.is_empty() {
+        // Check if there are no remaining faults left
+        if faults.is_empty() {
+            // Run fault simulation. This is the end of the recursion
+            simulation_run(file_data, cycles, simulation_fault_records, s)?;
             n += 1;
-            simulation_run(file_data, cycles, fixed_fault_records, s)?;
         } else {
-            n += Self::fault_simulation_inner(
+            // Collect trace records with simulation fault records to get new running length (time)
+            let records = trace_run(
                 file_data,
                 cycles,
-                remaining_faults,
-                fixed_fault_records,
+                RunType::RecordTrace,
                 low_complexity,
-                s,
+                simulation_fault_records,
             )?;
-        }
-        for index in 0..records.len() {
-            let fault_record = SimulationFaultRecord { index, fault_type };
-            let mut fault_records = fixed_fault_records.to_vec();
-            fault_records.push(fault_record);
 
-            if remaining_faults.is_empty() {
-                n += 1;
-                simulation_run(file_data, cycles, &fault_records, s)?;
-            } else {
+            // Split faults into first and remaining faults
+            let (&first_fault, remaining_faults) = faults.split_first().unwrap();
+
+            // Iterate over trace record length
+            for index in 0..records.len() {
+                // Create a copy of the simulation fault records
+                let mut index_simulation_fault_records = simulation_fault_records.clone();
+                // Add the created simulation fault record to the list of simulation fault records
+                index_simulation_fault_records.push(SimulationFaultRecord {
+                    index,
+                    fault_type: first_fault,
+                });
+
+                // Call recursive fault simulation with remaining faults
                 n += Self::fault_simulation_inner(
                     file_data,
                     cycles,
                     remaining_faults,
-                    &fault_records,
+                    &index_simulation_fault_records,
                     low_complexity,
                     s,
                 )?;
             }
         }
+
         Ok(n)
     }
 }
