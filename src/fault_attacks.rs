@@ -159,7 +159,7 @@ impl FaultAttacks {
                 bar.inc(1);
 
                 // Create a simulation fault record list with the first fault in the list
-                let mut simulation_fault_records = vec![SimulationFaultRecord {
+                let simulation_fault_records = vec![SimulationFaultRecord {
                     index,
                     fault_type: first_fault,
                 }];
@@ -169,7 +169,7 @@ impl FaultAttacks {
                     temp_file_data,
                     cycles,
                     remaining_faults,
-                    &mut simulation_fault_records,
+                    &simulation_fault_records,
                     low_complexity,
                     s,
                 )?;
@@ -196,7 +196,7 @@ impl FaultAttacks {
         file_data: &ElfFile,
         cycles: usize,
         faults: &[FaultType],
-        simulation_fault_records: &Vec<SimulationFaultRecord>,
+        simulation_fault_records: &[SimulationFaultRecord],
         low_complexity: bool,
         s: &mut Sender<Vec<FaultData>>,
     ) -> Result<usize, String> {
@@ -223,7 +223,7 @@ impl FaultAttacks {
             // Iterate over trace record length
             for index in 0..records.len() {
                 // Create a copy of the simulation fault records
-                let mut index_simulation_fault_records = simulation_fault_records.clone();
+                let mut index_simulation_fault_records = simulation_fault_records.to_vec();
                 // Add the created simulation fault record to the list of simulation fault records
                 index_simulation_fault_records.push(SimulationFaultRecord {
                     index,
