@@ -78,11 +78,13 @@ pub fn hook_code_callback(emu: &mut Unicorn<CpuState>, address: u64, size: u32) 
             None
         };
 
+        let index = emu.get_data().trace_data.len();
         // Record data
         emu.get_data_mut()
             .trace_data
             .push(TraceRecord::Instruction {
                 address,
+                index,
                 asm_instruction,
                 registers,
             });

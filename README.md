@@ -52,7 +52,7 @@ Program parameters:
     --attack <ATTACK>    Attacks to be executed. Possible values are: all, single, double, bit_flip [default: all]
     --faults <FAULTS>    Run a command line defined sequence of faults. Alternative to --attack [possible values: Glitch, Glitch2, Glitch3, Glitch4, Glitch5]
 -a, --analysis           Activate trace analysis of picked fault
--l, --low-complexity     Switch on low complexity attack-scan (same addresses are discarded)
+-l, --deep-analysis      Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
 -m, --max_instructions   Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
 -e, --elf <FILE>         Run attack simulation from external elf file w/o compilation step
 -h, --help               Print help

@@ -77,13 +77,13 @@ impl FaultAttacks {
     pub fn single_glitch(
         &mut self,
         cycles: usize,
-        low_complexity: bool,
+        deep_analysis: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
         // Run cached single nop simulation
         for i in range {
             self.fault_data =
-                self.fault_simulation(cycles, &[FaultType::Glitch(i)], low_complexity)?;
+                self.fault_simulation(cycles, &[FaultType::Glitch(i)], deep_analysis)?;
 
             if !self.fault_data.is_empty() {
                 break;
@@ -100,7 +100,7 @@ impl FaultAttacks {
     pub fn double_glitch(
         &mut self,
         cycles: usize,
-        low_complexity: bool,
+        deep_analysis: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
         // Run cached double nop simulation
@@ -109,7 +109,7 @@ impl FaultAttacks {
             self.fault_data = self.fault_simulation(
                 cycles,
                 &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
-                low_complexity,
+                deep_analysis,
             )?;
 
             if !self.fault_data.is_empty() {
@@ -124,7 +124,7 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         faults: &[FaultType],
-        low_complexity: bool,
+        deep_analysis: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
         //
         println!("Running simulation for faults: {faults:?}");
@@ -139,7 +139,7 @@ impl FaultAttacks {
             &self.file_data,
             cycles,
             RunType::RecordTrace,
-            low_complexity,
+            deep_analysis,
             &[],
         )?;
         debug!("Number of trace steps: {}", records.len());
@@ -153,26 +153,33 @@ impl FaultAttacks {
 
         // Run main fault simulation loop
         let temp_file_data = &self.file_data;
-        let n_result: Result<usize, String> = (0..records.len())
+        let n_result: Result<usize, String> = records
             .into_par_iter()
-            .map_with(sender, |s, index| -> Result<usize, String> {
+            .map_with(sender, |s, record| -> Result<usize, String> {
                 bar.inc(1);
 
-                // Create a simulation fault record list with the first fault in the list
-                let simulation_fault_records = vec![SimulationFaultRecord {
-                    index,
-                    fault_type: first_fault,
-                }];
+                let number;
+                // Get index of the record
+                if let TraceRecord::Instruction { index, .. } = record {
+                    // Create a simulation fault record list with the first fault in the list
+                    let simulation_fault_records = vec![SimulationFaultRecord {
+                        index,
+                        fault_type: first_fault,
+                    }];
 
-                // Call recursive fault simulation with first simulation fault record
-                let number = Self::fault_simulation_inner(
-                    temp_file_data,
-                    cycles,
-                    remaining_faults,
-                    &simulation_fault_records,
-                    low_complexity,
-                    s,
-                )?;
+                    // Call recursive fault simulation with first simulation fault record
+                    number = Self::fault_simulation_inner(
+                        temp_file_data,
+                        cycles,
+                        remaining_faults,
+                        &simulation_fault_records,
+                        deep_analysis,
+                        s,
+                    )?;
+                } else {
+                    return Err("No instruction record found".to_string());
+                }
+
                 Ok(number)
             })
             .sum();
@@ -197,7 +204,7 @@ impl FaultAttacks {
         cycles: usize,
         faults: &[FaultType],
         simulation_fault_records: &[SimulationFaultRecord],
-        low_complexity: bool,
+        deep_analysis: bool,
         s: &mut Sender<Vec<FaultData>>,
     ) -> Result<usize, String> {
         let mut n = 0;
@@ -213,32 +220,35 @@ impl FaultAttacks {
                 file_data,
                 cycles,
                 RunType::RecordTrace,
-                low_complexity,
+                deep_analysis,
                 simulation_fault_records,
             )?;
 
             // Split faults into first and remaining faults
             let (&first_fault, remaining_faults) = faults.split_first().unwrap();
 
-            // Iterate over trace record length
-            for index in 0..records.len() {
-                // Create a copy of the simulation fault records
-                let mut index_simulation_fault_records = simulation_fault_records.to_vec();
-                // Add the created simulation fault record to the list of simulation fault records
-                index_simulation_fault_records.push(SimulationFaultRecord {
-                    index,
-                    fault_type: first_fault,
-                });
+            // Iterate over trace records
+            for record in records {
+                // Get index of the record
+                if let TraceRecord::Instruction { index, .. } = record {
+                    // Create a copy of the simulation fault records
+                    let mut index_simulation_fault_records = simulation_fault_records.to_vec();
+                    // Add the created simulation fault record to the list of simulation fault records
+                    index_simulation_fault_records.push(SimulationFaultRecord {
+                        index,
+                        fault_type: first_fault,
+                    });
 
-                // Call recursive fault simulation with remaining faults
-                n += Self::fault_simulation_inner(
-                    file_data,
-                    cycles,
-                    remaining_faults,
-                    &index_simulation_fault_records,
-                    low_complexity,
-                    s,
-                )?;
+                    // Call recursive fault simulation with remaining faults
+                    n += Self::fault_simulation_inner(
+                        file_data,
+                        cycles,
+                        remaining_faults,
+                        &index_simulation_fault_records,
+                        deep_analysis,
+                        s,
+                    )?;
+                }
             }
         }
 
@@ -246,15 +256,25 @@ impl FaultAttacks {
     }
 }
 
+/// Run the simulation with faults and return a trace of the program flow
+///
+/// If the simulation fails, return an empty vector
+///
+/// # Examples:
+/// ```
+/// let records = trace_run(&file_data, cycles, RunType::RecordTrace, false, &fault_records);
+/// ```
+/// This will run a simulation with the given file data, cycles, run type, low complexity and fault records
+/// and return the trace records
 fn trace_run(
     file_data: &ElfFile,
     cycles: usize,
     run_type: RunType,
-    low_complexity: bool,
+    deep_analysis: bool,
     records: &[SimulationFaultRecord],
 ) -> Result<Vec<TraceRecord>, String> {
     let mut simulation = Control::new(file_data);
-    let data = simulation.run_with_faults(cycles, run_type, low_complexity, records)?;
+    let data = simulation.run_with_faults(cycles, run_type, deep_analysis, records)?;
     match data {
         Data::Trace(trace) => Ok(trace),
         _ => Ok(Vec::new()),
