@@ -85,7 +85,7 @@ impl<'a> Control<'a> {
         &mut self,
         cycles: usize,
         run_type: RunType,
-        low_complexity_trace: bool,
+        deep_analysis_trace: bool,
         faults: &[SimulationFaultRecord],
     ) -> Result<Data, String> {
         // Initialize and load
@@ -145,7 +145,7 @@ impl<'a> Control<'a> {
                 self.emu.release_usage_fault_hooks();
 
                 // Reduce traces if necessary
-                if low_complexity_trace {
+                if !deep_analysis_trace {
                     self.emu.reduce_trace();
                 }
                 Ok(Data::Trace(self.emu.get_trace().clone()))

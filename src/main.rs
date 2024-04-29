@@ -36,9 +36,9 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     analysis: bool,
 
-    /// Switch on low complexity attack-scan (same addresses are discarded)
+    /// Switch on deep analysis scan. Repeated code (e.g. loops) are fully analysed
     #[arg(short, long, default_value_t = false)]
-    low_complexity: bool,
+    deep_analysis: bool,
 
     /// Maximum number of instructions to be executed
     #[arg(short, long, default_value_t = 2000)]
@@ -90,18 +90,18 @@ fn main() -> Result<(), String> {
         match args.attack.as_str() {
             "all" => {
                 if !attack
-                    .single_glitch(args.max_instructions, args.low_complexity, 1..=10)?
+                    .single_glitch(args.max_instructions, args.deep_analysis, 1..=10)?
                     .0
                 {
-                    attack.double_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
+                    attack.double_glitch(args.max_instructions, args.deep_analysis, 1..=10)?;
                 }
                 //            attack.single_bit_flip();
             }
             "single" => {
-                attack.single_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
+                attack.single_glitch(args.max_instructions, args.deep_analysis, 1..=10)?;
             }
             "double" => {
-                attack.double_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
+                attack.double_glitch(args.max_instructions, args.deep_analysis, 1..=10)?;
             }
             // "bit_flip" => {
             //     attack.single_bit_flip();
@@ -109,7 +109,7 @@ fn main() -> Result<(), String> {
             _ => println!("No attack selected!"),
         }
     } else {
-        attack.fault_simulation(args.max_instructions, &args.faults, args.low_complexity)?;
+        attack.fault_simulation(args.max_instructions, &args.faults, args.deep_analysis)?;
     }
 
     let debug_context = attack.file_data.get_debug_context();

@@ -58,6 +58,7 @@ impl Disassembly {
                 .for_each(|trace_record| match trace_record {
                     TraceRecord::Instruction {
                         address,
+                        index: _,
                         asm_instruction,
                         registers,
                     } => {
