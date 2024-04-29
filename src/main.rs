@@ -93,7 +93,7 @@ fn main() -> Result<(), String> {
                     .single_glitch(args.max_instructions, args.low_complexity, 1..=10)?
                     .0
                 {
-                    attack.double_glitch(args.max_instructions, args.low_complexity, 1..=9)?;
+                    attack.double_glitch(args.max_instructions, args.low_complexity, 1..=10)?;
                 }
                 //            attack.single_bit_flip();
             }
