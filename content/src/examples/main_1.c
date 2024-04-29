@@ -1,3 +1,12 @@
+/**
+ * @file main_1.c
+ * @author Roland Ebrecht
+ * @brief 
+ * @version 0.1
+ * @date 2024-04-29
+ *
+ */
+
 #include "common.h"
 #include "fih_mem.h"
 #include "utils.h"
