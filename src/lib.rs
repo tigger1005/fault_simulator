@@ -6,5 +6,5 @@ mod simulation;
 
 pub mod prelude {
     pub use crate::fault_attacks::FaultAttacks;
-    pub use crate::simulation::FaultType;
+    pub use crate::simulation::{FaultData, FaultType, TraceRecord};
 }

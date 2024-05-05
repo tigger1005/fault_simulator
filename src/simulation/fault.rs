@@ -31,7 +31,7 @@ impl ValueEnum for FaultType {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 /// Representation for a fault which shall be executed at step `index` of a simulation.
 pub struct SimulationFaultRecord {
     pub index: usize,
@@ -92,7 +92,7 @@ impl TraceRecord {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 /// Representation of an fault which was executed in a simulation.
 pub struct FaultData {
     /// The original instructions which would have been performed without the fault.

@@ -89,8 +89,7 @@ mod tests {
 
     #[test]
     fn parse_elf_file() {
-        let elf_struct =
-            ElfFile::new(std::path::PathBuf::from("content/bin/aarch32/victim.elf")).unwrap();
+        let elf_struct = ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
         // File header
         assert_eq!(elf_struct.header.endianness, elf::endian::AnyEndian::Little);
         assert_eq!(elf_struct.header.version, 1);
@@ -102,10 +101,10 @@ mod tests {
             elf_struct.program_header.p_vaddr
         );
 
-        assert_eq!(elf_struct.decision_activation.st_size, 6);
-
-        println!("{:?}", elf_struct.header);
-        println!("{:?}", elf_struct.program_header);
-        println!("{:?}", elf_struct.decision_activation);
+        assert_eq!(elf_struct.decision_activation.st_name, 0xec);
+        assert_eq!(elf_struct.decision_activation.st_value, 0x80000009);
+        assert_eq!(elf_struct.decision_activation.st_size, 10);
+        assert_eq!(elf_struct.decision_activation.st_shndx, 1);
+        assert_eq!(elf_struct.decision_activation.st_bind(), 1);
     }
 }

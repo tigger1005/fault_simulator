@@ -90,18 +90,23 @@ fn main() -> Result<(), String> {
         match args.attack.as_str() {
             "all" => {
                 if !attack
-                    .single_glitch(args.max_instructions, args.deep_analysis, 1..=10)?
+                    .single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?
                     .0
                 {
-                    attack.double_glitch(args.max_instructions, args.deep_analysis, 1..=10)?;
+                    attack.double_glitch(
+                        args.max_instructions,
+                        args.deep_analysis,
+                        true,
+                        1..=10,
+                    )?;
                 }
                 //            attack.single_bit_flip();
             }
             "single" => {
-                attack.single_glitch(args.max_instructions, args.deep_analysis, 1..=10)?;
+                attack.single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
             }
             "double" => {
-                attack.double_glitch(args.max_instructions, args.deep_analysis, 1..=10)?;
+                attack.double_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
             }
             // "bit_flip" => {
             //     attack.single_bit_flip();
@@ -109,7 +114,12 @@ fn main() -> Result<(), String> {
             _ => println!("No attack selected!"),
         }
     } else {
-        attack.fault_simulation(args.max_instructions, &args.faults, args.deep_analysis)?;
+        let _result = attack.fault_simulation(
+            args.max_instructions,
+            &args.faults,
+            args.deep_analysis,
+            true,
+        )?;
     }
 
     let debug_context = attack.file_data.get_debug_context();

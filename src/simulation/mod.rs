@@ -142,7 +142,7 @@ impl<'a> Control<'a> {
         // Cleanup and return data to caller
         match run_type {
             RunType::RecordTrace | RunType::RecordFullTrace => {
-                self.emu.release_usage_fault_hooks();
+                self.emu.clear_fault_data();
 
                 // Reduce traces if necessary
                 if !deep_analysis_trace {

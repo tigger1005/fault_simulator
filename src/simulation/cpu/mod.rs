@@ -275,8 +275,8 @@ impl<'a> Cpu<'a> {
         cpu_state.start_trace = true;
     }
 
-    /// Release hook function and all stored data in internal structure
-    pub fn release_usage_fault_hooks(&mut self) {
+    /// Clear fault data in internal structure
+    pub fn clear_fault_data(&mut self) {
         // Remove hooks from list
         self.emu.get_data_mut().fault_data.clear();
     }
@@ -294,10 +294,12 @@ impl<'a> Cpu<'a> {
     }
 
     /// Execute a glitch skipping `n` instructions.
-    fn execute_glitch(&mut self, n: usize, fault: &SimulationFaultRecord) {
+    fn execute_glitch(&mut self, fault: &SimulationFaultRecord) {
         let address = self.program_counter;
         let mut offset = 0;
         let mut manipulated_instructions = Vec::new();
+
+        let FaultType::Glitch(n) = fault.fault_type;
         for _count in 0..n {
             let instruction_size = self.get_asm_cmd_size(address + offset).unwrap();
             manipulated_instructions.extend_from_slice(&T1_NOP[..instruction_size]);
@@ -335,8 +337,8 @@ impl<'a> Cpu<'a> {
     /// Program is stopped and will be continued after fault injection
     pub fn execute_fault_injection(&mut self, fault: &SimulationFaultRecord) {
         match fault.fault_type {
-            FaultType::Glitch(n) => {
-                self.execute_glitch(n, fault);
+            FaultType::Glitch(_) => {
+                self.execute_glitch(fault);
             }
         }
     }

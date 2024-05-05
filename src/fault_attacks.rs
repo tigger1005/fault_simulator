@@ -78,12 +78,17 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         deep_analysis: bool,
+        prograss_bar: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
         // Run cached single nop simulation
         for i in range {
-            self.fault_data =
-                self.fault_simulation(cycles, &[FaultType::Glitch(i)], deep_analysis)?;
+            self.fault_data = self.fault_simulation(
+                cycles,
+                &[FaultType::Glitch(i)],
+                deep_analysis,
+                prograss_bar,
+            )?;
 
             if !self.fault_data.is_empty() {
                 break;
@@ -101,6 +106,7 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         deep_analysis: bool,
+        prograss_bar: bool,
         range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
         // Run cached double nop simulation
@@ -110,6 +116,7 @@ impl FaultAttacks {
                 cycles,
                 &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
                 deep_analysis,
+                prograss_bar,
             )?;
 
             if !self.fault_data.is_empty() {
@@ -125,6 +132,7 @@ impl FaultAttacks {
         cycles: usize,
         faults: &[FaultType],
         deep_analysis: bool,
+        prograss_bar: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
         //
         println!("Running simulation for faults: {faults:?}");
@@ -144,8 +152,11 @@ impl FaultAttacks {
         )?;
         debug!("Number of trace steps: {}", records.len());
 
+        let mut bar: Option<ProgressBar> = None;
         // Setup progress bar and channel for fault data
-        let bar = ProgressBar::new(records.len() as u64);
+        if prograss_bar {
+            bar = Some(ProgressBar::new(records.len() as u64));
+        }
         let (sender, receiver) = channel();
 
         // Split faults into first and remaining faults
@@ -156,7 +167,9 @@ impl FaultAttacks {
         let n_result: Result<usize, String> = records
             .into_par_iter()
             .map_with(sender, |s, record| -> Result<usize, String> {
-                bar.inc(1);
+                if let Some(bar) = &bar {
+                    bar.inc(1);
+                }
 
                 let number;
                 // Get index of the record
@@ -184,7 +197,10 @@ impl FaultAttacks {
             })
             .sum();
 
-        bar.finish_and_clear();
+        if let Some(bar) = bar {
+            bar.finish_and_clear();
+        }
+
         // Sum up successful attacks
         let n = n_result?;
         self.count_sum += n;
@@ -260,12 +276,6 @@ impl FaultAttacks {
 ///
 /// If the simulation fails, return an empty vector
 ///
-/// # Examples:
-/// ```
-/// let records = trace_run(&file_data, cycles, RunType::RecordTrace, false, &fault_records);
-/// ```
-/// This will run a simulation with the given file data, cycles, run type, low complexity and fault records
-/// and return the trace records
 fn trace_run(
     file_data: &ElfFile,
     cycles: usize,
