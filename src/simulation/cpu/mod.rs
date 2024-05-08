@@ -289,8 +289,8 @@ impl<'a> Cpu<'a> {
     /// Remove duplicates to speed up testing
     pub fn reduce_trace(&mut self) {
         let trace_data = &mut self.emu.get_data_mut().trace_data;
-        let hash_set: HashSet<TraceRecord> = HashSet::from_iter(trace_data.clone());
-        *trace_data = Vec::from_iter(hash_set);
+        let mut seen = HashSet::new();
+        trace_data.retain(|trace| seen.insert(trace.clone()));
     }
 
     /// Execute a glitch skipping `n` instructions.
