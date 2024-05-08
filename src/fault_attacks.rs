@@ -53,7 +53,7 @@ impl FaultAttacks {
                 &self.file_data,
                 cycles,
                 RunType::RecordFullTrace,
-                false,
+                true,
                 &fault_records,
             )?);
             // Print trace
