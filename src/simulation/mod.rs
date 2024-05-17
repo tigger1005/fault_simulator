@@ -1,8 +1,10 @@
 mod cpu;
 pub use cpu::*;
 
-mod fault;
-pub use fault::{FaultData, FaultType, SimulationFaultRecord, TraceRecord};
+mod faults;
+pub use faults::{FaultData, FaultType};
+mod record;
+pub use record::{SimulationFaultRecord, TraceRecord};
 
 use log::info;
 
@@ -148,7 +150,7 @@ impl<'a> Control<'a> {
                 if !deep_analysis_trace {
                     self.emu.reduce_trace();
                 }
-                Ok(Data::Trace(self.emu.get_trace().clone()))
+                Ok(Data::Trace(self.emu.get_trace_data().clone()))
             }
             RunType::Run => {
                 // Check if fault attack was successful if yes return faults
