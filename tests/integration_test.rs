@@ -51,7 +51,7 @@ fn run_double_glitch() {
 ///
 /// This test runs a fault simulation on two different binaries (victim_.elf, victim_3.elf)
 /// and checks if the correct faults are found, identfied by their addresses
-fn run_fault_simulation() {
+fn run_fault_simulation_one_glitch() {
     env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
@@ -71,7 +71,15 @@ fn run_fault_simulation() {
         TraceRecord::Fault { address, .. } => address == 0x80000626,
         _ => false,
     }));
+}
 
+#[test]
+/// Test for fault simulation api
+///
+/// This test runs a fault simulation on victim_3.elf
+/// and checks if the correct faults are found, identfied by their addresses
+fn run_fault_simulation_two_glitches() {
+    env::set_var("RAYON_NUM_THREADS", "1");
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
 
     let result = attack
