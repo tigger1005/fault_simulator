@@ -1,19 +1,20 @@
-pub use crate::elf_file::ElfFile;
-use crate::{
-    simulation::faults::*,
-    simulation::record::{SimulationFaultRecord, TraceRecord},
-    simulation::{FaultData, FaultType},
-};
+use crate::elf_file::ElfFile;
+use crate::simulation::record::{FaultRecord, TraceRecord};
 
 mod callback;
-use callback::*;
 
+use callback::{
+    hook_code_callback, hook_code_decision_activation_callback, mmio_auth_write_callback,
+    mmio_serial_write_callback, write_decision_element,
+};
 use unicorn_engine::unicorn_const::uc_error;
 use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
 use unicorn_engine::{RegisterARM, Unicorn};
 
 use log::debug;
 use std::collections::HashSet;
+
+use super::faults::FaultData;
 
 // Constant variable definitions
 const STACK_BASE: u64 = 0x80100000;
@@ -295,12 +296,8 @@ impl<'a> Cpu<'a> {
 
     /// Execute fault injection according to fault type
     /// Program is stopped and will be continued after fault injection
-    pub fn execute_fault_injection(&mut self, fault: &SimulationFaultRecord) {
-        match fault.fault_type {
-            FaultType::Glitch(_) => {
-                execute_glitch(self, fault);
-            }
-        }
+    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) {
+        fault.fault_type.execute(self, fault)
     }
 
     /// Get Program counter from internal variable

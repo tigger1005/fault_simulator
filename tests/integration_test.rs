@@ -57,7 +57,7 @@ fn run_fault_simulation() {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Result is Vec<Vec<FaultData>>
     let result = attack
-        .fault_simulation(2000, &[FaultType::Glitch(1)], false, false)
+        .fault_simulation(2000, &[Glitch::new(1)], false, false)
         .unwrap();
 
     // Check if correct faults are found (at: 0x800004b6, 0x80000626)
@@ -75,12 +75,7 @@ fn run_fault_simulation() {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
 
     let result = attack
-        .fault_simulation(
-            2000,
-            &[FaultType::Glitch(1), FaultType::Glitch(10)],
-            false,
-            false,
-        )
+        .fault_simulation(2000, &[Glitch::new(1), Glitch::new(10)], false, false)
         .unwrap();
 
     println!("Result: {:?}", result);

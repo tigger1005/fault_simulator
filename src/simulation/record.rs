@@ -1,10 +1,10 @@
 use std::hash::{Hash, Hasher};
 
-use crate::simulation::faults::FaultType;
+use super::faults::FaultType;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 /// Representation for a fault which shall be executed at step `index` of a simulation.
-pub struct SimulationFaultRecord {
+pub struct FaultRecord {
     pub index: usize,
     pub fault_type: FaultType,
 }
@@ -20,7 +20,7 @@ pub enum TraceRecord {
     },
     Fault {
         address: u64,
-        fault_type: FaultType,
+        fault_type: String,
     },
 }
 

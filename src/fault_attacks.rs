@@ -1,18 +1,14 @@
-use crate::disassembly::Disassembly;
-pub use crate::simulation::FaultType;
-use crate::simulation::*;
+use super::simulation::faults::*;
+use super::simulation::record::{FaultRecord, TraceRecord};
+use crate::simulation::{Control, Data, RunType};
+use crate::{disassembly::Disassembly, elf_file::ElfFile};
 
 use addr2line::gimli;
-
-use rayon::prelude::*;
-
-use std::sync::mpsc::{channel, Sender};
-
 use indicatif::ProgressBar;
-
 use itertools::Itertools;
-
 use log::debug;
+use rayon::prelude::*;
+use std::sync::mpsc::{channel, Sender};
 
 pub struct FaultAttacks {
     cs: Disassembly,
@@ -83,12 +79,8 @@ impl FaultAttacks {
     ) -> Result<(bool, usize), String> {
         // Run cached single nop simulation
         for i in range {
-            self.fault_data = self.fault_simulation(
-                cycles,
-                &[FaultType::Glitch(i)],
-                deep_analysis,
-                prograss_bar,
-            )?;
+            self.fault_data =
+                self.fault_simulation(cycles, &[Glitch::new(i)], deep_analysis, prograss_bar)?;
 
             if !self.fault_data.is_empty() {
                 break;
@@ -114,7 +106,7 @@ impl FaultAttacks {
         for t in it {
             self.fault_data = self.fault_simulation(
                 cycles,
-                &[FaultType::Glitch(t.0), FaultType::Glitch(t.1)],
+                &[Glitch::new(t.0), Glitch::new(t.1)],
                 deep_analysis,
                 prograss_bar,
             )?;
@@ -143,7 +135,7 @@ impl FaultAttacks {
         }
 
         // Run simulation to record normal fault program flow as a base for fault injection
-        let records = trace_run(
+        let mut records = trace_run(
             &self.file_data,
             cycles,
             RunType::RecordTrace,
@@ -160,7 +152,9 @@ impl FaultAttacks {
         let (sender, receiver) = channel();
 
         // Split faults into first and remaining faults
-        let (&first_fault, remaining_faults) = faults.split_first().unwrap();
+        let (first_fault, remaining_faults) = faults.split_first().unwrap();
+        // Filter records according to fault type
+        first_fault.filter(&mut records);
 
         // Run main fault simulation loop
         let temp_file_data = &self.file_data;
@@ -175,9 +169,9 @@ impl FaultAttacks {
                 // Get index of the record
                 if let TraceRecord::Instruction { index, .. } = record {
                     // Create a simulation fault record list with the first fault in the list
-                    let simulation_fault_records = vec![SimulationFaultRecord {
+                    let simulation_fault_records = vec![FaultRecord {
                         index,
-                        fault_type: first_fault,
+                        fault_type: first_fault.clone(),
                     }];
 
                     // Call recursive fault simulation with first simulation fault record
@@ -219,7 +213,7 @@ impl FaultAttacks {
         file_data: &ElfFile,
         cycles: usize,
         faults: &[FaultType],
-        simulation_fault_records: &[SimulationFaultRecord],
+        simulation_fault_records: &[FaultRecord],
         deep_analysis: bool,
         s: &mut Sender<Vec<FaultData>>,
     ) -> Result<usize, String> {
@@ -232,7 +226,7 @@ impl FaultAttacks {
             n += 1;
         } else {
             // Collect trace records with simulation fault records to get new running length (time)
-            let records = trace_run(
+            let mut records = trace_run(
                 file_data,
                 cycles,
                 RunType::RecordTrace,
@@ -241,8 +235,9 @@ impl FaultAttacks {
             )?;
 
             // Split faults into first and remaining faults
-            let (&first_fault, remaining_faults) = faults.split_first().unwrap();
-
+            let (first_fault, remaining_faults) = faults.split_first().unwrap();
+            // Filter records according to fault type
+            first_fault.filter(&mut records);
             // Iterate over trace records
             for record in records {
                 // Get index of the record
@@ -250,9 +245,9 @@ impl FaultAttacks {
                     // Create a copy of the simulation fault records
                     let mut index_simulation_fault_records = simulation_fault_records.to_vec();
                     // Add the created simulation fault record to the list of simulation fault records
-                    index_simulation_fault_records.push(SimulationFaultRecord {
+                    index_simulation_fault_records.push(FaultRecord {
                         index,
-                        fault_type: first_fault,
+                        fault_type: first_fault.clone(),
                     });
 
                     // Call recursive fault simulation with remaining faults
@@ -281,7 +276,7 @@ fn trace_run(
     cycles: usize,
     run_type: RunType,
     deep_analysis: bool,
-    records: &[SimulationFaultRecord],
+    records: &[FaultRecord],
 ) -> Result<Vec<TraceRecord>, String> {
     let mut simulation = Control::new(file_data);
     let data = simulation.run_with_faults(cycles, run_type, deep_analysis, records)?;
@@ -294,7 +289,7 @@ fn trace_run(
 fn simulation_run(
     file_data: &ElfFile,
     cycles: usize,
-    records: &[SimulationFaultRecord],
+    records: &[FaultRecord],
     s: &mut Sender<Vec<FaultData>>,
 ) -> Result<(), String> {
     let mut simulation = Control::new(file_data);
