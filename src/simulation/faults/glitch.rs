@@ -1,4 +1,4 @@
-use super::{FaultData, FaultFunctions};
+use super::{FaultData, FaultFunctions, FaultType};
 use crate::simulation::cpu::{Cpu, ARM_REG};
 use crate::simulation::record::{FaultRecord, TraceRecord};
 
@@ -18,24 +18,6 @@ impl Glitch {
     /// Create a new Glitch fault
     pub fn new(number: usize) -> Box<Glitch> {
         Box::new(Glitch { number })
-    }
-
-    /// Try to parse a Glitch fault from a string
-    pub fn try_from(input: &str) -> Option<Box<Glitch>> {
-        // divide name from attribute
-        let collect: Vec<&str> = input.split('_').collect();
-        // check if name and attribute are present
-        let fault_type = collect.first().copied()?;
-        let attribute = collect.get(1).copied()?;
-        // check if fault type is glitch
-        if fault_type == "glitch" {
-            // check if attribute is a number
-            if let Ok(num) = attribute.parse::<usize>() {
-                // return Glitch struct
-                return Some(Glitch::new(num));
-            }
-        }
-        None
     }
 
     /// Get the label of the fault
@@ -92,4 +74,22 @@ impl FaultFunctions for Glitch {
     /// Currently no filtering. All positions are attacked
     ///
     fn filter(&self, _records: &mut Vec<TraceRecord>) {}
+
+    /// Try to parse a Glitch fault from a string
+    fn try_from(&self, input: &str) -> Option<FaultType> {
+        // divide name from attribute
+        let collect: Vec<&str> = input.split('_').collect();
+        // check if name and attribute are present
+        let fault_type = collect.first().copied()?;
+        let attribute = collect.get(1).copied()?;
+        // check if fault type is glitch
+        if fault_type == "glitch" {
+            // check if attribute is a number
+            if let Ok(num) = attribute.parse::<usize>() {
+                // return Glitch struct
+                return Some(Self::new(num));
+            }
+        }
+        None
+    }
 }
