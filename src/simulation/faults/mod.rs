@@ -2,18 +2,20 @@ use super::{FaultRecord, TraceRecord};
 use crate::simulation::cpu::Cpu;
 use std::{fmt::Debug, sync::Arc};
 
+pub mod bitflip;
 pub mod glitch;
+pub use bitflip::BitFlip;
 pub use glitch::Glitch;
 
 /// List of all possible faults
-const FAULTS: [&dyn FaultFunctions; 1] = [&Glitch { number: 1 }];
+const FAULTS: [&dyn FaultFunctions; 2] = [&Glitch { number: 1 }, &BitFlip {}];
 
 /// Trait for fault injection functions
 pub trait FaultFunctions: Send + Sync + Debug {
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord);
     fn filter(&self, records: &mut Vec<TraceRecord>);
     fn try_from(&self, input: &str) -> Option<FaultType>;
-    fn get_list<'a>(&'a self) -> Vec<&'a str>;
+    fn get_list(&self) -> Vec<&str>;
 }
 
 /// Type definition of fault injection data type

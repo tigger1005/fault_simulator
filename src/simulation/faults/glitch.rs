@@ -17,8 +17,8 @@ pub struct Glitch {
 /// Implementation for Glitch fault
 impl Glitch {
     /// Create a new Glitch fault
-    pub fn new(number: usize) -> Arc<Glitch> {
-        Arc::new(Glitch { number })
+    pub fn new(number: usize) -> Arc<Self> {
+        Arc::new(Self { number })
     }
 
     /// Get the label of the fault
@@ -67,8 +67,6 @@ impl FaultFunctions for Glitch {
     }
 
     /// Filtering of traces
-    /// Currently no filtering. All positions are attacked
-    ///
     fn filter(&self, _records: &mut Vec<TraceRecord>) {}
 
     /// Try to parse a Glitch fault from a string
@@ -89,7 +87,7 @@ impl FaultFunctions for Glitch {
         None
     }
     /// Get the list of possible/good faults
-    fn get_list<'a>(&'a self) -> Vec<&'a str> {
+    fn get_list(&self) -> Vec<&str> {
         vec![
             "glitch_1",
             "glitch_2",
