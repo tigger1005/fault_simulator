@@ -1,12 +1,12 @@
-pub use crate::elf_file::ElfFile;
-use crate::{
-    simulation::fault::{SimulationFaultRecord, TraceRecord},
-    simulation::{FaultData, FaultType},
-};
+use crate::elf_file::ElfFile;
+use crate::simulation::record::{FaultRecord, TraceRecord};
 
 mod callback;
-use callback::*;
 
+use callback::{
+    hook_code_callback, hook_code_decision_activation_callback, mmio_auth_write_callback,
+    mmio_serial_write_callback, write_decision_element,
+};
 use unicorn_engine::unicorn_const::uc_error;
 use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
 use unicorn_engine::{RegisterARM, Unicorn};
@@ -14,15 +14,16 @@ use unicorn_engine::{RegisterARM, Unicorn};
 use log::debug;
 use std::collections::HashSet;
 
+use super::faults::FaultData;
+
 // Constant variable definitions
 const STACK_BASE: u64 = 0x80100000;
 const STACK_SIZE: usize = 0x10000;
 const AUTH_BASE: u64 = 0xAA01000;
 
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
-const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 
-const ARM_REG: [RegisterARM; 17] = [
+pub const ARM_REG: [RegisterARM; 17] = [
     RegisterARM::R0,
     RegisterARM::R1,
     RegisterARM::R2,
@@ -227,7 +228,7 @@ impl<'a> Cpu<'a> {
         ret_val
     }
 
-    fn get_asm_cmd_size(&self, address: u64) -> Option<usize> {
+    pub fn get_asm_cmd_size(&self, address: u64) -> Option<usize> {
         let mut data: [u8; 2] = [0; 2];
         // Check for 32bit cmd (0b11101... 0b1111....)
         if self.emu.mem_read(address, &mut data).is_ok() {
@@ -254,8 +255,8 @@ impl<'a> Cpu<'a> {
     }
 
     /// Get fault_data
-    pub fn get_fault_data(&self) -> &Vec<FaultData> {
-        &self.emu.get_data().fault_data
+    pub fn get_fault_data(&mut self) -> &mut Vec<FaultData> {
+        &mut self.emu.get_data_mut().fault_data
     }
 
     /// Set code hook for tracing
@@ -282,64 +283,42 @@ impl<'a> Cpu<'a> {
     }
 
     /// Copy trace data to caller
-    pub fn get_trace(&self) -> &Vec<TraceRecord> {
-        &self.emu.get_data().trace_data
+    pub fn get_trace_data(&mut self) -> &mut Vec<TraceRecord> {
+        &mut self.emu.get_data_mut().trace_data
     }
 
     /// Remove duplicates to speed up testing
     pub fn reduce_trace(&mut self) {
         let trace_data = &mut self.emu.get_data_mut().trace_data;
-        let hash_set: HashSet<TraceRecord> = HashSet::from_iter(trace_data.clone());
-        *trace_data = Vec::from_iter(hash_set);
-    }
-
-    /// Execute a glitch skipping `n` instructions.
-    fn execute_glitch(&mut self, fault: &SimulationFaultRecord) {
-        let address = self.program_counter;
-        let mut offset = 0;
-        let mut manipulated_instructions = Vec::new();
-
-        let FaultType::Glitch(n) = fault.fault_type;
-        for _count in 0..n {
-            let instruction_size = self.get_asm_cmd_size(address + offset).unwrap();
-            manipulated_instructions.extend_from_slice(&T1_NOP[..instruction_size]);
-            offset += instruction_size as u64;
-        }
-        self.program_counter += offset;
-
-        // Set to same size as data_changed
-        let mut original_instructions = manipulated_instructions.clone();
-        // Read original instructions
-        self.emu
-            .mem_read(address, &mut original_instructions)
-            .unwrap();
-
-        // Read registers
-        let mut registers: [u32; 17] = [0; 17];
-        ARM_REG.iter().enumerate().for_each(|(index, register)| {
-            registers[index] = self.emu.reg_read(*register).unwrap() as u32;
-        });
-        let record = TraceRecord::Fault {
-            address,
-            fault_type: fault.fault_type,
-        };
-        self.emu.get_data_mut().trace_data.push(record.clone());
-
-        // Push to fault data vector
-        self.emu.get_data_mut().fault_data.push(FaultData {
-            original_instructions,
-            record,
-            fault: *fault,
-        });
+        let mut seen = HashSet::new();
+        trace_data.retain(|trace| seen.insert(trace.clone()));
     }
 
     /// Execute fault injection according to fault type
     /// Program is stopped and will be continued after fault injection
-    pub fn execute_fault_injection(&mut self, fault: &SimulationFaultRecord) {
-        match fault.fault_type {
-            FaultType::Glitch(_) => {
-                self.execute_glitch(fault);
-            }
-        }
+    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) {
+        fault.fault_type.execute(self, fault)
+    }
+
+    /// Get Program counter from internal variable
+    pub fn get_program_counter(&self) -> u64 {
+        self.program_counter
+    }
+
+    /// Set Program counter from internal variable
+    pub fn set_program_counter(&mut self, program_counter: u64) {
+        self.program_counter = program_counter;
+    }
+
+    /// Read register value
+    ///
+    pub fn register_read(&self, regid: RegisterARM) -> Result<u64, uc_error> {
+        self.emu.reg_read(regid)
+    }
+
+    /// Read memory
+    ///
+    pub fn memory_read(&self, address: u64, buffer: &mut [u8]) -> Result<(), uc_error> {
+        self.emu.mem_read(address, buffer)
     }
 }

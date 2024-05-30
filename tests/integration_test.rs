@@ -11,17 +11,11 @@ fn run_single_glitch() {
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (true, 39),
-        attack.single_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((true, 39), attack.single(2000, false, false).unwrap());
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (false, 550),
-        attack.single_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((false, 550), attack.single(2000, false, false).unwrap());
 }
 
 #[test]
@@ -34,16 +28,10 @@ fn run_double_glitch() {
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (true, 7360),
-        attack.double_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((true, 7360), attack.double(2000, false, false).unwrap());
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (false, 48970),
-        attack.double_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((false, 48970), attack.double(2000, false, false).unwrap());
 }
 
 #[test]
@@ -51,13 +39,13 @@ fn run_double_glitch() {
 ///
 /// This test runs a fault simulation on two different binaries (victim_.elf, victim_3.elf)
 /// and checks if the correct faults are found, identfied by their addresses
-fn run_fault_simulation() {
+fn run_fault_simulation_one_glitch() {
     env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Result is Vec<Vec<FaultData>>
     let result = attack
-        .fault_simulation(2000, &[FaultType::Glitch(1)], false, false)
+        .fault_simulation(2000, &[Glitch::new(1)], false, false)
         .unwrap();
 
     // Check if correct faults are found (at: 0x800004b6, 0x80000626)
@@ -71,16 +59,19 @@ fn run_fault_simulation() {
         TraceRecord::Fault { address, .. } => address == 0x80000626,
         _ => false,
     }));
+}
 
+#[test]
+/// Test for fault simulation api
+///
+/// This test runs a fault simulation on victim_3.elf
+/// and checks if the correct faults are found, identfied by their addresses
+fn run_fault_simulation_two_glitches() {
+    env::set_var("RAYON_NUM_THREADS", "1");
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
 
     let result = attack
-        .fault_simulation(
-            2000,
-            &[FaultType::Glitch(1), FaultType::Glitch(10)],
-            false,
-            false,
-        )
+        .fault_simulation(2000, &[Glitch::new(1), Glitch::new(10)], false, false)
         .unwrap();
 
     println!("Result: {:?}", result);

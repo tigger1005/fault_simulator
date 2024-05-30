@@ -30,7 +30,7 @@ struct Args {
 
     /// Run a command line defined sequence of faults. Alternative to --attack
     #[arg(long, value_delimiter = ',')]
-    faults: Vec<FaultType>,
+    faults: Vec<String>,
 
     /// Activate trace analysis of picked fault
     #[arg(short, long, default_value_t = false)]
@@ -90,36 +90,33 @@ fn main() -> Result<(), String> {
         match args.attack.as_str() {
             "all" => {
                 if !attack
-                    .single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?
+                    .single(args.max_instructions, args.deep_analysis, true)?
                     .0
                 {
-                    attack.double_glitch(
-                        args.max_instructions,
-                        args.deep_analysis,
-                        true,
-                        1..=10,
-                    )?;
+                    attack.double(args.max_instructions, args.deep_analysis, true)?;
                 }
                 //            attack.single_bit_flip();
             }
             "single" => {
-                attack.single_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
+                attack.single(args.max_instructions, args.deep_analysis, true)?;
             }
             "double" => {
-                attack.double_glitch(args.max_instructions, args.deep_analysis, true, 1..=10)?;
+                attack.double(args.max_instructions, args.deep_analysis, true)?;
             }
-            // "bit_flip" => {
-            //     attack.single_bit_flip();
-            // }
-            _ => println!("No attack selected!"),
+            _ => println!("No attack type selected!"),
         }
     } else {
-        let _result = attack.fault_simulation(
-            args.max_instructions,
-            &args.faults,
-            args.deep_analysis,
-            true,
-        )?;
+        // Get fault type and numbers
+        let faults: Vec<FaultType> = args
+            .faults
+            .iter()
+            .filter_map(|argument| get_fault_from(argument).ok())
+            .collect();
+
+        let result =
+            attack.fault_simulation(args.max_instructions, &faults, args.deep_analysis, true)?;
+        // Save result to attack struct
+        attack.set_fault_data(result);
     }
 
     let debug_context = attack.file_data.get_debug_context();

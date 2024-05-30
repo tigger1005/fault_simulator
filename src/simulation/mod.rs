@@ -1,10 +1,13 @@
-mod cpu;
-pub use cpu::*;
+pub mod cpu;
+pub mod faults;
+pub mod record;
 
-mod fault;
-pub use fault::{FaultData, FaultType, SimulationFaultRecord, TraceRecord};
-
+use crate::elf_file::ElfFile;
+use cpu::{Cpu, RunState};
+pub use faults::FaultData;
 use log::info;
+use record::FaultRecord;
+pub use record::TraceRecord;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum RunType {
@@ -86,7 +89,7 @@ impl<'a> Control<'a> {
         cycles: usize,
         run_type: RunType,
         deep_analysis_trace: bool,
-        faults: &[SimulationFaultRecord],
+        faults: &[FaultRecord],
     ) -> Result<Data, String> {
         // Initialize and load
         self.init_and_load(false);
@@ -148,7 +151,7 @@ impl<'a> Control<'a> {
                 if !deep_analysis_trace {
                     self.emu.reduce_trace();
                 }
-                Ok(Data::Trace(self.emu.get_trace().clone()))
+                Ok(Data::Trace(self.emu.get_trace_data().clone()))
             }
             RunType::Run => {
                 // Check if fault attack was successful if yes return faults

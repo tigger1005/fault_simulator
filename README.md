@@ -2,15 +2,27 @@
 # Fault Simulator
 This project is used as a tool to simulate fault attacks to ARM-M processors (Thumb mode).
 It includes a C project in the "content" folder which is loaded into the simulation.
-Glitches are introduces in a range from 1 to 10 assembler commands, from 1 glitch to double glitching.
+Faults are introduces depending the predefined ranges or manualy. For the simulated attacks "all", "single" and "double", all implemented faults are executed till one leads to an successful attack.
+(e.g. "--attack double")
+
+After finding a vulnerability the attack command sequence can be analysed with the '--analysis' command line parameter.
+```ARM
+Assembler trace of attack number 1
+0x80000000:  bl     #0x80000614                                  < NZCV:0000 >
+0x80000614:  push   {r4, r5, r6, r7, lr}                         < NZCV:0000 R14=0x80000005 >
+0x80000616:  sub    sp, #0x24                                    < NZCV:0000 R13=0x8010FFE8 >
+0x80000618:  ldr    r5, [pc, #0xcc]                              < NZCV:0000 R13=0x8010FFC4 >
+```
+
+For fast reproduction of a successful attack, the faults can be setup with the --faults feature manualy.
+(E.g. "--faults glitch_1,glitch_10" - a double attack with 1 and 10 instruction glitches)
 
 Attack 'C' project is in the folder "content". Current compiler flags are set to:
 
 Code examples for main.c in content\src\examples
 
-Found vulnerabilities can be analysed with the "--analysis" switch (beta version).
 
-``` make
+```make
 TARGET = armv8-m.main
 
 CFLAGS = -c -O3 -fPIC -Iinclude \
@@ -49,12 +61,12 @@ Program parameters:
 ```
 -t, --threads <THREADS>  Number of threads started in parallel [default: 1]
 -n, --no-compilation     Suppress re-compilation of target program
-    --attack <ATTACK>    Attacks to be executed. Possible values are: all, single, double, bit_flip [default: all]
-    --faults <FAULTS>    Run a command line defined sequence of faults. Alternative to --attack [possible values: Glitch, Glitch2, Glitch3, Glitch4, Glitch5]
+    --attack <ATTACK>    Attacks to be executed. Possible values are: all, single, double [default: all]
+    --faults <FAULTS>    Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1, glitch_10)
 -a, --analysis           Activate trace analysis of picked fault
 -d, --deep-analysis      Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
 -m, --max_instructions   Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
--e, --elf <FILE>         Run attack simulation from external elf file w/o compilation step
+-e, --elf <FILE>         Use external elf file w/o compilation step
 -h, --help               Print help
 -V, --version            Print version
 ```

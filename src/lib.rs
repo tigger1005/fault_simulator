@@ -1,10 +1,10 @@
-pub mod fault_attacks;
+mod simulation;
 
 mod disassembly;
 mod elf_file;
-mod simulation;
+mod fault_attacks;
 
 pub mod prelude {
     pub use crate::fault_attacks::FaultAttacks;
-    pub use crate::simulation::{FaultData, FaultType, TraceRecord};
+    pub use crate::simulation::{faults::*, record::TraceRecord};
 }
