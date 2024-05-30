@@ -1,6 +1,7 @@
 use super::{FaultData, FaultFunctions, FaultType};
 use crate::simulation::cpu::{Cpu, ARM_REG};
 use crate::simulation::record::{FaultRecord, TraceRecord};
+use std::fmt::Debug;
 use std::sync::Arc;
 
 const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
@@ -9,7 +10,7 @@ const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 /// number  Number of assembler instructions to advance program counter to simulate
 ///         glitching on internal cpu state machine
 ///
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Glitch {
     pub number: usize,
 }
@@ -20,10 +21,11 @@ impl Glitch {
     pub fn new(number: usize) -> Arc<Self> {
         Arc::new(Self { number })
     }
+}
 
-    /// Get the label of the fault
-    pub fn get_label(&self) -> String {
-        format!("Glitch[{}]", self.number)
+impl Debug for Glitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Glitch({})", self.number)
     }
 }
 
@@ -54,7 +56,7 @@ impl FaultFunctions for Glitch {
         });
         let record = TraceRecord::Fault {
             address,
-            fault_type: self.get_label(),
+            fault_type: format!("{:?}", self),
         };
         cpu.get_trace_data().push(record.clone());
 

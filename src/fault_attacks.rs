@@ -5,7 +5,7 @@ use crate::{disassembly::Disassembly, elf_file::ElfFile};
 
 use addr2line::gimli;
 use indicatif::ProgressBar;
-use itertools::Itertools;
+use itertools::iproduct;
 use log::debug;
 use rayon::prelude::*;
 use std::sync::mpsc::{channel, Sender};
@@ -30,6 +30,9 @@ impl FaultAttacks {
         })
     }
 
+    pub fn set_fault_data(&mut self, fault_data: Vec<Vec<FaultData>>) {
+        self.fault_data = fault_data;
+    }
     pub fn print_fault_data(
         &self,
         debug_context: &addr2line::Context<
@@ -70,23 +73,27 @@ impl FaultAttacks {
     ///
     /// Parameter is the range of the single glitch size in commands
     /// Return (success: bool, number_of_attacks: usize)
-    pub fn single_glitch(
+    pub fn single(
         &mut self,
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
-        range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
-        // Run cached single nop simulation
-        for i in range {
-            self.fault_data =
-                self.fault_simulation(cycles, &[Glitch::new(i)], deep_analysis, prograss_bar)?;
+        let lists = get_fault_lists(); // Get all faults of all lists
+                                       // Iterate over all lists
+        for list in lists {
+            // Iterate over all faults in the list
+            for fault in list {
+                let fault = get_fault_from(fault).unwrap();
+                // Run simulation with fault
+                self.fault_data =
+                    self.fault_simulation(cycles, &[fault.clone()], deep_analysis, prograss_bar)?;
 
-            if !self.fault_data.is_empty() {
-                break;
+                if !self.fault_data.is_empty() {
+                    break;
+                }
             }
         }
-
         Ok((!self.fault_data.is_empty(), self.count_sum))
     }
 
@@ -94,28 +101,31 @@ impl FaultAttacks {
     ///
     /// Parameter is the range of the double glitch size in commands
     /// Return (success: bool, number_of_attacks: usize)
-    pub fn double_glitch(
+    pub fn double(
         &mut self,
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
-        range: std::ops::RangeInclusive<usize>,
     ) -> Result<(bool, usize), String> {
-        // Run cached double nop simulation
-        let it = range.clone().cartesian_product(range);
-        for t in it {
-            self.fault_data = self.fault_simulation(
-                cycles,
-                &[Glitch::new(t.0), Glitch::new(t.1)],
-                deep_analysis,
-                prograss_bar,
-            )?;
+        let lists = get_fault_lists(); // Get all faults of all lists
+                                       // Iterate over all lists
+        for list in lists {
+            // Iterate over all faults in the list
+            let it: Vec<(&str, &str)> =
+                iproduct!(list.clone(), list).map(|(a, b)| (a, b)).collect();
+            // Iterate over all fault pairs
+            for t in it {
+                let fault1 = get_fault_from(t.0).unwrap();
+                let fault2 = get_fault_from(t.1).unwrap();
 
-            if !self.fault_data.is_empty() {
-                break;
+                self.fault_data =
+                    self.fault_simulation(cycles, &[fault1, fault2], deep_analysis, prograss_bar)?;
+
+                if !self.fault_data.is_empty() {
+                    break;
+                }
             }
         }
-
         Ok((!self.fault_data.is_empty(), self.count_sum))
     }
 

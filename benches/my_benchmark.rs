@@ -14,12 +14,12 @@ fn criterion_benchmark(c: &mut Criterion) -> Result<(), String> {
     group.sample_size(10);
     group.bench_function("single attack", |b| {
         b.iter(|| {
-            let _ = attack.single_glitch(2000, false, false, 1..=2);
+            let _ = attack.single(2000, false, false);
         })
     });
     group.bench_function("double attack", |b| {
         b.iter(|| {
-            let _ = attack.double_glitch(2000, false, false, 1..=1);
+            let _ = attack.double(2000, false, false);
         })
     });
     Ok(())

@@ -22,7 +22,7 @@ pub trait FaultFunctions: Send + Sync + Debug {
 pub type FaultType = Arc<dyn FaultFunctions>;
 
 /// Get the fault type from a string
-pub fn get_fault_type(input: &str) -> Result<FaultType, String> {
+pub fn get_fault_from(input: &str) -> Result<FaultType, String> {
     // Parse the fault types
     let result = FAULTS.iter().find_map(|fault| fault.try_from(input));
     match result {

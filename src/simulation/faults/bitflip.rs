@@ -1,11 +1,12 @@
 use super::{FaultFunctions, FaultType};
 use crate::simulation::cpu::Cpu;
 use crate::simulation::record::{FaultRecord, TraceRecord};
+use std::fmt::Debug;
 use std::sync::Arc;
 
 /// BitFlip fault structure
 ///
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct BitFlip {}
 
 /// Implementation for Glitch fault
@@ -18,6 +19,12 @@ impl BitFlip {
     /// Get the label of the fault
     pub fn get_label(&self) -> String {
         "BitFlip".to_string()
+    }
+}
+
+impl Debug for BitFlip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BitFlip()")
     }
 }
 

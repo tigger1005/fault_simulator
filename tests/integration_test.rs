@@ -11,17 +11,11 @@ fn run_single_glitch() {
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (true, 39),
-        attack.single_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((true, 39), attack.single(2000, false, false).unwrap());
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (false, 550),
-        attack.single_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((false, 550), attack.single(2000, false, false).unwrap());
 }
 
 #[test]
@@ -34,16 +28,10 @@ fn run_double_glitch() {
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (true, 7360),
-        attack.double_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((true, 7360), attack.double(2000, false, false).unwrap());
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (false, 48970),
-        attack.double_glitch(2000, false, false, 1..=10).unwrap()
-    );
+    assert_eq!((false, 48970), attack.double(2000, false, false).unwrap());
 }
 
 #[test]
