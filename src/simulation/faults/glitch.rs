@@ -1,7 +1,6 @@
 use super::{FaultData, FaultFunctions};
 use crate::simulation::cpu::{Cpu, ARM_REG};
 use crate::simulation::record::{FaultRecord, TraceRecord};
-use clap::builder::PossibleValue;
 
 const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 
@@ -16,8 +15,32 @@ pub struct Glitch {
 
 /// Implementation for Glitch fault
 impl Glitch {
+    /// Create a new Glitch fault
     pub fn new(number: usize) -> Box<Glitch> {
         Box::new(Glitch { number })
+    }
+
+    /// Try to parse a Glitch fault from a string
+    pub fn try_from(input: &str) -> Option<Box<Glitch>> {
+        // divide name from attribute
+        let collect: Vec<&str> = input.split('_').collect();
+        // check if name and attribute are present
+        let fault_type = collect.first().copied()?;
+        let attribute = collect.get(1).copied()?;
+        // check if fault type is glitch
+        if fault_type == "glitch" {
+            // check if attribute is a number
+            if let Ok(num) = attribute.parse::<usize>() {
+                // return Glitch struct
+                return Some(Glitch::new(num));
+            }
+        }
+        None
+    }
+
+    /// Get the label of the fault
+    pub fn get_label(&self) -> String {
+        format!("Glitch[{}]", self.number)
     }
 }
 
@@ -48,7 +71,7 @@ impl FaultFunctions for Glitch {
         });
         let record = TraceRecord::Fault {
             address,
-            fault_type: format!("{:?}", fault.fault_type),
+            fault_type: self.get_label(),
         };
         cpu.get_trace_data().push(record.clone());
 
@@ -69,16 +92,4 @@ impl FaultFunctions for Glitch {
     /// Currently no filtering. All positions are attacked
     ///
     fn filter(&self, _records: &mut Vec<TraceRecord>) {}
-
-    /// Value parsing for command line parameters
-    fn get_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        match self.number {
-            1 => Some(PossibleValue::new("Glitch")),
-            2 => Some(PossibleValue::new("Glitch2")),
-            3 => Some(PossibleValue::new("Glitch3")),
-            4 => Some(PossibleValue::new("Glitch4")),
-            5 => Some(PossibleValue::new("Glitch5")),
-            _ => None,
-        }
-    }
 }

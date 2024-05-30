@@ -1,6 +1,5 @@
 use super::{FaultRecord, TraceRecord};
 use crate::simulation::cpu::Cpu;
-use clap::ValueEnum;
 use std::fmt::Debug;
 
 pub mod glitch;
@@ -32,27 +31,24 @@ pub trait FaultFunctions: Send + Sync + Debug {
     //    pub trait FaultFunctions: Debug + Send + Sync + PartialEq + Clone {
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord);
     fn filter(&self, records: &mut Vec<TraceRecord>);
-    fn get_possible_value(&self) -> Option<clap::builder::PossibleValue>;
     fn clone_new(&self) -> FaultType;
 }
 
 /// Type definition of fault injection data type
 pub type FaultType = Box<dyn FaultFunctions>;
 
+/// Get the fault type from a string
+pub fn get_fault_type(input: &str) -> Result<FaultType, String> {
+    // Check if input is a fault and return it
+    if let Some(output) = Glitch::try_from(input) {
+        return Ok(output);
+    }
+    Err(format!("Unknown fault type: {:?}", input))
+}
+
 /// Implementation of clone for Boxed type
 impl Clone for FaultType {
     fn clone(&self) -> Self {
         self.clone_new()
-    }
-}
-
-/// Implementation for command line fault attack parsing
-impl ValueEnum for FaultType {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        self.get_possible_value()
     }
 }

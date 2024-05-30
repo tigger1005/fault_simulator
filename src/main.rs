@@ -30,7 +30,7 @@ struct Args {
 
     /// Run a command line defined sequence of faults. Alternative to --attack
     #[arg(long, value_delimiter = ',')]
-    faults: Vec<FaultType>,
+    faults: Vec<String>,
 
     /// Activate trace analysis of picked fault
     #[arg(short, long, default_value_t = false)]
@@ -114,12 +114,15 @@ fn main() -> Result<(), String> {
             _ => println!("No attack selected!"),
         }
     } else {
-        let _result = attack.fault_simulation(
-            args.max_instructions,
-            &args.faults,
-            args.deep_analysis,
-            true,
-        )?;
+        // Get fault type and numbers
+        let faults: Vec<FaultType> = args
+            .faults
+            .iter()
+            .filter_map(|argument| get_fault_type(argument).ok())
+            .collect();
+
+        let _result =
+            attack.fault_simulation(args.max_instructions, &faults, args.deep_analysis, true)?;
     }
 
     let debug_context = attack.file_data.get_debug_context();
