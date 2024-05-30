@@ -1,6 +1,6 @@
 use super::{FaultRecord, TraceRecord};
 use crate::simulation::cpu::Cpu;
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 pub mod glitch;
 pub use glitch::Glitch;
@@ -10,15 +10,13 @@ const FAULTS: [&dyn FaultFunctions; 1] = [&Glitch { number: 1 }];
 
 /// Trait for fault injection functions
 pub trait FaultFunctions: Send + Sync + Debug {
-    //    pub trait FaultFunctions: Debug + Send + Sync + PartialEq + Clone {
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord);
     fn filter(&self, records: &mut Vec<TraceRecord>);
-    fn clone_new(&self) -> FaultType;
     fn try_from(&self, input: &str) -> Option<FaultType>;
 }
 
 /// Type definition of fault injection data type
-pub type FaultType = Box<dyn FaultFunctions>;
+pub type FaultType = Arc<dyn FaultFunctions>;
 
 /// Get the fault type from a string
 pub fn get_fault_type(input: &str) -> Result<FaultType, String> {
@@ -27,13 +25,6 @@ pub fn get_fault_type(input: &str) -> Result<FaultType, String> {
     match result {
         Some(output) => Ok(output),
         None => Err(format!("Unknown fault type: {:?}", input)),
-    }
-}
-
-/// Implementation of clone for Boxed type
-impl Clone for FaultType {
-    fn clone(&self) -> Self {
-        self.clone_new()
     }
 }
 

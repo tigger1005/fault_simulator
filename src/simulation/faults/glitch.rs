@@ -1,6 +1,7 @@
 use super::{FaultData, FaultFunctions, FaultType};
 use crate::simulation::cpu::{Cpu, ARM_REG};
 use crate::simulation::record::{FaultRecord, TraceRecord};
+use std::sync::Arc;
 
 const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 
@@ -16,8 +17,8 @@ pub struct Glitch {
 /// Implementation for Glitch fault
 impl Glitch {
     /// Create a new Glitch fault
-    pub fn new(number: usize) -> Box<Glitch> {
-        Box::new(Glitch { number })
+    pub fn new(number: usize) -> Arc<Glitch> {
+        Arc::new(Glitch { number })
     }
 
     /// Get the label of the fault
@@ -63,11 +64,6 @@ impl FaultFunctions for Glitch {
             record,
             fault: fault.clone(),
         });
-    }
-
-    /// Clone function for Boxed type
-    fn clone_new(&self) -> crate::prelude::FaultType {
-        Glitch::new(self.number)
     }
 
     /// Filtering of traces
