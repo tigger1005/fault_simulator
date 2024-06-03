@@ -1,10 +1,10 @@
 pub mod cpu;
-pub mod faults;
+pub mod fault_data;
 pub mod record;
 
 use crate::elf_file::ElfFile;
 use cpu::{Cpu, RunState};
-pub use faults::FaultData;
+use fault_data::FaultData;
 use log::info;
 use record::FaultRecord;
 pub use record::TraceRecord;

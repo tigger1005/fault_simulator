@@ -1,9 +1,13 @@
-use super::simulation::faults::*;
-use super::simulation::record::{FaultRecord, TraceRecord};
-use crate::simulation::{Control, Data, RunType};
-use crate::{disassembly::Disassembly, elf_file::ElfFile};
+pub mod faults;
 
+use super::simulation::{
+    fault_data::FaultData,
+    record::{FaultRecord, TraceRecord},
+    Control, Data, RunType,
+};
+use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use addr2line::gimli;
+use faults::*;
 use indicatif::ProgressBar;
 use itertools::iproduct;
 use log::debug;

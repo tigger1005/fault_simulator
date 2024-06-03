@@ -1,6 +1,9 @@
-use super::{FaultData, FaultFunctions, FaultType};
-use crate::simulation::cpu::{Cpu, ARM_REG};
-use crate::simulation::record::{FaultRecord, TraceRecord};
+use super::{FaultFunctions, FaultType};
+use crate::simulation::{
+    cpu::{Cpu, ARM_REG},
+    fault_data::FaultData,
+    record::{FaultRecord, TraceRecord},
+};
 use std::fmt::Debug;
 use std::sync::Arc;
 
