@@ -2,9 +2,9 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use fault_simulator::prelude::*;
 use std::env;
 
-fn criterion_benchmark(c: &mut Criterion) -> Result<(), String> {
+fn criterion_benchmark(c: &mut Criterion) {
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf"))?;
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Set threads to one because of current MacOS problems
     env::set_var("RAYON_NUM_THREADS", "1");
 
@@ -22,7 +22,6 @@ fn criterion_benchmark(c: &mut Criterion) -> Result<(), String> {
             let _ = attack.double(2000, false, false);
         })
     });
-    Ok(())
 }
 
 criterion_group!(benches, criterion_benchmark);
