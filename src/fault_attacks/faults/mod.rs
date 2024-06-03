@@ -15,7 +15,7 @@ pub trait FaultFunctions: Send + Sync + Debug {
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord);
     fn filter(&self, records: &mut Vec<TraceRecord>);
     fn try_from(&self, input: &str) -> Option<FaultType>;
-    fn get_list(&self) -> Vec<&str>;
+    fn get_list(&self) -> Vec<String>;
 }
 
 /// Type definition of fault injection data type
@@ -32,7 +32,7 @@ pub fn get_fault_from(input: &str) -> Result<FaultType, String> {
 }
 
 /// Get lists of all suggested faults
-pub fn get_fault_lists<'a>() -> Vec<Vec<&'a str>> {
+pub fn get_fault_lists() -> Vec<Vec<String>> {
     // Parse all fault types
     FAULTS.iter().map(|fault| fault.get_list()).collect()
 }

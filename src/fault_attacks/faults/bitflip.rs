@@ -42,7 +42,7 @@ impl FaultFunctions for BitFlip {
         None
     }
     /// Get the list of possible/good faults
-    fn get_list(&self) -> Vec<&str> {
+    fn get_list(&self) -> Vec<String> {
         vec![]
     }
 }
