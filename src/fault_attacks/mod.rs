@@ -1,9 +1,13 @@
-use super::simulation::faults::*;
-use super::simulation::record::{FaultRecord, TraceRecord};
-use crate::simulation::{Control, Data, RunType};
-use crate::{disassembly::Disassembly, elf_file::ElfFile};
+pub mod faults;
 
+use super::simulation::{
+    fault_data::FaultData,
+    record::{FaultRecord, TraceRecord},
+    Control, Data, RunType,
+};
+use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use addr2line::gimli;
+use faults::*;
 use indicatif::ProgressBar;
 use itertools::iproduct;
 use log::debug;
@@ -84,7 +88,7 @@ impl FaultAttacks {
         for list in lists {
             // Iterate over all faults in the list
             for fault in list {
-                let fault = get_fault_from(fault).unwrap();
+                let fault = get_fault_from(&fault).unwrap();
                 // Run simulation with fault
                 self.fault_data =
                     self.fault_simulation(cycles, &[fault.clone()], deep_analysis, prograss_bar)?;
@@ -111,12 +115,11 @@ impl FaultAttacks {
                                        // Iterate over all lists
         for list in lists {
             // Iterate over all faults in the list
-            let it: Vec<(&str, &str)> =
-                iproduct!(list.clone(), list).map(|(a, b)| (a, b)).collect();
+            let iter = iproduct!(list.clone(), list).map(|(a, b)| (a, b));
             // Iterate over all fault pairs
-            for t in it {
-                let fault1 = get_fault_from(t.0).unwrap();
-                let fault2 = get_fault_from(t.1).unwrap();
+            for t in iter {
+                let fault1 = get_fault_from(&t.0).unwrap();
+                let fault2 = get_fault_from(&t.1).unwrap();
 
                 self.fault_data =
                     self.fault_simulation(cycles, &[fault1, fault2], deep_analysis, prograss_bar)?;

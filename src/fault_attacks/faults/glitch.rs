@@ -1,6 +1,9 @@
-use super::{FaultData, FaultFunctions, FaultType};
-use crate::simulation::cpu::{Cpu, ARM_REG};
-use crate::simulation::record::{FaultRecord, TraceRecord};
+use super::{FaultFunctions, FaultType};
+use crate::simulation::{
+    cpu::{Cpu, ARM_REG},
+    fault_data::FaultData,
+    record::{FaultRecord, TraceRecord},
+};
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -89,18 +92,8 @@ impl FaultFunctions for Glitch {
         None
     }
     /// Get the list of possible/good faults
-    fn get_list(&self) -> Vec<&str> {
-        vec![
-            "glitch_1",
-            "glitch_2",
-            "glitch_3",
-            "glitch_4",
-            "glitch_5",
-            "glitch_6",
-            "glitch_7",
-            "glitch_8",
-            "glitch_9",
-            "glitch_10",
-        ]
+    fn get_list(&self) -> Vec<String> {
+        let list: Vec<String> = (1..=10).map(|index| format!("glitch_{}", index)).collect();
+        list
     }
 }

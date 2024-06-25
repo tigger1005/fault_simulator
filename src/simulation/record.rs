@@ -1,6 +1,5 @@
+use crate::fault_attacks::faults::FaultType;
 use std::hash::{Hash, Hasher};
-
-use super::faults::FaultType;
 
 #[derive(Clone, Debug)]
 /// Representation for a fault which shall be executed at step `index` of a simulation.

@@ -15,7 +15,7 @@ pub trait FaultFunctions: Send + Sync + Debug {
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord);
     fn filter(&self, records: &mut Vec<TraceRecord>);
     fn try_from(&self, input: &str) -> Option<FaultType>;
-    fn get_list(&self) -> Vec<&str>;
+    fn get_list(&self) -> Vec<String>;
 }
 
 /// Type definition of fault injection data type
@@ -32,28 +32,7 @@ pub fn get_fault_from(input: &str) -> Result<FaultType, String> {
 }
 
 /// Get lists of all suggested faults
-pub fn get_fault_lists<'a>() -> Vec<Vec<&'a str>> {
+pub fn get_fault_lists() -> Vec<Vec<String>> {
     // Parse all fault types
     FAULTS.iter().map(|fault| fault.get_list()).collect()
-}
-
-#[derive(Clone, Debug)]
-/// Representation of an fault which was executed in a simulation.
-pub struct FaultData {
-    /// The original instructions which would have been performed without the fault.
-    pub original_instructions: Vec<u8>,
-    /// The recorded execution trace of this fault.
-    pub record: TraceRecord,
-    /// FaultRecord which caused this FaultData to be simulated.
-    pub fault: FaultRecord,
-}
-
-impl FaultData {
-    /// Generate out of a FaultData array a FaultRecord array
-    pub fn get_simulation_fault_records(fault_data_records: &[FaultData]) -> Vec<FaultRecord> {
-        fault_data_records
-            .iter()
-            .map(|record| record.fault.clone())
-            .collect()
-    }
 }

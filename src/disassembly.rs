@@ -1,4 +1,4 @@
-use crate::simulation::{FaultData, TraceRecord};
+use crate::simulation::{fault_data::FaultData, record::TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
 

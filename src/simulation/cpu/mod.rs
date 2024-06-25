@@ -1,5 +1,8 @@
 use crate::elf_file::ElfFile;
-use crate::simulation::record::{FaultRecord, TraceRecord};
+use crate::simulation::{
+    fault_data::FaultData,
+    record::{FaultRecord, TraceRecord},
+};
 
 mod callback;
 
@@ -13,8 +16,6 @@ use unicorn_engine::{RegisterARM, Unicorn};
 
 use log::debug;
 use std::collections::HashSet;
-
-use super::faults::FaultData;
 
 // Constant variable definitions
 const STACK_BASE: u64 = 0x80100000;

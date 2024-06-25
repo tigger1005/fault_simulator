@@ -12,7 +12,8 @@ mod compile;
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
-/// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
+/// Command line parameter structure
+///
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -49,6 +50,8 @@ struct Args {
     elf: Option<PathBuf>,
 }
 
+/// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
+///
 fn main() -> Result<(), String> {
     // Get parameter from command line
     let args = Args::parse();

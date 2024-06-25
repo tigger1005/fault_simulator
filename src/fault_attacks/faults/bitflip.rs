@@ -1,6 +1,8 @@
 use super::{FaultFunctions, FaultType};
-use crate::simulation::cpu::Cpu;
-use crate::simulation::record::{FaultRecord, TraceRecord};
+use crate::simulation::{
+    cpu::Cpu,
+    record::{FaultRecord, TraceRecord},
+};
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -40,7 +42,7 @@ impl FaultFunctions for BitFlip {
         None
     }
     /// Get the list of possible/good faults
-    fn get_list(&self) -> Vec<&str> {
+    fn get_list(&self) -> Vec<String> {
         vec![]
     }
 }
