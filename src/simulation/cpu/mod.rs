@@ -317,6 +317,12 @@ impl<'a> Cpu<'a> {
         self.emu.reg_read(regid)
     }
 
+    /// Write register value
+    ///
+    pub fn register_write(&mut self, regid: RegisterARM, value: u64) -> Result<(), uc_error> {
+        self.emu.reg_write(regid, value)
+    }
+
     /// Read memory
     ///
     pub fn memory_read(&self, address: u64, buffer: &mut [u8]) -> Result<(), uc_error> {
