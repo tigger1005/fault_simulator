@@ -19,6 +19,15 @@ impl Disassembly {
         Self { cs }
     }
 
+    // Check if register is used in given instruction
+    pub fn check_for_register(&self, instruction: &[u8], addr: u64, register: u32) -> bool {
+        let inst = self.cs.disasm_count(instruction, addr, 1).unwrap();
+        inst[0]
+            .op_str()
+            .unwrap()
+            .contains(format!("r{}", register).as_str())
+    }
+
     fn disassembly_fault_data(
         &self,
         fault_data: &FaultData,

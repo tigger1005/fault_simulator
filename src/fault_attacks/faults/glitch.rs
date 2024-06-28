@@ -1,4 +1,4 @@
-use super::{FaultFunctions, FaultType};
+use super::{FaultFunctions, FaultType, Disassembly};
 use crate::simulation::{
     cpu::Cpu,
     fault_data::FaultData,
@@ -67,7 +67,7 @@ impl FaultFunctions for Glitch {
     }
 
     /// Filtering of traces
-    fn filter(&self, _records: &mut Vec<TraceRecord>) {}
+    fn filter(&self, _records: &mut Vec<TraceRecord>, _cs: &Disassembly) {}
 
     /// Try to parse a Glitch fault from a string
     fn try_from(&self, input: &str) -> Option<FaultType> {
