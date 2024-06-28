@@ -97,6 +97,9 @@ impl FaultAttacks {
                     break;
                 }
             }
+            if !self.fault_data.is_empty() {
+                break;
+            }
         }
         Ok((!self.fault_data.is_empty(), self.count_sum))
     }
@@ -127,6 +130,9 @@ impl FaultAttacks {
                 if !self.fault_data.is_empty() {
                     break;
                 }
+            }
+            if !self.fault_data.is_empty() {
+                break;
             }
         }
         Ok((!self.fault_data.is_empty(), self.count_sum))
