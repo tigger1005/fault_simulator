@@ -1,6 +1,6 @@
 use super::{FaultFunctions, FaultType};
 use crate::simulation::{
-    cpu::{Cpu, ARM_REG},
+    cpu::Cpu,
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
 };
@@ -52,11 +52,6 @@ impl FaultFunctions for Glitch {
         cpu.memory_read(address, &mut original_instructions)
             .unwrap();
 
-        // Read registers
-        let mut registers: [u32; 17] = [0; 17];
-        ARM_REG.iter().enumerate().for_each(|(index, register)| {
-            registers[index] = cpu.register_read(*register).unwrap() as u32;
-        });
         let record = TraceRecord::Fault {
             address,
             fault_type: format!("{:?}", self),
