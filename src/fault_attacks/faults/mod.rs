@@ -48,7 +48,7 @@ pub fn get_fault_lists(groups: Option<&&str>) -> Vec<Vec<String>> {
             .filter(|fault| {
                 // Get the first item of the list, get the attack name and check if it is in the list
                 let list = fault.get_list();
-                let item = list[0].split("_").collect::<Vec<&str>>();
+                let item = list[0].split('_').collect::<Vec<&str>>();
                 groups.contains(item[0])
             })
             .map(|fault| fault.get_list())

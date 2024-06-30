@@ -1,4 +1,4 @@
-use super::{FaultFunctions, FaultType, Disassembly};
+use super::{Disassembly, FaultFunctions, FaultType};
 use crate::simulation::{
     cpu::{Cpu, ARM_REG},
     fault_data::FaultData,
@@ -63,12 +63,18 @@ impl FaultFunctions for RegisterBitFlip {
         });
     }
 
-    /// Filtering of traces
+    /// Filtering of traces to reduce the number of traces to analyze
     fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly) {
         records.retain(|record| match record {
-            TraceRecord::Instruction { address, asm_instruction, .. } => {
-                cs.check_for_register(asm_instruction, *address, self.register as u32 - RegisterARM::R0 as u32)
-            }
+            TraceRecord::Instruction {
+                address,
+                asm_instruction,
+                ..
+            } => cs.check_for_register(
+                asm_instruction,
+                *address,
+                self.register as u32 - RegisterARM::R0 as u32,
+            ),
             _ => false,
         });
     }
@@ -84,9 +90,9 @@ impl FaultFunctions for RegisterBitFlip {
         // check if fault type is glitch
         if fault_type == "regbf" {
             // check if attribute is a register
-            if attribute_1.chars().next() == Some('r') {
+            if let Some(stripped) = attribute_1.strip_prefix('r') {
                 // check if attribute is a valid register
-                if let Ok(register) = attribute_1[1..].parse::<usize>() {
+                if let Ok(register) = stripped.parse::<usize>() {
                     // check if attribute is a valid value
                     if let Ok(xor_value) = u32::from_str_radix(attribute_2, 16) {
                         // return Glitch struct
