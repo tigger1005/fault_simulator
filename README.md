@@ -16,11 +16,30 @@ Assembler trace of attack number 1
 
 For fast reproduction of a successful attack, the faults can be setup with the --faults feature manualy.
 (E.g. "--faults glitch_1,glitch_10" - a double attack with 1 and 10 instruction glitches)
+Code examples for main.c are located at: "content\src\examples"
 
-Attack 'C' project is in the folder "content". Current compiler flags are set to:
 
-Code examples for main.c in content\src\examples
+## Implemented attacks:
+> 
+> ### Glitch
+> Insert a glitch to the program counter PC (1 to 10 assembler commands)
+> 
+> #### Syntax:
+> **glitch_1 .. glitch_10**
+> 
+> ### Register Bit Flip
+> Inserted a bit flip into a register. Registers from R0 to R12. 
+> The bit flip is inserted via a XOR operation with the given hexadecimal value. Currently only single bits could be changed
+> #### Syntax:
+> **regbf_r0_00000001 .. regbf_r12_800000000**
+>
 
+
+
+
+
+### Compiler flags are set to:
+The included main project is at the "content" folder.
 
 ```make
 TARGET = armv8-m.main
@@ -35,6 +54,7 @@ CFLAGS_LD = -N -Wl,--build-id=none -fPIC -fPIE -g -gdwarf -Os -Wno-unused-but-se
             -Wno-return-local-addr -fno-inline -fno-ipa-cp-clone \
             -fno-ipa-cp -nostartfiles -nodefaultlibs
 ```
+
 
 ## Setup / Requirements
 * Rust toolchain
@@ -59,14 +79,24 @@ To run the simulation use the command `cargo run` or `./target/debug/fault_simul
 Program parameters:
 
 ```
--t, --threads <THREADS>  Number of threads started in parallel [default: 1]
--n, --no-compilation     Suppress re-compilation of target program
-    --attack <ATTACK>    Attacks to be executed. Possible values are: all, single, double [default: all]
-    --faults <FAULTS>    Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1, glitch_10)
--a, --analysis           Activate trace analysis of picked fault
--d, --deep-analysis      Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
--m, --max_instructions   Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
--e, --elf <FILE>         Use external elf file w/o compilation step
--h, --help               Print help
--V, --version            Print version
+-t, --threads <THREADS>       Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage
+                              
+-n, --no-compilation          Suppress re-compilation of target program
+    --class <ATTACK>,<GROUPS> Attack class to be executed. Possible values are: all, single, double [default: all]
+                              GROUPS can be the names of the implemented attacks. E.g. **--class single,regbf** separated by ','
+    --faults <FAULTS>         Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1, glitch_10)
+                              Current implemented fault attacks: glitch_1 .. glitch_10, regbf_r0_00000001 .. regbf_r12_80000000
+-a, --analysis                Activate trace analysis of picked fault
+-d, --deep-analysis           Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
+-m, --max_instructions        Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
+-e, --elf <FILE>              Use external elf file w/o compilation step
+-h, --help                    Print help
+-V, --version                 Print version
+
+Command line examples:
+--class single
+--class single,glitch --analysis
+--class single,glitch,regbf --analysis
+--class single,regbf --elf tests/bin/victim_4.elf --analysis -t 0
+--faults regbf_r1_0100
 ```
