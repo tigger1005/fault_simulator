@@ -6,6 +6,12 @@ pub struct Disassembly {
     cs: Capstone,
 }
 
+impl Default for Disassembly {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Disassembly {
     pub fn new() -> Self {
         let cs = Capstone::new()
