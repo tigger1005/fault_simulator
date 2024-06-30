@@ -25,9 +25,9 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     no_compilation: bool,
 
-    /// Attacks to be executed. Possible values are: all, single, double, bit_flip
+    /// Attacks class to be executed. Possible values are: all, single, double
     #[arg(long, default_value_t = String::from("all"))]
-    attack: String,
+    class: String,
 
     /// Run a command line defined sequence of faults. Alternative to --attack
     #[arg(long, value_delimiter = ',')]
@@ -80,31 +80,51 @@ fn main() -> Result<(), String> {
     };
 
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(path)?;
+    let mut attack_sim = FaultAttacks::new(path)?;
 
     println!("Check for correct program behavior:");
     // Check for correct program behavior
-    attack.check_for_correct_behavior(args.max_instructions)?;
+    attack_sim.check_for_correct_behavior(args.max_instructions)?;
 
     println!("\nRun fault simulations:");
 
     // Run attack simulation
     if args.faults.is_empty() {
-        match args.attack.as_str() {
+        let class: Vec<&str> = args.class.splitn(2, ',').collect();
+        match class[0] {
             "all" => {
-                if !attack
-                    .single(args.max_instructions, args.deep_analysis, true)?
+                if !attack_sim
+                    .single(
+                        args.max_instructions,
+                        args.deep_analysis,
+                        true,
+                        class.get(1),
+                    )?
                     .0
                 {
-                    attack.double(args.max_instructions, args.deep_analysis, true)?;
+                    attack_sim.double(
+                        args.max_instructions,
+                        args.deep_analysis,
+                        true,
+                        class.get(1),
+                    )?;
                 }
-                //            attack.single_bit_flip();
             }
             "single" => {
-                attack.single(args.max_instructions, args.deep_analysis, true)?;
+                attack_sim.single(
+                    args.max_instructions,
+                    args.deep_analysis,
+                    true,
+                    class.get(1),
+                )?;
             }
             "double" => {
-                attack.double(args.max_instructions, args.deep_analysis, true)?;
+                attack_sim.double(
+                    args.max_instructions,
+                    args.deep_analysis,
+                    true,
+                    class.get(1),
+                )?;
             }
             _ => println!("No attack type selected!"),
         }
@@ -116,16 +136,20 @@ fn main() -> Result<(), String> {
             .filter_map(|argument| get_fault_from(argument).ok())
             .collect();
 
-        let result =
-            attack.fault_simulation(args.max_instructions, &faults, args.deep_analysis, true)?;
+        let result = attack_sim.fault_simulation(
+            args.max_instructions,
+            &faults,
+            args.deep_analysis,
+            true,
+        )?;
         // Save result to attack struct
-        attack.set_fault_data(result);
+        attack_sim.set_fault_data(result);
     }
 
-    let debug_context = attack.file_data.get_debug_context();
-    attack.print_fault_data(&debug_context);
+    let debug_context = attack_sim.file_data.get_debug_context();
+    attack_sim.print_fault_data(&debug_context);
 
-    println!("Overall tests executed {}", attack.count_sum);
+    println!("Overall tests executed {}", attack_sim.count_sum);
 
     if args.analysis {
         loop {
@@ -135,7 +159,7 @@ fn main() -> Result<(), String> {
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
                     if let Ok(number) = buffer.trim().parse::<usize>() {
-                        attack.print_trace_for_fault(args.max_instructions, number - 1)?;
+                        attack_sim.print_trace_for_fault(args.max_instructions, number - 1)?;
                         continue;
                     }
                 }

@@ -11,33 +11,33 @@ use std::sync::Arc;
 #[derive(Clone, Copy)]
 pub struct BitFlip {}
 
-/// Implementation for Glitch fault
-impl BitFlip {
-    /// Create a new Glitch fault
+impl Debug for Example {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Example()")
+    }
+}
+
+/// Implementation for Example fault
+impl Example {
+    /// Create a new Example fault
     pub fn new() -> Arc<Self> {
         Arc::new(Self {})
     }
 
     /// Get the label of the fault
     pub fn get_label(&self) -> String {
-        "BitFlip".to_string()
+        "Example".to_string()
     }
 }
 
-impl Debug for BitFlip {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BitFlip()")
-    }
-}
-
-impl FaultFunctions for BitFlip {
-    /// Execute a glitch skipping `n` instructions.
+impl FaultFunctions for Example {
+    /// Execute a Example skipping `n` instructions.
     fn execute(&self, _cpu: &mut Cpu, _fault: &FaultRecord) {}
 
-    /// Filtering of traces
+    /// Filtering of traces to reduce the number of traces to analyze
     fn filter(&self, _records: &mut Vec<TraceRecord>) {}
 
-    /// Try to parse a Glitch fault from a string
+    /// Try to parse a Example fault from a string
     fn try_from(&self, _input: &str) -> Option<FaultType> {
         None
     }

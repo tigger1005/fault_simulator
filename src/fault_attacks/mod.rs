@@ -82,12 +82,14 @@ impl FaultAttacks {
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
+        groups: Option<&&str>,
     ) -> Result<(bool, usize), String> {
-        let lists = get_fault_lists(); // Get all faults of all lists
-                                       // Iterate over all lists
+        let lists = get_fault_lists(groups); // Get all faults of all lists
+                                             // Iterate over all lists
         for list in lists {
             // Iterate over all faults in the list
             for fault in list {
+                // Get fault type
                 let fault = get_fault_from(&fault).unwrap();
                 // Run simulation with fault
                 self.fault_data =
@@ -96,6 +98,9 @@ impl FaultAttacks {
                 if !self.fault_data.is_empty() {
                     break;
                 }
+            }
+            if !self.fault_data.is_empty() {
+                break;
             }
         }
         Ok((!self.fault_data.is_empty(), self.count_sum))
@@ -110,9 +115,10 @@ impl FaultAttacks {
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
+        groups: Option<&&str>,
     ) -> Result<(bool, usize), String> {
-        let lists = get_fault_lists(); // Get all faults of all lists
-                                       // Iterate over all lists
+        let lists = get_fault_lists(groups); // Get all faults of all lists
+                                             // Iterate over all lists
         for list in lists {
             // Iterate over all faults in the list
             let iter = iproduct!(list.clone(), list).map(|(a, b)| (a, b));
@@ -127,6 +133,9 @@ impl FaultAttacks {
                 if !self.fault_data.is_empty() {
                     break;
                 }
+            }
+            if !self.fault_data.is_empty() {
+                break;
             }
         }
         Ok((!self.fault_data.is_empty(), self.count_sum))
@@ -167,10 +176,9 @@ impl FaultAttacks {
         // Split faults into first and remaining faults
         let (first_fault, remaining_faults) = faults.split_first().unwrap();
         // Filter records according to fault type
-        first_fault.filter(&mut records);
+        first_fault.filter(&mut records, &self.cs);
 
         // Run main fault simulation loop
-        let temp_file_data = &self.file_data;
         let n_result: Result<usize, String> = records
             .into_par_iter()
             .map_with(sender, |s, record| -> Result<usize, String> {
@@ -189,12 +197,13 @@ impl FaultAttacks {
 
                     // Call recursive fault simulation with first simulation fault record
                     number = Self::fault_simulation_inner(
-                        temp_file_data,
+                        &self.file_data,
                         cycles,
                         remaining_faults,
                         &simulation_fault_records,
                         deep_analysis,
                         s,
+                        &Disassembly::new(),
                     )?;
                 } else {
                     return Err("No instruction record found".to_string());
@@ -229,6 +238,7 @@ impl FaultAttacks {
         simulation_fault_records: &[FaultRecord],
         deep_analysis: bool,
         s: &mut Sender<Vec<FaultData>>,
+        cs: &Disassembly,
     ) -> Result<usize, String> {
         let mut n = 0;
 
@@ -250,7 +260,7 @@ impl FaultAttacks {
             // Split faults into first and remaining faults
             let (first_fault, remaining_faults) = faults.split_first().unwrap();
             // Filter records according to fault type
-            first_fault.filter(&mut records);
+            first_fault.filter(&mut records, cs);
             // Iterate over trace records
             for record in records {
                 // Get index of the record
@@ -271,6 +281,7 @@ impl FaultAttacks {
                         &index_simulation_fault_records,
                         deep_analysis,
                         s,
+                        cs,
                     )?;
                 }
             }

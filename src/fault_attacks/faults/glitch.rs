@@ -1,6 +1,6 @@
-use super::{FaultFunctions, FaultType};
+use super::{Disassembly, FaultFunctions, FaultType};
 use crate::simulation::{
-    cpu::{Cpu, ARM_REG},
+    cpu::Cpu,
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
 };
@@ -18,17 +18,17 @@ pub struct Glitch {
     pub number: usize,
 }
 
+impl Debug for Glitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Glitch (glitch_{})", self.number)
+    }
+}
+
 /// Implementation for Glitch fault
 impl Glitch {
     /// Create a new Glitch fault
     pub fn new(number: usize) -> Arc<Self> {
         Arc::new(Self { number })
-    }
-}
-
-impl Debug for Glitch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Glitch({})", self.number)
     }
 }
 
@@ -52,14 +52,9 @@ impl FaultFunctions for Glitch {
         cpu.memory_read(address, &mut original_instructions)
             .unwrap();
 
-        // Read registers
-        let mut registers: [u32; 17] = [0; 17];
-        ARM_REG.iter().enumerate().for_each(|(index, register)| {
-            registers[index] = cpu.register_read(*register).unwrap() as u32;
-        });
         let record = TraceRecord::Fault {
             address,
-            fault_type: format!("{:?}", self),
+            fault_type: format!("Glitch({})", self.number),
         };
         cpu.get_trace_data().push(record.clone());
 
@@ -71,8 +66,8 @@ impl FaultFunctions for Glitch {
         });
     }
 
-    /// Filtering of traces
-    fn filter(&self, _records: &mut Vec<TraceRecord>) {}
+    /// Filtering of traces to reduce the number of traces to analyze
+    fn filter(&self, _records: &mut Vec<TraceRecord>, _cs: &Disassembly) {}
 
     /// Try to parse a Glitch fault from a string
     fn try_from(&self, input: &str) -> Option<FaultType> {
