@@ -1,4 +1,4 @@
-use super::{FaultFunctions, FaultType, Disassembly};
+use super::{Disassembly, FaultFunctions, FaultType};
 use crate::simulation::{
     cpu::Cpu,
     fault_data::FaultData,
@@ -13,7 +13,7 @@ const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 /// number  Number of assembler instructions to advance program counter to simulate
 ///         glitching on internal cpu state machine
 ///
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Glitch {
     pub number: usize,
 }
@@ -23,12 +23,6 @@ impl Glitch {
     /// Create a new Glitch fault
     pub fn new(number: usize) -> Arc<Self> {
         Arc::new(Self { number })
-    }
-}
-
-impl Debug for Glitch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Glitch({})", self.number)
     }
 }
 
@@ -54,7 +48,7 @@ impl FaultFunctions for Glitch {
 
         let record = TraceRecord::Fault {
             address,
-            fault_type: format!("{:?}", self),
+            fault_type: format!("Glitch({})", self.number),
         };
         cpu.get_trace_data().push(record.clone());
 
@@ -66,7 +60,7 @@ impl FaultFunctions for Glitch {
         });
     }
 
-    /// Filtering of traces
+    /// Filtering of traces to reduce the number of traces to analyze
     fn filter(&self, _records: &mut Vec<TraceRecord>, _cs: &Disassembly) {}
 
     /// Try to parse a Glitch fault from a string

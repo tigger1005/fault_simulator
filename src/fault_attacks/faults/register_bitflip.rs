@@ -4,13 +4,13 @@ use crate::simulation::{
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
 };
-use std::fmt::Debug;
+
 use std::sync::Arc;
 use unicorn_engine::RegisterARM;
 
 /// Register BitFlip fault structure
 ///
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct RegisterBitFlip {
     pub register: RegisterARM,
     pub xor_value: u32,
@@ -27,25 +27,15 @@ impl RegisterBitFlip {
     }
 }
 
-impl Debug for RegisterBitFlip {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Register BitFlip (Reg: R{}, Value: {:08x})",
-            self.register as u32 - RegisterARM::R0 as u32,
-            self.xor_value
-        )
-    }
-}
-
 impl FaultFunctions for RegisterBitFlip {
     /// Execute a bit flip in the given register.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) {
         let address = cpu.get_program_counter();
 
         // Read and write changed register
-        let reg_val = cpu.register_read(self.register).unwrap() ^ self.xor_value as u64;
-        cpu.register_write(self.register, reg_val).unwrap();
+        let reg_val = cpu.register_read(self.register).unwrap();
+        cpu.register_write(self.register, reg_val ^ self.xor_value as u64)
+            .unwrap();
 
         // Read assembler line
         let mut original_instructions = vec![0; cpu.get_asm_cmd_size(address).unwrap()];
@@ -55,7 +45,13 @@ impl FaultFunctions for RegisterBitFlip {
 
         let record = TraceRecord::Fault {
             address,
-            fault_type: format!("{:?}", self),
+            fault_type: format!(
+                "Register BitFlip (Reg: R{}, Value: {:08x}) 0x{:08x} -> 0x{:08x}",
+                self.register as u32 - RegisterARM::R0 as u32,
+                self.xor_value,
+                reg_val,
+                reg_val ^ self.xor_value as u64
+            ),
         };
         cpu.get_trace_data().push(record.clone());
 
