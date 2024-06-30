@@ -82,12 +82,14 @@ impl FaultAttacks {
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
+        groups: Option<&&str>,
     ) -> Result<(bool, usize), String> {
-        let lists = get_fault_lists(); // Get all faults of all lists
-                                       // Iterate over all lists
+        let lists = get_fault_lists(groups); // Get all faults of all lists
+                                             // Iterate over all lists
         for list in lists {
             // Iterate over all faults in the list
             for fault in list {
+                // Get fault type
                 let fault = get_fault_from(&fault).unwrap();
                 // Run simulation with fault
                 self.fault_data =
@@ -113,9 +115,10 @@ impl FaultAttacks {
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
+        groups: Option<&&str>,
     ) -> Result<(bool, usize), String> {
-        let lists = get_fault_lists(); // Get all faults of all lists
-                                       // Iterate over all lists
+        let lists = get_fault_lists(groups); // Get all faults of all lists
+                                             // Iterate over all lists
         for list in lists {
             // Iterate over all faults in the list
             let iter = iproduct!(list.clone(), list).map(|(a, b)| (a, b));
