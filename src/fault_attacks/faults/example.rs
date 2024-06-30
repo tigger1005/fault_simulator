@@ -8,8 +8,14 @@ use std::sync::Arc;
 
 /// BitFlip fault structure
 ///
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct BitFlip {}
+
+impl Debug for Example {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Example()")
+    }
+}
 
 /// Implementation for Example fault
 impl Example {

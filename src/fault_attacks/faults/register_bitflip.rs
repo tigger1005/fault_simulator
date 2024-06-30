@@ -4,16 +4,27 @@ use crate::simulation::{
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
 };
-
+use std::fmt::Debug;
 use std::sync::Arc;
 use unicorn_engine::RegisterARM;
 
 /// Register BitFlip fault structure
 ///
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct RegisterBitFlip {
     pub register: RegisterARM,
     pub xor_value: u32,
+}
+
+impl Debug for RegisterBitFlip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Register BitFlip (regbf_r{}_{:08x})",
+            self.register as u32 - RegisterARM::R0 as u32,
+            self.xor_value
+        )
+    }
 }
 
 /// Implementation for Glitch fault

@@ -13,9 +13,15 @@ const T1_NOP: [u8; 4] = [0x00, 0xBF, 0x00, 0xBF];
 /// number  Number of assembler instructions to advance program counter to simulate
 ///         glitching on internal cpu state machine
 ///
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct Glitch {
     pub number: usize,
+}
+
+impl Debug for Glitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Glitch (glitch_{})", self.number)
+    }
 }
 
 /// Implementation for Glitch fault
