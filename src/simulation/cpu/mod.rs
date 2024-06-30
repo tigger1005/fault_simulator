@@ -8,7 +8,7 @@ mod callback;
 
 use callback::{
     hook_code_callback, hook_code_decision_activation_callback, mmio_auth_write_callback,
-    mmio_serial_write_callback, write_decision_element,
+    mmio_serial_write_callback,
 };
 use unicorn_engine::unicorn_const::uc_error;
 use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
@@ -123,9 +123,6 @@ impl<'a> Cpu<'a> {
             .expect("failed to write file data");
         // set initial program start address
         self.program_counter = self.emu.get_data().file_data.program_header.p_paddr;
-
-        // Write wrong flash data to DECISION_DATA stage memory
-        write_decision_element(&mut self.emu, false);
     }
 
     /// Function to deactivate printf of c program to
