@@ -25,7 +25,7 @@ impl Disassembly {
             .build()
             .expect("Failed to create Capstone object");
 
-        Self { cs }
+        Self { cs } // Define regex to extract register number from instruction
     }
 
     // Check if register is used in given instruction
@@ -37,6 +37,7 @@ impl Disassembly {
             .contains(format!("r{}", register).as_str())
     }
 
+    /// Disassemble fault data structure
     fn disassembly_fault_data(
         &self,
         fault_data: &FaultData,
@@ -68,88 +69,52 @@ impl Disassembly {
 
     /// Print trace_record of given trace_records vector
     pub fn disassembly_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
-        let mut pre_trace_record: Option<TraceRecord> = None;
-        let mut pre_register: Option<[u32; 17]> = None;
-
         let re = Regex::new(r"(r[0-9]+)").unwrap();
 
+        // Print trace records
         if let Some(trace_records) = trace_records {
-            trace_records.iter().for_each(|trace_record| {
+            let mut iter = trace_records.iter();
+            while let Some(trace_record) = iter.next() {
                 match trace_record {
-                    TraceRecord::Fault { .. } => (),
-                    TraceRecord::Instruction { registers, .. } => pre_register = *registers,
-                }
+                    TraceRecord::Instruction {
+                        address,
+                        asm_instruction,
+                        ..
+                    } => {
+                        //
+                        let insns_data = self
+                            .cs
+                            .disasm_count(asm_instruction, *address, 1)
+                            .expect("Failed to disassemble");
+                        let ins = &insns_data.as_ref()[0];
 
-                if pre_trace_record.is_some() {
-                    match pre_trace_record.as_ref().unwrap() {
-                        TraceRecord::Instruction {
-                            address,
-                            index: _,
-                            asm_instruction,
-                            ..
-                        } => {
-                            //
-                            let insns_data = self
-                                .cs
-                                .disasm_all(asm_instruction, *address)
-                                .expect("Failed to disassemble");
-                            for i in 0..insns_data.as_ref().len() {
-                                let ins = &insns_data.as_ref()[i];
-
-                                print!(
-                                    "0x{:X}:  {:6} {:40}     < ",
-                                    ins.address(),
-                                    ins.mnemonic().unwrap(),
-                                    ins.op_str().unwrap(),
-                                );
-
-                                // Print register and flags
-
-                                if pre_register.is_some() {
+                        // Print opcode
+                        print_opcode(ins);
+                        // Print register and flags get next trace record::Instruction
+                        let mut temp_iter = iter.clone();
+                        while let Some(next_trace_record) = temp_iter.next() {
+                            match next_trace_record {
+                                TraceRecord::Instruction { registers, .. } => {
                                     // Allways print CPU flags
-                                    let cpsr = pre_register.unwrap()[16];
-                                    let flag_n = (cpsr & 0x80000000) >> 31;
-                                    let flag_z = (cpsr & 0x40000000) >> 30;
-                                    let flag_c = (cpsr & 0x20000000) >> 29;
-                                    let flag_v = (cpsr & 0x10000000) >> 28;
-                                    print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
-                                    // Print used register values from opcode
-                                    for (_, [reg]) in
-                                        re.captures_iter(ins.op_str().unwrap()).map(|c| c.extract())
-                                    {
-                                        let reg_num: usize = reg[1..].parse().unwrap();
-                                        print!(
-                                            "R{}=0x{:08X} ",
-                                            reg_num,
-                                            pre_register.unwrap()[reg_num]
-                                        );
-                                    }
-                                    if ins.op_str().unwrap().contains("sp") {
-                                        print!("SP=0x{:08X} ", pre_register.unwrap()[13]);
-                                    }
-                                    if ins.op_str().unwrap().contains("lr") {
-                                        print!("LR=0x{:08X} ", pre_register.unwrap()[14]);
-                                    }
-                                    if ins.op_str().unwrap().contains("pc") {
-                                        print!("PC=0x{:08X} ", pre_register.unwrap()[15]);
-                                    }
+                                    print_flags_and_registers(&re, &registers.unwrap(), ins);
+                                    break;
                                 }
-
-                                println!(">");
+                                _ => {}
                             }
                         }
-                        TraceRecord::Fault {
-                            address: _,
-                            fault_type,
-                        } => {
-                            println!("-> {fault_type}")
-                        }
+
+                        println!(">");
+                    }
+                    TraceRecord::Fault {
+                        address: _,
+                        fault_type,
+                    } => {
+                        println!("-> {fault_type}")
                     }
                 };
-                pre_trace_record = Some(trace_record.clone())
-            });
-            println!("------------------------");
+            }
         }
+        println!("------------------------");
     }
 
     /// Print fault data of given fault_data_vec vector
@@ -194,5 +159,39 @@ impl Disassembly {
                 }
             }
         }
+    }
+}
+
+/// Print opcode of given instruction
+fn print_opcode(ins: &capstone::Insn) {
+    print!(
+        "0x{:X}:  {:6} {:40}     < ",
+        ins.address(),
+        ins.mnemonic().unwrap(),
+        ins.op_str().unwrap(),
+    );
+}
+
+/// Print registers and flags of given registers vector
+fn print_flags_and_registers(re: &Regex, registers: &[u32; 17], ins: &capstone::Insn) {
+    let cpsr = registers[16];
+    let flag_n = (cpsr & 0x80000000) >> 31;
+    let flag_z = (cpsr & 0x40000000) >> 30;
+    let flag_c = (cpsr & 0x20000000) >> 29;
+    let flag_v = (cpsr & 0x10000000) >> 28;
+    print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+    // Print used register values from opcode
+    for (_, [reg]) in re.captures_iter(ins.op_str().unwrap()).map(|c| c.extract()) {
+        let reg_num: usize = reg[1..].parse().unwrap();
+        print!("R{}=0x{:08X} ", reg_num, registers[reg_num]);
+    }
+    if ins.op_str().unwrap().contains("sp") {
+        print!("SP=0x{:08X} ", registers[13]);
+    }
+    if ins.op_str().unwrap().contains("lr") {
+        print!("LR=0x{:08X} ", registers[14]);
+    }
+    if ins.op_str().unwrap().contains("pc") {
+        print!("PC=0x{:08X} ", registers[15]);
     }
 }
