@@ -1,6 +1,9 @@
+use std::usize;
+
 use crate::simulation::{fault_data::FaultData, record::TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
+use regex::Regex;
 
 pub struct Disassembly {
     cs: Capstone,
@@ -65,61 +68,86 @@ impl Disassembly {
 
     /// Print trace_record of given trace_records vector
     pub fn disassembly_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
-        let mut pre_registers: Option<[u32; 17]> = None;
+        let mut pre_trace_record: Option<TraceRecord> = None;
+        let mut pre_register: Option<[u32; 17]> = None;
+
+        let re = Regex::new(r"(r[0-9]+)").unwrap();
 
         if let Some(trace_records) = trace_records {
-            trace_records
-                .iter()
-                .for_each(|trace_record| match trace_record {
-                    TraceRecord::Instruction {
-                        address,
-                        index: _,
-                        asm_instruction,
-                        registers,
-                    } => {
-                        let insns_data = self
-                            .cs
-                            .disasm_all(asm_instruction, *address)
-                            .expect("Failed to disassemble");
+            trace_records.iter().for_each(|trace_record| {
+                match trace_record {
+                    TraceRecord::Fault { .. } => (),
+                    TraceRecord::Instruction { registers, .. } => pre_register = *registers,
+                }
 
-                        for i in 0..insns_data.as_ref().len() {
-                            let ins = &insns_data.as_ref()[i];
+                if pre_trace_record.is_some() {
+                    match pre_trace_record.as_ref().unwrap() {
+                        TraceRecord::Instruction {
+                            address,
+                            index: _,
+                            asm_instruction,
+                            ..
+                        } => {
+                            //
+                            let insns_data = self
+                                .cs
+                                .disasm_all(asm_instruction, *address)
+                                .expect("Failed to disassemble");
+                            for i in 0..insns_data.as_ref().len() {
+                                let ins = &insns_data.as_ref()[i];
 
-                            print!(
-                                "0x{:X}:  {:6} {:40}     < ",
-                                ins.address(),
-                                ins.mnemonic().unwrap(),
-                                ins.op_str().unwrap(),
-                            );
-                            if let Some(registers) = registers {
-                                // Allways print CPU flags
-                                let cpsr = registers[16];
-                                let flag_n = (cpsr & 0x80000000) >> 31;
-                                let flag_z = (cpsr & 0x40000000) >> 30;
-                                let flag_c = (cpsr & 0x20000000) >> 29;
-                                let flag_v = (cpsr & 0x10000000) >> 28;
-                                print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
-                                // Print only changed register values
-                                if let Some(pre_registers) = pre_registers {
-                                    (0..15).for_each(|index| {
-                                        if pre_registers[index] != registers[index] {
-                                            print!("R{}=0x{:08X} ", index, registers[index]);
-                                        }
-                                    });
+                                print!(
+                                    "0x{:X}:  {:6} {:40}     < ",
+                                    ins.address(),
+                                    ins.mnemonic().unwrap(),
+                                    ins.op_str().unwrap(),
+                                );
+
+                                // Print register and flags
+
+                                if pre_register.is_some() {
+                                    // Allways print CPU flags
+                                    let cpsr = pre_register.unwrap()[16];
+                                    let flag_n = (cpsr & 0x80000000) >> 31;
+                                    let flag_z = (cpsr & 0x40000000) >> 30;
+                                    let flag_c = (cpsr & 0x20000000) >> 29;
+                                    let flag_v = (cpsr & 0x10000000) >> 28;
+                                    print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+                                    // Print used register values from opcode
+                                    for (_, [reg]) in
+                                        re.captures_iter(ins.op_str().unwrap()).map(|c| c.extract())
+                                    {
+                                        let reg_num: usize = reg[1..].parse().unwrap();
+                                        print!(
+                                            "R{}=0x{:08X} ",
+                                            reg_num,
+                                            pre_register.unwrap()[reg_num]
+                                        );
+                                    }
+                                    if ins.op_str().unwrap().contains("sp") {
+                                        print!("SP=0x{:08X} ", pre_register.unwrap()[13]);
+                                    }
+                                    if ins.op_str().unwrap().contains("lr") {
+                                        print!("LR=0x{:08X} ", pre_register.unwrap()[14]);
+                                    }
+                                    if ins.op_str().unwrap().contains("pc") {
+                                        print!("PC=0x{:08X} ", pre_register.unwrap()[15]);
+                                    }
                                 }
+
+                                println!(">");
                             }
-                            println!(">");
-                            // Remember register state
-                            pre_registers = *registers;
+                        }
+                        TraceRecord::Fault {
+                            address: _,
+                            fault_type,
+                        } => {
+                            println!("{:?}", fault_type)
                         }
                     }
-                    TraceRecord::Fault {
-                        address: _,
-                        fault_type,
-                    } => {
-                        println!("{:?}", fault_type)
-                    }
-                });
+                };
+                pre_trace_record = Some(trace_record.clone())
+            });
             println!("------------------------");
         }
     }

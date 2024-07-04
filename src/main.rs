@@ -154,6 +154,10 @@ fn main() -> Result<(), String> {
     if args.analysis {
         loop {
             {
+                if attack_sim.fault_data.is_empty() {
+                    println!("No successful attacks!");
+                    break;
+                }
                 print!("\nList trace for attack number : (Return for no list): ");
                 stdout().flush().unwrap();
                 let mut buffer = String::new();

@@ -17,7 +17,7 @@ use std::sync::mpsc::{channel, Sender};
 pub struct FaultAttacks {
     cs: Disassembly,
     pub file_data: ElfFile,
-    fault_data: Vec<Vec<FaultData>>,
+    pub fault_data: Vec<Vec<FaultData>>,
     pub count_sum: usize,
 }
 
