@@ -66,11 +66,11 @@ extern volatile unsigned char success_condition;
 
 #define __SET_SIM_SUCCESS()                                                    \
   do {                                                                         \
-    *((volatile unsigned int *)(0xAA01000)) = 0x1;                             \
+    *((volatile unsigned int *)(0xAA01000)) = 0x11111111;                      \
   } while (1);
 
-#define __SET_SIM_CONDITION_TRUE() success_condition = 0x01
-#define __SET_SIM_CONDITION_FALSE() success_condition = 0x02
+#define __SET_SIM_CONDITION_TRUE() success_condition = 0x11111111
+#define __SET_SIM_CONDITION_FALSE() success_condition = 0x22222222
 
 #define __SET_SIM_SUCCESS_WITH_CONDITION()                                     \
   do {                                                                         \
@@ -79,7 +79,7 @@ extern volatile unsigned char success_condition;
 
 #define __SET_SIM_FAILED()                                                     \
   do {                                                                         \
-    *((volatile unsigned int *)(0xAA01000)) = 0x2;                             \
+    *((volatile unsigned int *)(0xAA01000)) = 0x22222222;                      \
   } while (1);
 
 // ------------------------------------------------------------

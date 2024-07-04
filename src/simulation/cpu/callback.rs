@@ -16,11 +16,11 @@ pub fn mmio_auth_write_callback(
     value: i64,
 ) -> bool {
     match value {
-        1 => {
+        0x11111111 => {
             emu.get_data_mut().state = RunState::Success;
             debug!("Indicator: __SET_SIM_SUCCESS()")
         }
-        2 => {
+        0x22222222 => {
             emu.get_data_mut().state = RunState::Failed;
             debug!("Indicator: __SET_SIM_FAILED()")
         }
