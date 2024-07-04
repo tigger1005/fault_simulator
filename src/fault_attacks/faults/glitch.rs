@@ -54,7 +54,7 @@ impl FaultFunctions for Glitch {
 
         let record = TraceRecord::Fault {
             address,
-            fault_type: format!("Glitch({})", self.number),
+            fault_type: format!("Glitch ({} assembler instruction)", self.number,),
         };
         cpu.get_trace_data().push(record.clone());
 

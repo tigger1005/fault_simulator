@@ -142,7 +142,7 @@ impl Disassembly {
                             address: _,
                             fault_type,
                         } => {
-                            println!("{:?}", fault_type)
+                            println!("-> {fault_type}")
                         }
                     }
                 };
