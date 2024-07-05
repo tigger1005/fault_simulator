@@ -14,11 +14,9 @@ void start_success_handling(void);
 
 DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
 
-// Current trick to overtake compiler optimizations - unclear how long this works - 
-fih_uint volatile *get_address() {
-  return &decisiondata.data_element;
+fih_uint __attribute__((always_inline)) get_value(fih_uint t) {
+  return * (fih_uint volatile *)&t;
 }
-
 
 /*******************************************************************************
  * Function Name:  main
@@ -31,11 +29,8 @@ fih_uint volatile *get_address() {
 
   serial_puts("Some code 1...\n");
 
-  if (fih_uint_eq(DECISION_DATA, FIH_SUCCESS)) {
+  if (fih_uint_eq(get_value(decisiondata.data_element), FIH_SUCCESS)) {
     serial_puts("Verification positive path : OK\n");
-    if (!fih_uint_eq(DECISION_DATA, FIH_SUCCESS)) {
-      FIH_PANIC;
-    }
 
     start_success_handling();
   } else {
