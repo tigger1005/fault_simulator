@@ -48,6 +48,10 @@ struct Args {
     /// Load elf file w/o compilation step
     #[arg(short, long)]
     elf: Option<PathBuf>,
+
+    /// Trace failure run w/o fault injection for analysis
+    #[arg(long, default_value_t = false)]
+    trace: bool,
 }
 
 /// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
@@ -85,6 +89,12 @@ fn main() -> Result<(), String> {
     println!("Check for correct program behavior:");
     // Check for correct program behavior
     attack_sim.check_for_correct_behavior(args.max_instructions)?;
+
+    // Check if trace is selected
+    if args.trace {
+        attack_sim.print_trace(args.max_instructions)?;
+        return Ok(());
+    }
 
     println!("\nRun fault simulations:");
 

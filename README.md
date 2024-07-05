@@ -90,6 +90,7 @@ Program parameters:
 -d, --deep-analysis           Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
 -m, --max_instructions        Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
 -e, --elf <FILE>              Use external elf file w/o compilation step
+    --trace                   Trace and analyse program w/o fault injection
 -h, --help                    Print help
 -V, --version                 Print version
 
