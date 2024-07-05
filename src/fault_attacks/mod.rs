@@ -67,6 +67,21 @@ impl FaultAttacks {
         Ok(())
     }
 
+    pub fn print_trace(&self, cycles: usize) -> Result<(), String> {
+        // Run full trace
+        let trace_records = Some(trace_run(
+            &self.file_data,
+            cycles,
+            RunType::RecordFullTrace,
+            true,
+            &[],
+        )?);
+
+        self.cs.disassembly_trace_records(&trace_records);
+
+        Ok(())
+    }
+
     pub fn check_for_correct_behavior(&self, cycles: usize) -> Result<(), String> {
         // Get trace data from negative run
         let mut simulation = Control::new(&self.file_data);
