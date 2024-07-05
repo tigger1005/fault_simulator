@@ -1,5 +1,5 @@
 /**
- * @file main.c
+ * @file main_4.c
  * @author Roland Ebrecht
  * @brief 
  * @version 0.1
@@ -8,33 +8,17 @@
  */
 
 #include "common.h"
-#include "fih_mem.h"
 #include "utils.h"
 
 void start_success_handling(void);
 
-typedef struct {
-  uint8_t val[24];
-} data_el;
+DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
 
-#define SUCCESS_DATA                                                           \
-  {                                                                            \
-    {                                                                          \
-      0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,  \
-          0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,    \
-          0x18                                                                 \
-    }                                                                          \
-  }
-#define FAILED_DATA                                                            \
-  {                                                                            \
-    {                                                                          \
-      0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,  \
-          0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x14, 0x16, 0x17,    \
-          0x18                                                                 \
-    }                                                                          \
-  }
+// Current trick to overtake compiler optimizations - unclear how long this works - 
+fih_uint volatile *get_address() {
+  return &decisiondata.data_element;
+}
 
-DECISION_DATA_STRUCTURE(data_el, SUCCESS_DATA, FAILED_DATA);
 
 /*******************************************************************************
  * Function Name:  main
@@ -42,14 +26,16 @@ DECISION_DATA_STRUCTURE(data_el, SUCCESS_DATA, FAILED_DATA);
  * \brief This is the main function executed at start.
  *
  *******************************************************************************/
-int main() {
+ int main() {
   decision_activation();
 
-  int res = memcmp(&decisiondata.data_element, 
-                   &decisiondata.success_data_element, 
-                   decisiondata.decision_element_size);
-  if (res == 0) {
-    serial_puts("Verification positive path  : OK\n");
+  serial_puts("Some code 1...\n");
+
+  if (fih_uint_eq(DECISION_DATA, FIH_SUCCESS)) {
+    serial_puts("Verification positive path : OK\n");
+    if (!fih_uint_eq(DECISION_DATA, FIH_SUCCESS)) {
+      FIH_PANIC;
+    }
 
     start_success_handling();
   } else {
@@ -60,7 +46,7 @@ int main() {
 }
 
 /*******************************************************************************
- * Function Name:  launch_oem_ram_app
+ * Function Name:  start_success_handling
  *******************************************************************************
  * \brief This function launch CM33 OEM RAM App.
  *
@@ -68,13 +54,4 @@ int main() {
  * \param ram_app_start_addr    The start address of RAM App.
  *
  *******************************************************************************/
-void start_success_handling(void) {
-  int res = memcmp(&decisiondata.data_element, 
-                   &decisiondata.success_data_element, 
-                   decisiondata.decision_element_size);
-  if (res != 0)
-  {
-    __SET_SIM_FAILED();
-  }
-  __SET_SIM_SUCCESS(); 
-}
+void start_success_handling(void) { __SET_SIM_SUCCESS(); }
