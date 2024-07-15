@@ -62,7 +62,7 @@ extern fih_uint glob_cfi_counter;
 // Dummy functions
 extern void decision_activation(void);
 
-extern volatile unsigned char success_condition;
+extern volatile unsigned int success_condition;
 
 #define __SET_SIM_SUCCESS()                                                    \
   do {                                                                         \
