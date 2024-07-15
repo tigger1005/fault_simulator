@@ -14,8 +14,8 @@ void start_success_handling(void);
 
 DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
 
-fih_uint __attribute__((always_inline)) get_value(fih_uint t) {
-  return * (fih_uint volatile *)&t;
+__attribute__((noinline)) fih_uint get_value(fih_uint *t) {
+  return * t;
 }
 
 /*******************************************************************************
@@ -29,8 +29,11 @@ fih_uint __attribute__((always_inline)) get_value(fih_uint t) {
 
   serial_puts("Some code 1...\n");
 
-  if (fih_uint_eq(get_value(decisiondata.data_element), FIH_SUCCESS)) {
+  if (fih_uint_eq_new(get_value(&DECISION_DATA), FIH_SUCCESS)) {
     serial_puts("Verification positive path : OK\n");
+    
+    // Changed to "with_condition" because of linker problem
+    __SET_SIM_CONDITION_TRUE();
 
     start_success_handling();
   } else {
@@ -39,6 +42,7 @@ fih_uint __attribute__((always_inline)) get_value(fih_uint t) {
   }
   return 0;
 }
+
 
 /*******************************************************************************
  * Function Name:  start_success_handling
@@ -49,4 +53,6 @@ fih_uint __attribute__((always_inline)) get_value(fih_uint t) {
  * \param ram_app_start_addr    The start address of RAM App.
  *
  *******************************************************************************/
-void start_success_handling(void) { __SET_SIM_SUCCESS(); }
+void start_success_handling(void) { 
+    __SET_SIM_SUCCESS_WITH_CONDITION();
+}
