@@ -179,6 +179,15 @@ fih_uint fih_uint_encode(uint32_t x)
           ((x).val == FIH_UINT_VAL_MASK((y).msk))  \
         )
 
+#define fih_uint_eq_new(x, y)  \
+         (fih_uint_validate(x)  && \
+          ((x).val == (y).val) && \
+          fih_delay() && \
+          ((x).msk == (y).msk) && \
+          fih_delay() && \
+          ((y).val == FIH_UINT_VAL_MASK((x).msk))  \
+        )
+    
 /**
  * Standard non-equality for fih_uint values.
  *
