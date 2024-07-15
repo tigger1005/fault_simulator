@@ -88,7 +88,7 @@ impl FaultFunctions for Glitch {
     }
     /// Get the list of possible/good faults
     fn get_list(&self) -> Vec<String> {
-        let list: Vec<String> = (1..=10).map(|index| format!("glitch_{}", index)).collect();
+        let list: Vec<String> = (1..=8).map(|index| format!("glitch_{}", index)).collect();
         list
     }
 }
