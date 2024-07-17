@@ -93,6 +93,8 @@ impl Disassembly {
                         asm_instruction,
                         ..
                     } => {
+                        // Print source code line
+                        temp_string = self.print_debug_info(*address, debug_context, temp_string);
                         //
                         let insns_data = self
                             .cs
@@ -112,14 +114,15 @@ impl Disassembly {
                         }
 
                         println!(">");
-                        temp_string = self.print_debug_info(*address, debug_context, temp_string);
                     }
                     TraceRecord::Fault {
                         address,
                         fault_type,
                     } => {
-                        println!("-> \x1B[38;2;200;10;10m{fault_type}\x1B[0m");
+                        // Print source code line
                         temp_string = self.print_debug_info(*address, debug_context, temp_string);
+                        // Print fault type
+                        println!("-> \x1B[38;2;200;10;10m{fault_type}\x1B[0m");
                     }
                 };
             }
