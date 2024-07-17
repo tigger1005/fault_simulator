@@ -17,7 +17,7 @@ use std::sync::mpsc::{channel, Sender};
 pub struct FaultAttacks {
     cs: Disassembly,
     pub file_data: ElfFile,
-    fault_data: Vec<Vec<FaultData>>,
+    pub fault_data: Vec<Vec<FaultData>>,
     pub count_sum: usize,
 }
 
@@ -64,6 +64,21 @@ impl FaultAttacks {
 
             self.cs.disassembly_trace_records(&trace_records);
         }
+        Ok(())
+    }
+
+    pub fn print_trace(&self, cycles: usize) -> Result<(), String> {
+        // Run full trace
+        let trace_records = Some(trace_run(
+            &self.file_data,
+            cycles,
+            RunType::RecordFullTrace,
+            true,
+            &[],
+        )?);
+
+        self.cs.disassembly_trace_records(&trace_records);
+
         Ok(())
     }
 

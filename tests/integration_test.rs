@@ -19,7 +19,7 @@ fn run_single_glitch() {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
-        (false, 550),
+        (false, 440),
         attack.single(2000, false, false, Some(&"glitch")).unwrap()
     );
 }
@@ -33,16 +33,16 @@ fn run_double_glitch() {
     env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    // Result is (success: bool, number_of_attacks: usize)
+    // Result is (false: bool, number_of_attacks: usize)
     assert_eq!(
-        (true, 7360),
+        (false, 27880),
         attack.double(2000, false, false, Some(&"glitch")).unwrap()
     );
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
+    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
-        (false, 48970),
-        attack.double(2000, false, false, Some(&"glitch")).unwrap()
+        (true, 8688),
+        attack.double(2000, false, false, Some(&"regbf")).unwrap()
     );
 }
 
@@ -60,15 +60,15 @@ fn run_fault_simulation_one_glitch() {
         .fault_simulation(2000, &[Glitch::new(1)], false, false)
         .unwrap();
 
-    // Check if correct faults are found (at: 0x800004b6, 0x80000626)
+    // Check if correct faults are found (at: 0x800004b2, 0x8000062E)
     assert_eq!(2, result.len());
     // Check for correct faults
     assert!(result.iter().any(|fault_data| match fault_data[0].record {
-        TraceRecord::Fault { address, .. } => address == 0x800004b6,
+        TraceRecord::Fault { address, .. } => address == 0x800004b2,
         _ => false,
     }));
     assert!(result.iter().any(|fault_data| match fault_data[0].record {
-        TraceRecord::Fault { address, .. } => address == 0x80000626,
+        TraceRecord::Fault { address, .. } => address == 0x8000062E,
         _ => false,
     }));
 }
@@ -87,15 +87,15 @@ fn run_fault_simulation_two_glitches() {
         .unwrap();
 
     println!("Result: {:?}", result);
-    // Check if correct faults are found (at: 0x80000670, 0x8000069e)
+    // Check if correct faults are found (at: 0x80000678, 0x800006a8)
     assert_eq!(1, result.len());
     // Check for correct faults
     assert!(result[0].iter().any(|fault_data| match fault_data.record {
-        TraceRecord::Fault { address, .. } => address == 0x80000670,
+        TraceRecord::Fault { address, .. } => address == 0x80000678,
         _ => false,
     }));
     assert!(result[0].iter().any(|fault_data| match fault_data.record {
-        TraceRecord::Fault { address, .. } => address == 0x8000069e,
+        TraceRecord::Fault { address, .. } => address == 0x800006a8,
         _ => false,
     }));
 }

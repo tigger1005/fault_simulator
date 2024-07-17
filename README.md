@@ -8,10 +8,10 @@ Faults are introduces depending the predefined ranges or manualy. For the simula
 After finding a vulnerability the attack command sequence can be analysed with the '--analysis' command line parameter.
 ```ARM
 Assembler trace of attack number 1
-0x80000000:  bl     #0x80000614                                  < NZCV:0000 >
-0x80000614:  push   {r4, r5, r6, r7, lr}                         < NZCV:0000 R14=0x80000005 >
-0x80000616:  sub    sp, #0x24                                    < NZCV:0000 R13=0x8010FFE8 >
-0x80000618:  ldr    r5, [pc, #0xcc]                              < NZCV:0000 R13=0x8010FFC4 >
+0x80000000:  bl     #0x80000638                                  < NZCV:0000 >
+0x80000638:  push   {r4, r5, r7, lr}                             < NZCV:0000 R4=0x00000000 R5=0x00000000 R7=0x00000000 LR=0x80000005 >
+0x8000063A:  sub    sp, #0x20                                    < NZCV:0000 SP=0x8010FFCC >
+0x8000063C:  add    r7, sp, #0                                   < NZCV:0000 R7=0x8010FFCC SP=0x8010FFCC >
 ```
 
 For fast reproduction of a successful attack, the faults can be setup with the --faults feature manualy.
@@ -90,6 +90,7 @@ Program parameters:
 -d, --deep-analysis           Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
 -m, --max_instructions        Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
 -e, --elf <FILE>              Use external elf file w/o compilation step
+    --trace                   Trace and analyse program w/o fault injection
 -h, --help                    Print help
 -V, --version                 Print version
 
