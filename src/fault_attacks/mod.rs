@@ -6,7 +6,6 @@ use super::simulation::{
     Control, Data, RunType,
 };
 use crate::{disassembly::Disassembly, elf_file::ElfFile};
-use addr2line::gimli;
 use faults::*;
 use indicatif::ProgressBar;
 use itertools::iproduct;
@@ -37,13 +36,12 @@ impl FaultAttacks {
     pub fn set_fault_data(&mut self, fault_data: Vec<Vec<FaultData>>) {
         self.fault_data = fault_data;
     }
-    pub fn print_fault_data(
-        &self,
-        debug_context: &addr2line::Context<
-            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
-        >,
-    ) {
-        self.cs.print_fault_records(&self.fault_data, debug_context);
+
+    pub fn print_fault_data(&self) {
+        let debug_context = self.file_data.get_debug_context();
+
+        self.cs
+            .print_fault_records(&self.fault_data, &debug_context);
     }
 
     pub fn print_trace_for_fault(&self, cycles: usize, attack_number: usize) -> Result<(), String> {
@@ -62,7 +60,10 @@ impl FaultAttacks {
             // Print trace
             println!("\nAssembler trace of attack number {}", attack_number + 1);
 
-            self.cs.disassembly_trace_records(&trace_records);
+            let debug_context = self.file_data.get_debug_context();
+
+            self.cs
+                .disassembly_trace_records(&trace_records, &debug_context);
         }
         Ok(())
     }
@@ -77,7 +78,10 @@ impl FaultAttacks {
             &[],
         )?);
 
-        self.cs.disassembly_trace_records(&trace_records);
+        let debug_context = self.file_data.get_debug_context();
+
+        self.cs
+            .disassembly_trace_records(&trace_records, &debug_context);
 
         Ok(())
     }

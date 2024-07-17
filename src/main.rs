@@ -34,7 +34,7 @@ struct Args {
     faults: Vec<String>,
 
     /// Activate trace analysis of picked fault
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long, default_value_t = true)]
     analysis: bool,
 
     /// Switch on deep analysis scan. Repeated code (e.g. loops) are fully analysed
@@ -156,8 +156,8 @@ fn main() -> Result<(), String> {
         attack_sim.set_fault_data(result);
     }
 
-    let debug_context = attack_sim.file_data.get_debug_context();
-    attack_sim.print_fault_data(&debug_context);
+    // Pretty print fault data
+    attack_sim.print_fault_data();
 
     println!("Overall tests executed {}", attack_sim.count_sum);
 
