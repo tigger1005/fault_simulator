@@ -58,8 +58,11 @@ impl Disassembly {
             )
             .expect("Failed to disassemble");
 
+        let mut temp_line = "".to_string();
         for i in 0..insns_data.as_ref().len() {
             let ins = &insns_data.as_ref()[i];
+
+            temp_line = self.print_debug_info(ins.address(), debug_context, temp_line);
 
             println!(
                 "0x{:X}:  {} {} -> {:?}",
@@ -68,7 +71,6 @@ impl Disassembly {
                 ins.op_str().unwrap(),
                 fault_data.fault.fault_type
             );
-            self.print_debug_info(ins.address(), debug_context, "".to_string());
         }
     }
 
@@ -166,13 +168,16 @@ impl Disassembly {
                 if let Some(location) = frame.location {
                     match (location.file, location.line) {
                         (Some(file), Some(line_number)) => {
-                            // println!("\t\t{:?}:{:?}", file, line);
+                            let extension = Path::new(file).extension().unwrap().to_str().unwrap();
+                            if extension == "S" {
+                                continue;
+                            }
                             if let Ok(lines) = read_lines(file) {
                                 // Consumes the iterator, returns an (Optional) String
                                 if let Some(line) = lines.flatten().nth(line_number as usize - 1) {
                                     if comp_string != line {
                                         println!(
-                                            "\x1B[38;2;10;200;10m{:100}\x1B[0m     - {:?}:{:?}",
+                                            "\x1B[38;2;10;200;10m{:70}\x1B[0m     - {:?}:{:?}",
                                             line, file, line_number
                                         );
                                         temp_string = line.to_string();
