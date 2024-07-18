@@ -34,7 +34,7 @@ struct Args {
     faults: Vec<String>,
 
     /// Activate trace analysis of picked fault
-    #[arg(short, long, default_value_t = true)]
+    #[arg(short, long, default_value_t = false)]
     analysis: bool,
 
     /// Switch on deep analysis scan. Repeated code (e.g. loops) are fully analysed

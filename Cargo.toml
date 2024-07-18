@@ -36,3 +36,4 @@ clap = { version = "4.5.3", features = ["derive"] }
 mml = { git = 'https://github.com/adjivas/ml.git', branch = 'master' }
 addr2line = "0.21.0"
 regex = "1.10.5"
+colored = "2.1.0"

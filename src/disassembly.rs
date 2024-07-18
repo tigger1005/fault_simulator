@@ -8,6 +8,7 @@ use std::{
 use crate::simulation::{fault_data::FaultData, record::TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
+use colored::Colorize;
 use regex::Regex;
 
 pub struct Disassembly {
@@ -58,11 +59,8 @@ impl Disassembly {
             )
             .expect("Failed to disassemble");
 
-        let mut temp_line = "".to_string();
         for i in 0..insns_data.as_ref().len() {
             let ins = &insns_data.as_ref()[i];
-
-            temp_line = self.print_debug_info(ins.address(), debug_context, temp_line);
 
             println!(
                 "0x{:X}:  {} {} -> {:?}",
@@ -71,6 +69,7 @@ impl Disassembly {
                 ins.op_str().unwrap(),
                 fault_data.fault.fault_type
             );
+            self.print_debug_info(ins.address(), debug_context, false, "".to_string());
         }
     }
 
@@ -93,10 +92,13 @@ impl Disassembly {
                     TraceRecord::Instruction {
                         address,
                         asm_instruction,
+                        registers,
                         ..
                     } => {
+                        let old_registers = registers;
                         // Print source code line
-                        temp_string = self.print_debug_info(*address, debug_context, temp_string);
+                        temp_string =
+                            self.print_debug_info(*address, debug_context, true, temp_string);
                         //
                         let insns_data = self
                             .cs
@@ -110,7 +112,12 @@ impl Disassembly {
                         for next_trace_record in iter.clone() {
                             if let TraceRecord::Instruction { registers, .. } = next_trace_record {
                                 // Allways print CPU flags
-                                print_flags_and_registers(&re, &registers.unwrap(), ins);
+                                print_flags_and_registers(
+                                    &re,
+                                    &registers.unwrap(),
+                                    old_registers,
+                                    ins,
+                                );
                                 break;
                             }
                         }
@@ -122,9 +129,10 @@ impl Disassembly {
                         fault_type,
                     } => {
                         // Print source code line
-                        temp_string = self.print_debug_info(*address, debug_context, temp_string);
+                        temp_string =
+                            self.print_debug_info(*address, debug_context, true, temp_string);
                         // Print fault type
-                        println!("-> \x1B[38;2;200;10;10m{fault_type}\x1B[0m");
+                        println!("-> {}", fault_type.red().bold());
                     }
                 };
             }
@@ -159,6 +167,7 @@ impl Disassembly {
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,
+        code: bool,
         comp_string: String,
     ) -> String {
         let mut temp_string = comp_string.clone();
@@ -172,17 +181,25 @@ impl Disassembly {
                             if extension == "S" {
                                 continue;
                             }
-                            if let Ok(lines) = read_lines(file) {
-                                // Consumes the iterator, returns an (Optional) String
-                                if let Some(line) = lines.flatten().nth(line_number as usize - 1) {
-                                    if comp_string != line {
-                                        println!(
-                                            "\x1B[38;2;10;200;10m{:70}\x1B[0m     - {:?}:{:?}",
-                                            line, file, line_number
-                                        );
-                                        temp_string = line.to_string();
+                            if code {
+                                if let Ok(lines) = read_lines(file) {
+                                    // Consumes the iterator, returns an (Optional) String
+                                    if let Some(line) =
+                                        lines.flatten().nth(line_number as usize - 1)
+                                    {
+                                        if comp_string != line {
+                                            println!(
+                                                "{:70}     - {:?}:{:?}",
+                                                line.replace('\t', "  ").green(),
+                                                file,
+                                                line_number
+                                            );
+                                            temp_string = line.to_string();
+                                        }
                                     }
                                 }
+                            } else {
+                                println!("\t\t\t {:?}:{:?}", file, line_number);
                             }
                         }
 
@@ -206,27 +223,75 @@ fn print_opcode(ins: &capstone::Insn) {
     );
 }
 
+fn get_flags(value: u32) -> (bool, bool, bool, bool) {
+    let n = (value & 0x80000000) >> 31;
+    let z = (value & 0x40000000) >> 30;
+    let c = (value & 0x20000000) >> 29;
+    let v = (value & 0x10000000) >> 28;
+    (n == 1, z == 1, c == 1, v == 1)
+}
+
 /// Print registers and flags of given registers vector
-fn print_flags_and_registers(re: &Regex, registers: &[u32; 17], ins: &capstone::Insn) {
-    let cpsr = registers[16];
-    let flag_n = (cpsr & 0x80000000) >> 31;
-    let flag_z = (cpsr & 0x40000000) >> 30;
-    let flag_c = (cpsr & 0x20000000) >> 29;
-    let flag_v = (cpsr & 0x10000000) >> 28;
-    print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+fn print_flags_and_registers(
+    re: &Regex,
+    registers: &[u32; 17],
+    old_registers: &Option<[u32; 17]>,
+    ins: &capstone::Insn,
+) {
+    let (flag_n, flag_z, flag_c, flag_v) = get_flags(registers[16]);
+
+    if old_registers.is_some() {
+        let (old_flag_n, old_flag_z, old_flag_c, old_flag_v) =
+            get_flags(old_registers.unwrap()[16]);
+        print!(
+            "NZCV:{}{}{}{} ",
+            format_colored_flag(flag_n, old_flag_n),
+            format_colored_flag(flag_z, old_flag_z),
+            format_colored_flag(flag_c, old_flag_c),
+            format_colored_flag(flag_v, old_flag_v)
+        );
+    } else {
+        print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+    }
+
     // Print used register values from opcode
     for (_, [reg]) in re.captures_iter(ins.op_str().unwrap()).map(|c| c.extract()) {
         let reg_num: usize = reg[1..].parse().unwrap();
-        print!("R{}=0x{:08X} ", reg_num, registers[reg_num]);
+        if old_registers.is_some() && registers[reg_num] != old_registers.unwrap()[reg_num] {
+            let number: String = format!("0x{:08X}", registers[reg_num]);
+            print!("R{}={} ", reg_num, number.blue());
+        } else {
+            print!("R{}=0x{:08X} ", reg_num, registers[reg_num]);
+        }
     }
     if ins.op_str().unwrap().contains("sp") {
-        print!("SP=0x{:08X} ", registers[13]);
+        if old_registers.is_some() && registers[13] != old_registers.unwrap()[13] {
+            let number: String = format!("0x{:08X}", registers[13]);
+            print!("SP={} ", number.blue());
+        } else {
+            print!("SP=0x{:08X} ", registers[13]);
+        }
     }
     if ins.op_str().unwrap().contains("lr") {
-        print!("LR=0x{:08X} ", registers[14]);
+        if old_registers.is_some() && registers[14] != old_registers.unwrap()[14] {
+            let number: String = format!("0x{:08X}", registers[14]);
+            print!("LR={} ", number.blue());
+        } else {
+            print!("LR=0x{:08X} ", registers[14]);
+        }
     }
+    // PC allways change -> no coloring
     if ins.op_str().unwrap().contains("pc") {
         print!("PC=0x{:08X} ", registers[15]);
+    }
+}
+
+fn format_colored_flag(new_val: bool, old_val: bool) -> String {
+    let new_value = format!("{}", new_val as u8);
+    if new_val != old_val {
+        format!("{}", new_value.blue())
+    } else {
+        format!("{}", new_value)
     }
 }
 
