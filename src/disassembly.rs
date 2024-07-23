@@ -1,8 +1,14 @@
-use std::usize;
+use std::{
+    fs::File,
+    io::{self, BufRead},
+    path::Path,
+    usize,
+};
 
 use crate::simulation::{fault_data::FaultData, record::TraceRecord};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
+use colored::Colorize;
 use regex::Regex;
 
 pub struct Disassembly {
@@ -63,13 +69,20 @@ impl Disassembly {
                 ins.op_str().unwrap(),
                 fault_data.fault.fault_type
             );
-            self.print_debug_info(ins.address(), debug_context);
+            self.print_debug_info(ins.address(), debug_context, false, "".to_string());
         }
     }
 
     /// Print trace_record of given trace_records vector
-    pub fn disassembly_trace_records(&self, trace_records: &Option<Vec<TraceRecord>>) {
+    pub fn disassembly_trace_records(
+        &self,
+        trace_records: &Option<Vec<TraceRecord>>,
+        debug_context: &addr2line::Context<
+            gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
+        >,
+    ) {
         let re = Regex::new(r"(r[0-9]+)").unwrap();
+        let mut temp_string = "".to_string();
 
         // Print trace records
         if let Some(trace_records) = trace_records {
@@ -79,8 +92,13 @@ impl Disassembly {
                     TraceRecord::Instruction {
                         address,
                         asm_instruction,
+                        registers,
                         ..
                     } => {
+                        let old_registers = registers;
+                        // Print source code line
+                        temp_string =
+                            self.print_debug_info(*address, debug_context, true, temp_string);
                         //
                         let insns_data = self
                             .cs
@@ -91,25 +109,30 @@ impl Disassembly {
                         // Print opcode
                         print_opcode(ins);
                         // Print register and flags get next trace record::Instruction
-                        let mut temp_iter = iter.clone();
-                        while let Some(next_trace_record) = temp_iter.next() {
-                            match next_trace_record {
-                                TraceRecord::Instruction { registers, .. } => {
-                                    // Allways print CPU flags
-                                    print_flags_and_registers(&re, &registers.unwrap(), ins);
-                                    break;
-                                }
-                                _ => {}
+                        for next_trace_record in iter.clone() {
+                            if let TraceRecord::Instruction { registers, .. } = next_trace_record {
+                                // Allways print CPU flags
+                                print_flags_and_registers(
+                                    &re,
+                                    &registers.unwrap(),
+                                    old_registers,
+                                    ins,
+                                );
+                                break;
                             }
                         }
 
                         println!(">");
                     }
                     TraceRecord::Fault {
-                        address: _,
+                        address,
                         fault_type,
                     } => {
-                        println!("-> {fault_type}")
+                        // Print source code line
+                        temp_string =
+                            self.print_debug_info(*address, debug_context, true, temp_string);
+                        // Print fault type
+                        println!("-> {}", fault_type.red().bold());
                     }
                 };
             }
@@ -144,13 +167,40 @@ impl Disassembly {
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,
-    ) {
+        code: bool,
+        comp_string: String,
+    ) -> String {
+        let mut temp_string = comp_string.clone();
+
         if let Ok(frames) = debug_context.find_frames(address).skip_all_loads() {
             for frame in frames.iterator().flatten() {
                 if let Some(location) = frame.location {
                     match (location.file, location.line) {
-                        (Some(file), Some(line)) => {
-                            println!("\t\t{:?}:{:?}", file, line)
+                        (Some(file), Some(line_number)) => {
+                            let extension = Path::new(file).extension().unwrap().to_str().unwrap();
+                            if extension == "S" {
+                                continue;
+                            }
+                            if code {
+                                if let Ok(lines) = read_lines(file) {
+                                    // Consumes the iterator, returns an (Optional) String
+                                    if let Some(line) =
+                                        lines.flatten().nth(line_number as usize - 1)
+                                    {
+                                        if comp_string != line {
+                                            println!(
+                                                "{:70}     - {:?}:{:?}",
+                                                line.replace('\t', "  ").green(),
+                                                file,
+                                                line_number
+                                            );
+                                            temp_string = line.to_string();
+                                        }
+                                    }
+                                }
+                            } else {
+                                println!("\t\t\t {:?}:{:?}", file, line_number);
+                            }
                         }
 
                         (Some(file), None) => println!("\t\t{:?}", file),
@@ -159,6 +209,7 @@ impl Disassembly {
                 }
             }
         }
+        temp_string
     }
 }
 
@@ -172,26 +223,84 @@ fn print_opcode(ins: &capstone::Insn) {
     );
 }
 
+fn get_flags(value: u32) -> (bool, bool, bool, bool) {
+    let n = (value & 0x80000000) >> 31;
+    let z = (value & 0x40000000) >> 30;
+    let c = (value & 0x20000000) >> 29;
+    let v = (value & 0x10000000) >> 28;
+    (n == 1, z == 1, c == 1, v == 1)
+}
+
 /// Print registers and flags of given registers vector
-fn print_flags_and_registers(re: &Regex, registers: &[u32; 17], ins: &capstone::Insn) {
-    let cpsr = registers[16];
-    let flag_n = (cpsr & 0x80000000) >> 31;
-    let flag_z = (cpsr & 0x40000000) >> 30;
-    let flag_c = (cpsr & 0x20000000) >> 29;
-    let flag_v = (cpsr & 0x10000000) >> 28;
-    print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+fn print_flags_and_registers(
+    re: &Regex,
+    registers: &[u32; 17],
+    old_registers: &Option<[u32; 17]>,
+    ins: &capstone::Insn,
+) {
+    let (flag_n, flag_z, flag_c, flag_v) = get_flags(registers[16]);
+
+    if old_registers.is_some() {
+        let (old_flag_n, old_flag_z, old_flag_c, old_flag_v) =
+            get_flags(old_registers.unwrap()[16]);
+        print!(
+            "NZCV:{}{}{}{} ",
+            format_colored_flag(flag_n, old_flag_n),
+            format_colored_flag(flag_z, old_flag_z),
+            format_colored_flag(flag_c, old_flag_c),
+            format_colored_flag(flag_v, old_flag_v)
+        );
+    } else {
+        print!("NZCV:{}{}{}{} ", flag_n, flag_z, flag_c, flag_v);
+    }
+
     // Print used register values from opcode
     for (_, [reg]) in re.captures_iter(ins.op_str().unwrap()).map(|c| c.extract()) {
         let reg_num: usize = reg[1..].parse().unwrap();
-        print!("R{}=0x{:08X} ", reg_num, registers[reg_num]);
+        if old_registers.is_some() && registers[reg_num] != old_registers.unwrap()[reg_num] {
+            let number: String = format!("0x{:08X}", registers[reg_num]);
+            print!("R{}={} ", reg_num, number.blue());
+        } else {
+            print!("R{}=0x{:08X} ", reg_num, registers[reg_num]);
+        }
     }
     if ins.op_str().unwrap().contains("sp") {
-        print!("SP=0x{:08X} ", registers[13]);
+        if old_registers.is_some() && registers[13] != old_registers.unwrap()[13] {
+            let number: String = format!("0x{:08X}", registers[13]);
+            print!("SP={} ", number.blue());
+        } else {
+            print!("SP=0x{:08X} ", registers[13]);
+        }
     }
     if ins.op_str().unwrap().contains("lr") {
-        print!("LR=0x{:08X} ", registers[14]);
+        if old_registers.is_some() && registers[14] != old_registers.unwrap()[14] {
+            let number: String = format!("0x{:08X}", registers[14]);
+            print!("LR={} ", number.blue());
+        } else {
+            print!("LR=0x{:08X} ", registers[14]);
+        }
     }
+    // PC allways change -> no coloring
     if ins.op_str().unwrap().contains("pc") {
         print!("PC=0x{:08X} ", registers[15]);
     }
+}
+
+fn format_colored_flag(new_val: bool, old_val: bool) -> String {
+    let new_value = format!("{}", new_val as u8);
+    if new_val != old_val {
+        new_value.blue().to_string()
+    } else {
+        new_value.to_string()
+    }
+}
+
+// The output is wrapped in a Result to allow matching on errors.
+// Returns an Iterator to the Reader of the lines of the file.
+fn read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
+where
+    P: AsRef<Path>,
+{
+    let file = File::open(filename)?;
+    Ok(io::BufReader::new(file).lines())
 }

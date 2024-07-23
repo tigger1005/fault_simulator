@@ -4,17 +4,24 @@ use std::{fmt::Debug, sync::Arc};
 
 pub mod glitch;
 pub mod register_bitflip;
+pub mod register_flood;
 
 pub use glitch::Glitch;
 pub use register_bitflip::RegisterBitFlip;
+pub use register_flood::RegisterFlood;
+
 use unicorn_engine::RegisterARM;
 
 /// List of all possible faults
-const FAULTS: [&dyn FaultFunctions; 2] = [
+const FAULTS: [&dyn FaultFunctions; 3] = [
     &Glitch { number: 1 },
     &RegisterBitFlip {
         register: RegisterARM::R0,
         xor_value: 0x01,
+    },
+    &RegisterFlood {
+        register: RegisterARM::R0,
+        value: 0x00,
     },
 ];
 
