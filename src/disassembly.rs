@@ -289,9 +289,9 @@ fn print_flags_and_registers(
 fn format_colored_flag(new_val: bool, old_val: bool) -> String {
     let new_value = format!("{}", new_val as u8);
     if new_val != old_val {
-        format!("{}", new_value.blue())
+        new_value.blue().to_string()
     } else {
-        format!("{}", new_value)
+        new_value.to_string()
     }
 }
 
