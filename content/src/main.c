@@ -56,6 +56,8 @@ int main() {
     serial_puts("Verification negative path : OK\n");
     __SET_SIM_FAILED();
   }
+
+  FIH_PANIC;
   return 0;
 }
 
