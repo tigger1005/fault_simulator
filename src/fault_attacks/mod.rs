@@ -11,7 +11,10 @@ use indicatif::ProgressBar;
 use itertools::iproduct;
 use log::debug;
 use rayon::prelude::*;
-use std::sync::mpsc::{channel, Sender};
+use std::{
+    slice::Iter,
+    sync::mpsc::{channel, Sender},
+};
 
 pub struct FaultAttacks {
     cs: Disassembly,
@@ -101,7 +104,7 @@ impl FaultAttacks {
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
-        groups: Option<&&str>,
+        groups: &mut Iter<String>,
     ) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
                                              // Iterate over all lists
@@ -134,7 +137,7 @@ impl FaultAttacks {
         cycles: usize,
         deep_analysis: bool,
         prograss_bar: bool,
-        groups: Option<&&str>,
+        groups: &mut Iter<String>,
     ) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
                                              // Iterate over all lists

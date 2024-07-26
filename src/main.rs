@@ -26,11 +26,11 @@ struct Args {
     no_compilation: bool,
 
     /// Attacks class to be executed. Possible values are: all, single, double
-    #[arg(long, default_value_t = String::from("all"))]
-    class: String,
+    #[arg(long,  value_delimiter = ' ', num_args = 1..)]
+    class: Vec<String>,
 
     /// Run a command line defined sequence of faults. Alternative to --attack
-    #[arg(long, value_delimiter = ',')]
+    #[arg(long, value_delimiter = ' ', num_args = 1..)]
     faults: Vec<String>,
 
     /// Activate trace analysis of picked fault
@@ -100,43 +100,28 @@ fn main() -> Result<(), String> {
 
     // Run attack simulation
     if args.faults.is_empty() {
-        let class: Vec<&str> = args.class.splitn(2, ',').collect();
-        match class[0] {
-            "all" => {
+        let mut class = args.class.iter();
+        match class.next().as_ref().map(|s| s.as_str()) {
+            Some("all") | None => {
                 if !attack_sim
-                    .single(
-                        args.max_instructions,
-                        args.deep_analysis,
-                        true,
-                        class.get(1),
-                    )?
+                    .single(args.max_instructions, args.deep_analysis, true, &mut class)?
                     .0
                 {
                     attack_sim.double(
                         args.max_instructions,
                         args.deep_analysis,
                         true,
-                        class.get(1),
+                        &mut class,
                     )?;
                 }
             }
-            "single" => {
-                attack_sim.single(
-                    args.max_instructions,
-                    args.deep_analysis,
-                    true,
-                    class.get(1),
-                )?;
+            Some("single") => {
+                attack_sim.single(args.max_instructions, args.deep_analysis, true, &mut class)?;
             }
-            "double" => {
-                attack_sim.double(
-                    args.max_instructions,
-                    args.deep_analysis,
-                    true,
-                    class.get(1),
-                )?;
+            Some("double") => {
+                attack_sim.double(args.max_instructions, args.deep_analysis, true, &mut class)?;
             }
-            _ => println!("No attack type selected!"),
+            _ => println!("Unknown attack class!"),
         }
     } else {
         // Get fault type and numbers

@@ -113,8 +113,8 @@ Program parameters:
 
 Command line examples:
 --class single
---class single,glitch --analysis
---class single,glitch,regbf --analysis
---class single,regbf --elf tests/bin/victim_4.elf --analysis -t 0
---faults regbf_r1_0100
+--class single glitch --analysis
+--class single glitch regbf --analysis
+--class single regbf --elf tests/bin/victim_4.elf --analysis -t 0
+--faults regbf_r1_0100 glitch_1
 ```
