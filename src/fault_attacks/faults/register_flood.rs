@@ -96,7 +96,7 @@ impl FaultFunctions for RegisterFlood {
         let attribute_1 = collect.get(1).copied()?;
         let attribute_2 = collect.get(2).copied()?;
         // check if fault type is glitch
-        if fault_type == "regflood" {
+        if fault_type == "regfld" {
             // check if attribute is a register
             if let Some(stripped) = attribute_1.strip_prefix('r') {
                 // check if attribute is a valid register
@@ -117,8 +117,8 @@ impl FaultFunctions for RegisterFlood {
         // Generate a list of all possible register bitflips
         // Values will look like: regbf_r0_000000000, regbf_r0_FFFFFFFF, ...
         for reg in 0..=12 {
-            list.push(format!("regflood_r{}_{:08x}", reg, 0));
-            list.push(format!("regflood_r{}_{:08x}", reg, 0xFFFFFFFFu32));
+            list.push(format!("regfld_r{}_{:08x}", reg, 0));
+            list.push(format!("regfld_r{}_{:08x}", reg, 0xFFFFFFFFu32));
         }
         list
     }

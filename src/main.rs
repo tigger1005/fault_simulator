@@ -25,11 +25,11 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     no_compilation: bool,
 
-    /// Attacks class to be executed. Possible values are: all, single, double
+    /// Attacks class to be executed: --class [all, single, double] [optional: attack_name] E.g.: --class single glitch
     #[arg(long,  value_delimiter = ' ', num_args = 1..)]
     class: Vec<String>,
 
-    /// Run a command line defined sequence of faults. Alternative to --attack
+    /// Run a command line defined sequence of faults. --faults [specific_attack] [optional: specific_attack2 specific_attack3 ...] E.g.: --faults regbf_r1_0100 glitch_1
     #[arg(long, value_delimiter = ' ', num_args = 1..)]
     faults: Vec<String>,
 

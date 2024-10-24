@@ -42,6 +42,7 @@ fn run_double_glitch() {
     );
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
+    let vec = vec!["regbf".to_string()];
     assert_eq!(
         (true, 8688),
         attack.double(2000, false, false, &mut vec.iter()).unwrap()
