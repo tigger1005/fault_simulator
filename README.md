@@ -3,7 +3,7 @@
 This project is used as a tool to simulate fault attacks to ARM-M processors (Thumb mode).
 It includes a C project in the "content" folder which is loaded into the simulation.
 Faults are introduces depending the predefined ranges or manualy. For the simulated attacks "all", "single" and "double", all implemented faults are executed till one leads to an successful attack.
-(e.g. "--attack double")
+(e.g. "--class double")
 
 After finding a vulnerability the attack command sequence can be analysed with the '--analysis' command line parameter.
 ```ARM
@@ -24,7 +24,8 @@ __attribute__((used, noinline)) void decision_activation(void) {}          - "/h
 0x8000062C:  ldr    r1, [pc, #0x24]                              < NZCV:0000 R1=0x800006D4 PC=0x8000062E >
 0x8000062E:  adds   r0, r1, #4                                   < NZCV:1000 R0=0x800006D8 R1=0x800006D4 >
 -> Glitch (1 assembler instruction)
-0x80000634:  bl     #0x800004a0                                  < NZCV:1000 >```
+0x80000634:  bl     #0x800004a0                                  < NZCV:1000 >
+```
 
 For fast reproduction of a successful attack, the faults can be setup with the --faults feature manualy.
 (E.g. "--faults glitch_1,glitch_10" - a double attack with 1 and 10 instruction glitches)
@@ -33,22 +34,25 @@ Code examples for main.c are located at: "content\src\examples"
 
 ## Implemented attacks:
 > 
-> ### Glitch
+> ### Glitch 
 > Insert a glitch to the program counter PC (1 to 10 assembler commands)
 > 
 > #### Syntax:
-> **glitch_1 .. glitch_10**
+> - Attack name: **glitch**
+> - Specific attack: **glitch_1 .. glitch_10**
 > 
-> ### Register Bit Flip
+> ### Register Bit Flip 
 > Inserted a bit flip into a register. Registers from R0 to R12. 
 > The bit flip is inserted via a XOR operation with the given hexadecimal value. Currently only single bits could be changed
 > #### Syntax:
-> **regbf_r0_00000001 .. regbf_r12_800000000**
+> - Attack name: **regbf**
+> - Specific attack: **regbf_r0_00000001 .. regbf_r12_800000000**
 >
-> ### Register Flood
+> ### Register Flood 
 > The selected register is set or cleared (0x00000000 / 0xFFFFFFFF), to simulate a complete set or clear of e.g. laser attack
 > #### Syntax:
-> **regflood_r0_00000000 or regflood_r0_FFFFFFFF** 
+> - Attack name: **regfld**
+> - Specific attack: **regflood_r0_00000000 or regflood_r0_FFFFFFFF** 
 >
 
 
@@ -99,10 +103,12 @@ Program parameters:
                               
 -n, --no-compilation          Suppress re-compilation of target program
     --class <ATTACK>,<GROUPS> Attack class to be executed. Possible values are: all, single, double [default: all]
-                              GROUPS can be the names of the implemented attacks. E.g. **--class single,regbf** separated by ','
-    --faults <FAULTS>         Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1, glitch_10)
-                              Current implemented fault attacks: glitch_1 .. glitch_10, regbf_r0_00000001 .. regbf_r12_80000000,
-                              regflood_r0_00000000 or regflood_r0_FFFFFFFF 
+                              GROUPS can be the names of the implemented attacks. E.g. --class single,regbf separated by ' '
+    --faults <FAULTS>         Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1 glitch_10)
+                              Current implemented fault attacks: 
+                                 glitch_1 .. glitch_10
+                                 regbf_r0_00000001 .. regbf_r12_80000000
+                                 regfld_r0_00000000 or regfld_r0_FFFFFFFF 
 -a, --analysis                Activate trace analysis of picked fault
 -d, --deep-analysis           Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
 -m, --max_instructions        Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
@@ -113,8 +119,8 @@ Program parameters:
 
 Command line examples:
 --class single
---class single,glitch --analysis
---class single,glitch,regbf --analysis
---class single,regbf --elf tests/bin/victim_4.elf --analysis -t 0
---faults regbf_r1_0100
+--class single glitch --analysis
+--class single glitch regbf --analysis
+--class single regbf --elf tests/bin/victim_4.elf --analysis -t 0
+--faults regbf_r1_0100 glitch_1
 ```

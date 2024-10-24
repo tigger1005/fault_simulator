@@ -42,14 +42,16 @@ int main() {
 
   if (DECISION_DATA == success) {
     serial_puts("Verification positive path  : OK\n");
-    if (DECISION_DATA != success || DECISION_DATA == failure) {
-      FIH_PANIC;
-    }
+    // if (DECISION_DATA != success || DECISION_DATA == failure) {
+    //   FIH_PANIC;
+    // }
 
     start_success_handling();
   } else {
     serial_puts("Verification negative path : OK\n");
-    FIH_PANIC;
+    __SET_SIM_FAILED();
   }
+
+  FIH_PANIC;
   return 0;
 }
