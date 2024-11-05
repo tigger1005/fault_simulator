@@ -8,14 +8,14 @@
 
 // ------------------------------------------------------------
 // Framework defines and macros definitions
-#define DECISION_DATA_STRUCTURE(element_type, success, failure) \
-typedef struct __attribute__((packed)) { \
-  uint32_t  decision_element_size; \
-  element_type data_element; \
-  element_type success_data_element; \
-  element_type failure_data_element; \
-} decision_data; \
-decision_data decisiondata  = {sizeof(element_type), failure, success, failure}
+#define DECISION_DATA_STRUCTURE(element_type, success, failure)                \
+  typedef struct __attribute__((packed)) {                                     \
+    uint32_t decision_element_size;                                            \
+    element_type data_element;                                                 \
+    element_type success_data_element;                                         \
+    element_type failure_data_element;                                         \
+  } decision_data;                                                             \
+  decision_data decisiondata = {sizeof(element_type), failure, success, failure}
 #define DECISION_DATA decisiondata.data_element
 
 #define UART_OUT_BUF_ADDR ((void *)0x11000000)
@@ -30,7 +30,6 @@ decision_data decisiondata  = {sizeof(element_type), failure, success, failure}
       FIH_PANIC;                                                               \
     }                                                                          \
   }
-
 
 extern fih_uint glob_cfi_counter;
 
@@ -65,9 +64,9 @@ extern void decision_activation(void);
 extern volatile unsigned int success_condition;
 
 #define __SET_SIM_SUCCESS()                                                    \
-  do {                                                                         \
+  {                                                                         \
     *((volatile unsigned int *)(0xAA01000)) = 0x11111111;                      \
-  } while (1);
+  }
 
 #define __SET_SIM_CONDITION_TRUE() success_condition = 0x11111111
 #define __SET_SIM_CONDITION_FALSE() success_condition = 0x22222222
@@ -78,9 +77,7 @@ extern volatile unsigned int success_condition;
   } while (1);
 
 #define __SET_SIM_FAILED()                                                     \
-  do {                                                                         \
-    *((volatile unsigned int *)(0xAA01000)) = 0x22222222;                      \
-  } while (1);
+  { *((volatile unsigned int *)(0xAA01000)) = 0x22222222; }
 
 // ------------------------------------------------------------
 
