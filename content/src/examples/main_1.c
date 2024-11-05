@@ -8,7 +8,6 @@
  */
 
 #include "common.h"
-#include "fih_mem.h"
 #include "utils.h"
 
 void start_success_handling(void);
