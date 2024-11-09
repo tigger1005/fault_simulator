@@ -2,10 +2,12 @@ use super::{FaultRecord, TraceRecord};
 use crate::{disassembly::Disassembly, simulation::cpu::Cpu};
 use std::{fmt::Debug, slice::Iter, sync::Arc};
 
+pub mod cmd_bitflip;
 pub mod glitch;
 pub mod register_bitflip;
 pub mod register_flood;
 
+pub use cmd_bitflip::CmdBitFlip;
 pub use glitch::Glitch;
 use itertools::Itertools;
 pub use register_bitflip::RegisterBitFlip;
@@ -24,6 +26,7 @@ const FAULTS: [&dyn FaultFunctions; 3] = [
         register: RegisterARM::R0,
         value: 0x00,
     },
+    //    &CmdBitFlip { xor_value: 0x01 },
 ];
 
 /// Trait for fault injection functions
