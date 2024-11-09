@@ -1,6 +1,7 @@
-use super::{FaultFunctions, FaultType};
+use super::{Disassembly, FaultFunctions, FaultType};
 use crate::simulation::{
     cpu::Cpu,
+    fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
 };
 use std::fmt::Debug;
@@ -23,11 +24,6 @@ impl Example {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {})
     }
-
-    /// Get the label of the fault
-    pub fn get_label(&self) -> String {
-        "Example".to_string()
-    }
 }
 
 impl FaultFunctions for Example {
@@ -35,7 +31,7 @@ impl FaultFunctions for Example {
     fn execute(&self, _cpu: &mut Cpu, _fault: &FaultRecord) {}
 
     /// Filtering of traces to reduce the number of traces to analyze
-    fn filter(&self, _records: &mut Vec<TraceRecord>) {}
+    fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly) {}
 
     /// Try to parse a Example fault from a string
     fn try_from(&self, _input: &str) -> Option<FaultType> {
