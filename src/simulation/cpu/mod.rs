@@ -325,4 +325,10 @@ impl<'a> Cpu<'a> {
     pub fn memory_read(&self, address: u64, buffer: &mut [u8]) -> Result<(), uc_error> {
         self.emu.mem_read(address, buffer)
     }
+
+    /// Write memory
+    ///
+    pub fn memory_write(&mut self, address: u64, buffer: &[u8]) -> Result<(), uc_error> {
+        self.emu.mem_write(address, buffer)
+    }
 }
