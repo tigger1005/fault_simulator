@@ -2,7 +2,6 @@ use std::{
     fs::File,
     io::{self, BufRead},
     path::Path,
-    usize,
 };
 
 use crate::simulation::{fault_data::FaultData, record::TraceRecord};
@@ -185,7 +184,7 @@ impl Disassembly {
                                 if let Ok(lines) = read_lines(file) {
                                     // Consumes the iterator, returns an (Optional) String
                                     if let Some(line) =
-                                        lines.flatten().nth(line_number as usize - 1)
+                                        lines.map_while(Result::ok).nth(line_number as usize - 1)
                                     {
                                         if comp_string != line {
                                             println!(

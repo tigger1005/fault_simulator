@@ -1,7 +1,7 @@
 /**
  * @file main_5.c
  * @author Roland Ebrecht
- * @brief 
+ * @brief
  * @version 0.1
  * @date 2024-04-29
  *
@@ -14,19 +14,18 @@ void start_success_handling(void);
 
 DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
 
-__attribute__((noinline)) fih_uint get_value(fih_uint *t) {
-  return * t;
+__attribute__((noinline)) fih_uint get_value(fih_uint *t)
+{
+    return *t;
 }
 
-#define fih_uint_eq_new(x, y)  \
-  (fih_uint_validate(x)  && \
-    (get_value(&x).val == (y).val) && \
-    fih_delay() && \
-    (get_value(&x).msk == (y).msk) && \
-    fih_delay() && \
-    ((y).val == FIH_UINT_VAL_MASK(get_value(&x).msk))  \
-  )
-
+#define fih_uint_eq_new(x, y)          \
+    (fih_uint_validate(x) &&           \
+     (get_value(&x).val == (y).val) && \
+     fih_delay() &&                    \
+     (get_value(&x).msk == (y).msk) && \
+     fih_delay() &&                    \
+     ((y).val == FIH_UINT_VAL_MASK(get_value(&x).msk)))
 
 /*******************************************************************************
  * Function Name:  main
@@ -34,25 +33,27 @@ __attribute__((noinline)) fih_uint get_value(fih_uint *t) {
  * \brief This is the main function executed at start.
  *
  *******************************************************************************/
- int main() {
-  decision_activation();
+int main()
+{
+    int ret = -1;
+    decision_activation();
 
-  serial_puts("Some code 1...\n");
+    serial_puts("Some code 1...\n");
 
-  if (fih_uint_eq_new(DECISION_DATA, FIH_SUCCESS)) {
-    serial_puts("Verification positive path : OK\n");
-    
-    // Changed to "with_condition" because of linker problem (start_success_handling() is directly located after get_value()). 
-    __SET_SIM_CONDITION_TRUE();
-
-    start_success_handling();
-  } else {
-    serial_puts("Verification negative path : OK\n");
-    __SET_SIM_FAILED();
-  }
-  return 0;
+    if (fih_uint_eq_new(DECISION_DATA, FIH_SUCCESS))
+    {
+        serial_puts("Verification positive path : OK\n");
+        start_success_handling();
+        ret = 0;
+    }
+    else
+    {
+        serial_puts("Verification negative path : OK\n");
+        __SET_SIM_FAILED();
+        ret = 1;
+    }
+    return ret;
 }
-
 
 /*******************************************************************************
  * Function Name:  start_success_handling
@@ -63,6 +64,7 @@ __attribute__((noinline)) fih_uint get_value(fih_uint *t) {
  * \param ram_app_start_addr    The start address of RAM App.
  *
  *******************************************************************************/
-void start_success_handling(void) { 
-    __SET_SIM_SUCCESS_WITH_CONDITION();
+void start_success_handling(void)
+{
+    __SET_SIM_SUCCESS();
 }
