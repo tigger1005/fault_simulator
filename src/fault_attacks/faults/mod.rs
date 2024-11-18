@@ -16,7 +16,7 @@ pub use register_flood::RegisterFlood;
 use unicorn_engine::RegisterARM;
 
 /// List of all possible faults
-const FAULTS: [&dyn FaultFunctions; 3] = [
+const FAULTS: [&dyn FaultFunctions; 4] = [
     &Glitch { number: 1 },
     &RegisterBitFlip {
         register: RegisterARM::R0,
@@ -26,12 +26,12 @@ const FAULTS: [&dyn FaultFunctions; 3] = [
         register: RegisterARM::R0,
         value: 0x00,
     },
-    //    &CmdBitFlip { xor_value: 0x01 },
+    &CmdBitFlip { xor_value: 0x01 },
 ];
 
 /// Trait for fault injection functions
 pub trait FaultFunctions: Send + Sync + Debug {
-    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord);
+    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool;
     fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly);
     fn try_from(&self, input: &str) -> Option<FaultType>;
     fn get_list(&self) -> Vec<String>;

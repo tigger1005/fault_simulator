@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 /// Command bit flip fault structure
 ///
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct CmdBitFlip {
     pub xor_value: u32,
 }
@@ -29,28 +29,22 @@ impl CmdBitFlip {
 }
 
 impl FaultFunctions for CmdBitFlip {
-    /// Execute a Example skipping `n` instructions.
-    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) {
-        let address = cpu.get_program_counter();
-        let mut manipulated_instructions = Vec::with_capacity(4);
-
-        // Read and write changed command to memory (Draft: Change is currently constant for simulation loop)
-        let instruction_size = cpu.get_asm_cmd_size(address).unwrap();
-
-        // Read original instructions
-        manipulated_instructions.resize(instruction_size, 0);
-        cpu.memory_read(address, &mut manipulated_instructions)
-            .unwrap();
+    /// Do bit flips to command code before execution
+    /// Return
+    ///     false:  No code repair needed
+    ///     true:   Code repair after fault injection is required
+    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
+        // Get current assembler instruction
+        let (address, original_instruction) = cpu.asm_cmd_read();
 
         // Set original instructions to same as the original read instructions
-        let original_instructions = manipulated_instructions.clone();
+        let mut manipulated_instruction = original_instruction.clone();
 
         // Manipulate the read command with the xor value
-        for (i, byte) in &mut manipulated_instructions.iter_mut().enumerate() {
+        for (i, byte) in &mut manipulated_instruction.iter_mut().enumerate() {
             *byte ^= self.xor_value.to_le_bytes()[i];
         }
-        cpu.memory_write(address, &manipulated_instructions)
-            .unwrap();
+        cpu.memory_write(address, &manipulated_instruction).unwrap();
 
         let record = TraceRecord::Fault {
             address,
@@ -60,10 +54,13 @@ impl FaultFunctions for CmdBitFlip {
 
         // Push to fault data vector
         cpu.get_fault_data().push(FaultData {
-            original_instructions,
+            original_instruction: original_instruction.clone(),
             record,
             fault: fault.clone(),
         });
+
+        // Trigger code repair after fault injection
+        true
     }
 
     /// Filtering of traces to reduce the number of traces to analyze

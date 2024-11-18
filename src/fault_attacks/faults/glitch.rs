@@ -34,7 +34,7 @@ impl Glitch {
 
 impl FaultFunctions for Glitch {
     /// Execute a glitch skipping `n` instructions.
-    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) {
+    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
         let mut offset = 0;
         let mut manipulated_instructions = Vec::new();
@@ -60,10 +60,13 @@ impl FaultFunctions for Glitch {
 
         // Push to fault data vector
         cpu.get_fault_data().push(FaultData {
-            original_instructions,
+            original_instruction: original_instructions,
             record,
             fault: fault.clone(),
         });
+
+        // No cleanup required
+        false
     }
 
     /// Filtering of traces to reduce the number of traces to analyze

@@ -117,7 +117,11 @@ impl<'a> Control<'a> {
                 ret_val = self.emu.run_steps(fault.index, false);
             }
             if ret_val.is_ok() {
-                self.emu.execute_fault_injection(fault);
+                let (address, instruction) = self.emu.asm_cmd_read();
+                if self.emu.execute_fault_injection(fault) {
+                    // If triggered, repair code in case of volatile attack
+                    self.emu.asm_cmd_write(address, &instruction);
+                }
             } else {
                 return Ok(Data::None);
             }

@@ -53,7 +53,7 @@ impl Disassembly {
         let insns_data = self
             .cs
             .disasm_all(
-                &fault_data.original_instructions,
+                &fault_data.original_instruction,
                 fault_data.record.address(),
             )
             .expect("Failed to disassemble");

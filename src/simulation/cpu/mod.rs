@@ -294,7 +294,7 @@ impl<'a> Cpu<'a> {
 
     /// Execute fault injection according to fault type
     /// Program is stopped and will be continued after fault injection
-    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) {
+    pub fn execute_fault_injection(&mut self, fault: &FaultRecord) -> bool {
         fault.fault_type.execute(self, fault)
     }
 
@@ -330,5 +330,23 @@ impl<'a> Cpu<'a> {
     ///
     pub fn memory_write(&mut self, address: u64, buffer: &[u8]) -> Result<(), uc_error> {
         self.emu.mem_write(address, buffer)
+    }
+
+    /// Read assembler instruction from memory (current programm counter)
+    ///
+    pub fn asm_cmd_read(&mut self) -> (u64, Vec<u8>) {
+        let address = self.get_program_counter();
+        let cmd_size = self.get_asm_cmd_size(address).unwrap();
+        // Read assembler instruction from memory
+        let mut instruction = vec![0; cmd_size];
+        self.memory_read(address, &mut instruction).unwrap();
+        (address, instruction)
+    }
+
+    /// Write assembler instruction to memory
+    ///
+    pub fn asm_cmd_write(&mut self, address: u64, instruction: &[u8]) {
+        // Write assembler instruction to memory
+        self.memory_write(address, instruction).unwrap();
     }
 }
