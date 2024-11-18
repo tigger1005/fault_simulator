@@ -91,6 +91,7 @@ impl<'a> Control<'a> {
         deep_analysis_trace: bool,
         faults: &[FaultRecord],
     ) -> Result<Data, String> {
+        let mut restore_required = false;
         // Initialize and load
         self.init_and_load(false);
         // Deactivate io print
@@ -110,21 +111,29 @@ impl<'a> Control<'a> {
             _ => (),
         }
 
+        // Preload instruction backup if fault is inserted with index = 0
+        let (mut address, mut instruction) = self.emu.asm_cmd_read();
         // Iterate over all faults and run the program step by step
         for fault in faults {
-            let mut ret_val = Ok(());
             if fault.index != 0 {
-                ret_val = self.emu.run_steps(fault.index, false);
-            }
-            if ret_val.is_ok() {
-                let (address, instruction) = self.emu.asm_cmd_read();
-                if self.emu.execute_fault_injection(fault) {
-                    // If triggered, repair code in case of volatile attack
-                    self.emu.asm_cmd_write(address, &instruction);
+                // One single step
+                if self.emu.run_steps(1, false).is_err() {
+                    return Ok(Data::None);
                 }
-            } else {
-                return Ok(Data::None);
+                // Restore instruction if required
+                if restore_required {
+                    self.emu.asm_cmd_write(address, &instruction).unwrap();
+                    restore_required = false;
+                }
+                // Execute remaining steps
+                if fault.index != 1 && self.emu.run_steps(fault.index - 1, false).is_err() {
+                    return Ok(Data::None);
+                }
+                // Read instruction for later restore
+                (address, instruction) = self.emu.asm_cmd_read();
             }
+            // Inject fault
+            restore_required |= self.emu.execute_fault_injection(fault);
         }
 
         // Start tracing or check previous run state
@@ -141,8 +150,13 @@ impl<'a> Control<'a> {
         }
 
         // Run to completion
-        let ret_val = self.emu.run_steps(cycles, false);
-        if ret_val.is_err() {
+        if restore_required {
+            if self.emu.run_steps(1, false).is_err() {
+                return Ok(Data::None);
+            }
+            self.emu.asm_cmd_write(address, &instruction).unwrap();
+        }
+        if self.emu.run_steps(cycles, false).is_err() {
             return Ok(Data::None);
         }
 

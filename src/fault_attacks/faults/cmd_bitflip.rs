@@ -44,7 +44,8 @@ impl FaultFunctions for CmdBitFlip {
         for (i, byte) in &mut manipulated_instruction.iter_mut().enumerate() {
             *byte ^= self.xor_value.to_le_bytes()[i];
         }
-        cpu.memory_write(address, &manipulated_instruction).unwrap();
+        cpu.asm_cmd_write(address, &manipulated_instruction)
+            .unwrap();
 
         let record = TraceRecord::Fault {
             address,

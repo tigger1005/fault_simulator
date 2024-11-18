@@ -343,10 +343,14 @@ impl<'a> Cpu<'a> {
         (address, instruction)
     }
 
-    /// Write assembler instruction to memory
+    /// Write assembler instruction to memory. After modification the simulation cache is cleared for
+    /// the changed command to ensure written cmds are immidiately active
     ///
-    pub fn asm_cmd_write(&mut self, address: u64, instruction: &[u8]) {
+    pub fn asm_cmd_write(&mut self, address: u64, instruction: &[u8]) -> Result<(), uc_error> {
         // Write assembler instruction to memory
         self.memory_write(address, instruction).unwrap();
+        // Clear cached instruction
+        self.emu
+            .ctl_remove_cache(address, address + instruction.len() as u64)
     }
 }
