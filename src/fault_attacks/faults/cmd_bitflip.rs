@@ -49,7 +49,20 @@ impl FaultFunctions for CmdBitFlip {
 
         let record = TraceRecord::Fault {
             address,
-            fault_type: format!("Command BitFlip (cmdbf_{:08x})", self.xor_value,),
+            fault_type: format!(
+                "Command BitFlip (cmdbf_{:08x}) 0x{:x} -> 0x{:x}",
+                self.xor_value,
+                original_instruction
+                    .iter()
+                    .enumerate()
+                    .map(|(i, b)| (*b as u32) << (i * 8) as u32)
+                    .sum::<u32>(),
+                manipulated_instruction
+                    .iter()
+                    .enumerate()
+                    .map(|(i, b)| (*b as u32) << (i * 8) as u32)
+                    .sum::<u32>()
+            ),
         };
         cpu.get_trace_data().push(record.clone());
 
