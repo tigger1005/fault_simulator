@@ -38,14 +38,13 @@ impl FaultFunctions for CmdBitFlip {
         let (address, original_instruction) = cpu.asm_cmd_read();
 
         // Set original instructions to same as the original read instructions
-        let mut manipulated_instruction = original_instruction.clone();
+        let mut modified_instruction = original_instruction.clone();
 
         // Manipulate the read command with the xor value
-        for (i, byte) in &mut manipulated_instruction.iter_mut().enumerate() {
+        for (i, byte) in &mut modified_instruction.iter_mut().enumerate() {
             *byte ^= self.xor_value.to_le_bytes()[i];
         }
-        cpu.asm_cmd_write(address, &manipulated_instruction)
-            .unwrap();
+        cpu.asm_cmd_write(address, &modified_instruction).unwrap();
 
         let record = TraceRecord::Fault {
             address,
@@ -57,18 +56,20 @@ impl FaultFunctions for CmdBitFlip {
                     .enumerate()
                     .map(|(i, b)| (*b as u32) << (i * 8) as u32)
                     .sum::<u32>(),
-                manipulated_instruction
+                modified_instruction
                     .iter()
                     .enumerate()
                     .map(|(i, b)| (*b as u32) << (i * 8) as u32)
                     .sum::<u32>()
             ),
+            data: original_instruction.clone(),
         };
         cpu.get_trace_data().push(record.clone());
 
         // Push to fault data vector
         cpu.get_fault_data().push(FaultData {
-            original_instruction: original_instruction.clone(),
+            original_instruction,
+            modified_instruction,
             record,
             fault: fault.clone(),
         });

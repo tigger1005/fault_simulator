@@ -20,6 +20,7 @@ pub enum TraceRecord {
     Fault {
         address: u64,
         fault_type: String,
+        data: Vec<u8>,
     },
 }
 

@@ -126,12 +126,29 @@ impl Disassembly {
                     TraceRecord::Fault {
                         address,
                         fault_type,
+                        data,
                     } => {
                         // Print source code line
                         temp_string =
                             self.print_debug_info(*address, debug_context, true, temp_string);
                         // Print fault type
-                        println!("-> {}", fault_type.red().bold());
+                        print!("-> {}", fault_type.red().bold());
+                        // Print fault data if present
+                        if data.len() > 0 {
+                            let insns_data = self
+                                .cs
+                                .disasm_count(&data, *address, 1)
+                                .expect("Failed to disassemble");
+                            let ins = &insns_data.as_ref()[0];
+                            let text = format!(
+                                "(original instruction: {} {})",
+                                ins.mnemonic().unwrap(),
+                                ins.op_str().unwrap()
+                            );
+                            println!(" {}", text.red().bold());
+                        } else {
+                            println!();
+                        }
                     }
                 };
             }

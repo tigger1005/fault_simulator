@@ -37,17 +37,17 @@ impl FaultFunctions for Glitch {
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
         let mut offset = 0;
-        let mut manipulated_instructions = Vec::new();
+        let mut modified_instructions = Vec::new();
 
         for _count in 0..self.number {
             let instruction_size = cpu.get_asm_cmd_size(address + offset).unwrap();
-            manipulated_instructions.extend_from_slice(&T1_NOP[..instruction_size]);
+            modified_instructions.extend_from_slice(&T1_NOP[..instruction_size]);
             offset += instruction_size as u64;
         }
         cpu.set_program_counter(address + offset);
 
-        // Set to same size as data_changed
-        let mut original_instructions = manipulated_instructions.clone();
+        // Set to same size as data
+        let mut original_instructions = modified_instructions.clone();
         // Read original instructions
         cpu.memory_read(address, &mut original_instructions)
             .unwrap();
@@ -55,12 +55,14 @@ impl FaultFunctions for Glitch {
         let record = TraceRecord::Fault {
             address,
             fault_type: format!("Glitch ({} assembler instruction)", self.number,),
+            data: modified_instructions.clone(),
         };
         cpu.get_trace_data().push(record.clone());
 
         // Push to fault data vector
         cpu.get_fault_data().push(FaultData {
             original_instruction: original_instructions,
+            modified_instruction: modified_instructions,
             record,
             fault: fault.clone(),
         });

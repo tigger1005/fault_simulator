@@ -63,12 +63,14 @@ impl FaultFunctions for RegisterBitFlip {
                 reg_val,
                 reg_val ^ self.xor_value as u64
             ),
+            data: vec![],
         };
         cpu.get_trace_data().push(record.clone());
 
         // Push to fault data vector
         cpu.get_fault_data().push(FaultData {
             original_instruction: original_instructions,
+            modified_instruction: vec![],
             record,
             fault: fault.clone(),
         });
