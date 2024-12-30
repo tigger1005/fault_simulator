@@ -97,7 +97,7 @@ pub fn hook_code_callback(emu: &mut Unicorn<CpuState>, address: u64, size: u32) 
 ///
 pub fn write_decision_element(emu: &mut Unicorn<CpuState>, success: bool) {
     let mut decision_element_size: [u8; 4] = [0x0; 4];
-    let decision_struct_address: u64 = emu.get_data().file_data.decision_data.st_value;
+    let decision_struct_address: u64 = emu.get_data().file_data.symbol_map.get("decisiondata").unwrap().st_value;
     let decision_data_address: u64 = decision_struct_address + 4;
 
     // Read size of decision element

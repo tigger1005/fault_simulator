@@ -18,8 +18,6 @@ use log::debug;
 use std::collections::HashSet;
 
 // Constant variable definitions
-const STACK_BASE: u64 = 0x80100000;
-const STACK_SIZE: usize = 0x10000;
 const AUTH_BASE: u64 = 0xAA01000;
 
 const T1_RET: [u8; 2] = [0x70, 0x47]; // bx lr
@@ -105,9 +103,16 @@ impl<'a> Cpu<'a> {
             .iter()
             .for_each(|reg| self.emu.reg_write(*reg, 0x00).unwrap());
 
-        // Setup registers
+        // Setup stack pointer
+        let stack = self
+            .emu
+            .get_data()
+            .file_data
+            .section_map
+            .get(".stack")
+            .unwrap();
         self.emu
-            .reg_write(RegisterARM::SP, STACK_BASE + STACK_SIZE as u64 - 4)
+            .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size as u64)
             .expect("failed to set register");
     }
 
@@ -115,25 +120,34 @@ impl<'a> Cpu<'a> {
     ///
     /// The PC is set to the start of the program
     pub fn load_code(&mut self) {
-        self.emu
-            .mem_write(
-                self.emu.get_data().file_data.program_header.p_paddr,
-                &self.emu.get_data().file_data.program,
-            )
-            .expect("failed to write file data");
+        let program_parts = &self.emu.get_data().file_data.program_data;
+
+        // Iterate over all program parts and write them to memory
+        for part in program_parts {
+            self.emu
+                .mem_write(part.0.p_paddr, &part.1)
+                .expect("failed to write program data");
+        }
+
         // set initial program start address
-        self.program_counter = self.emu.get_data().file_data.program_header.p_paddr;
+        self.program_counter = self.emu.get_data().file_data.header.e_entry;
     }
 
     /// Function to deactivate printf of c program to
     /// avoid unexpected output
     pub fn deactivate_printf_function(&mut self) {
         self.emu.get_data_mut().deactivate_print = true;
+
+        let serial_puts = self
+            .emu
+            .get_data()
+            .file_data
+            .symbol_map
+            .get("serial_puts")
+            .unwrap();
+
         self.emu
-            .mem_write(
-                self.emu.get_data().file_data.serial_puts.st_value & 0xfffffffe,
-                &T1_RET,
-            )
+            .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
             .unwrap();
     }
 
@@ -142,10 +156,18 @@ impl<'a> Cpu<'a> {
     /// BreakPoints
     /// { binInfo.Symbols["decision_activation"].Address }
     pub fn setup_breakpoints(&mut self) {
+        let decision_activation = self
+            .emu
+            .get_data()
+            .file_data
+            .symbol_map
+            .get("decision_activation")
+            .unwrap();
+
         self.emu
             .add_code_hook(
-                self.emu.get_data().file_data.decision_activation.st_value,
-                self.emu.get_data().file_data.decision_activation.st_value + 1,
+                decision_activation.st_value,
+                decision_activation.st_value + 1,
                 hook_code_decision_activation_callback,
             )
             .expect("failed to set decision_activation code hook");
@@ -163,21 +185,32 @@ impl<'a> Cpu<'a> {
     /// Setup memory mapping, stack, io mapping
     pub fn setup_mmio(&mut self) {
         const MINIMUM_MEMORY_SIZE: usize = 0x1000;
-        // Code
-        let code_size =
-            (self.emu.get_data().file_data.program.len() + MINIMUM_MEMORY_SIZE) & 0xfffff000;
-        self.emu
-            .mem_map(
-                self.emu.get_data().file_data.program_header.p_paddr,
-                code_size,
-                Permission::ALL,
-            )
-            .expect("failed to map code page");
 
-        // Stack
-        self.emu
-            .mem_map(STACK_BASE, STACK_SIZE, Permission::READ | Permission::WRITE)
-            .expect("failed to map stack page");
+        let segments = &self.emu.get_data().file_data.program_data;
+
+        // Iterate over all program parts and write them to memory
+        for segment in segments {
+            let mut permission: Permission = Permission::NONE;
+
+            // Convert p_flags to permission
+            if segment.0.p_flags & 0x01 != 0 {
+                permission |= Permission::EXEC;
+            }
+            if segment.0.p_flags & 0x02 != 0 {
+                permission |= Permission::WRITE;
+            }
+            if segment.0.p_flags & 0x04 != 0 {
+                permission |= Permission::READ;
+            }
+            // Map segment to memory
+            self.emu
+                .mem_map(
+                    segment.0.p_paddr,
+                    (segment.0.p_memsz as usize + MINIMUM_MEMORY_SIZE) & 0xfffff000, // Calculate length of part with a minimum granularity of 4KB
+                    permission,
+                )
+                .expect("failed to map code page");
+        }
 
         // Auth success / failed trigger
         self.emu
@@ -209,8 +242,8 @@ impl<'a> Cpu<'a> {
                 }
             }
         } else {
-            let end_address = self.emu.get_data().file_data.program_header.p_paddr
-                + self.emu.get_data().file_data.program_header.p_filesz;
+            let end_address = self.emu.get_data().file_data.program_data[0].0.p_paddr
+                + self.emu.get_data().file_data.program_data[0].0.p_memsz;
 
             // Start from last PC
             ret_val = self.emu.emu_start(
@@ -261,8 +294,8 @@ impl<'a> Cpu<'a> {
     pub fn set_trace_hook(&mut self) {
         self.emu
             .add_code_hook(
-                self.emu.get_data().file_data.program_header.p_paddr,
-                self.emu.get_data().file_data.program_header.p_memsz,
+                self.emu.get_data().file_data.program_data[0].0.p_paddr,
+                self.emu.get_data().file_data.program_data[0].0.p_memsz,
                 hook_code_callback,
             )
             .expect("failed to setup trace hook");
