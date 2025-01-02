@@ -134,10 +134,10 @@ impl Disassembly {
                         // Print fault type
                         print!("-> {}", fault_type.red().bold());
                         // Print fault data if present
-                        if data.len() > 0 {
+                        if !data.is_empty() {
                             let insns_data = self
                                 .cs
-                                .disasm_count(&data, *address, 1)
+                                .disasm_count(data, *address, 1)
                                 .expect("Failed to disassemble");
                             let ins = &insns_data.as_ref()[0];
                             let text = format!(

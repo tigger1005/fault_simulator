@@ -1,11 +1,11 @@
 use addr2line::{gimli, object::read, Context};
-use elf::endian::AnyEndian;
-use elf::file::FileHeader;
-use elf::section::SectionHeader;
-use elf::segment::ProgramHeader;
-use elf::symbol::Symbol;
-use elf::ElfBytes;
+use elf::{
+    endian::AnyEndian, file::FileHeader, section::SectionHeader, segment::ProgramHeader,
+    symbol::Symbol, ElfBytes,
+};
 use std::collections::HashMap;
+
+pub use elf::abi::*;
 
 pub struct ElfFile {
     pub header: FileHeader<AnyEndian>,
@@ -26,6 +26,8 @@ impl ElfFile {
             .segments()
             .unwrap()
             .iter()
+            // TODO: Filter PT_LOAD sections
+            .filter(|ph| ph.p_type == PT_LOAD)
             .map(|ph| (ph, elf_data.segment_data(&ph).unwrap().to_vec()))
             .collect();
 
@@ -46,6 +48,7 @@ impl ElfFile {
         // Sum Strings with their section into a hashmap
         let section_map: HashMap<String, SectionHeader> = section_headers
             .iter()
+            .filter(|sec| sec.sh_type == SHT_PROGBITS || sec.sh_type == SHT_NOBITS)
             .map(|sec| {
                 (
                     section_strtab
@@ -62,6 +65,7 @@ impl ElfFile {
             .symtab
             .unwrap()
             .iter()
+            .filter(|sym| sym.st_bind() & STB_GLOBAL != 0 || sym.st_bind() & STB_WEAK != 0)
             .map(|sym| {
                 (
                     strtab
@@ -91,6 +95,8 @@ impl ElfFile {
 
 #[cfg(test)]
 mod tests {
+    use addr2line::object::elf::PT_LOAD;
+
     use crate::elf_file::ElfFile;
 
     #[test]
@@ -101,7 +107,7 @@ mod tests {
         assert_eq!(elf_struct.header.version, 1);
         // Program header
         assert!(elf_struct.program_data.get(0).is_some());
-        assert_eq!(elf_struct.program_data[0].0.p_type, 1);
+        assert_eq!(elf_struct.program_data[0].0.p_type, PT_LOAD);
         assert_eq!(elf_struct.program_data[0].0.p_align, 4);
         assert_eq!(
             elf_struct.program_data[0].0.p_paddr,

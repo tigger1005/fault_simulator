@@ -1,4 +1,4 @@
-use crate::elf_file::ElfFile;
+use crate::elf_file::{ElfFile, PF_X, PF_W, PF_R};
 use crate::simulation::{
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
@@ -110,9 +110,10 @@ impl<'a> Cpu<'a> {
             .file_data
             .section_map
             .get(".stack")
-            .unwrap();
+            .expect("Failed to get stack section");
+
         self.emu
-            .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size as u64)
+            .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
             .expect("failed to set register");
     }
 
@@ -144,7 +145,7 @@ impl<'a> Cpu<'a> {
             .file_data
             .symbol_map
             .get("serial_puts")
-            .unwrap();
+            .expect("No serial_puts symbol found");
 
         self.emu
             .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
@@ -162,7 +163,7 @@ impl<'a> Cpu<'a> {
             .file_data
             .symbol_map
             .get("decision_activation")
-            .unwrap();
+            .expect("No decision_activation symbol found");
 
         self.emu
             .add_code_hook(
@@ -193,13 +194,13 @@ impl<'a> Cpu<'a> {
             let mut permission: Permission = Permission::NONE;
 
             // Convert p_flags to permission
-            if segment.0.p_flags & 0x01 != 0 {
+            if segment.0.p_flags & PF_X != 0 {
                 permission |= Permission::EXEC;
             }
-            if segment.0.p_flags & 0x02 != 0 {
+            if segment.0.p_flags & PF_W != 0 {
                 permission |= Permission::WRITE;
             }
-            if segment.0.p_flags & 0x04 != 0 {
+            if segment.0.p_flags & PF_R != 0 {
                 permission |= Permission::READ;
             }
             // Map segment to memory
@@ -292,6 +293,7 @@ impl<'a> Cpu<'a> {
 
     /// Set code hook for tracing
     pub fn set_trace_hook(&mut self) {
+        // TODO: go through all program data parts
         self.emu
             .add_code_hook(
                 self.emu.get_data().file_data.program_data[0].0.p_paddr,
