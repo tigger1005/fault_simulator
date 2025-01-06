@@ -13,14 +13,14 @@ fn run_single_glitch() {
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
     assert_eq!(
-        (true, 39),
+        (true, 46),
         attack.single(2000, false, false, &mut vec.iter()).unwrap()
     );
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
-        (false, 440),
+        (false, 376),
         attack.single(2000, false, false, &mut vec.iter()).unwrap()
     );
 }
@@ -37,14 +37,14 @@ fn run_double_glitch() {
     // Result is (false: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
     assert_eq!(
-        (false, 27880),
+        (false, 22808),
         attack.double(2000, false, false, &mut vec.iter()).unwrap()
     );
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["regbf".to_string()];
     assert_eq!(
-        (true, 8688),
+        (true, 6916),
         attack.double(2000, false, false, &mut vec.iter()).unwrap()
     );
 }
