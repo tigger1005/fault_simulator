@@ -14,12 +14,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.sample_size(10);
     group.bench_function("single attack", |b| {
         b.iter(|| {
-            let _ = attack.single(2000, false, false, Some(&"glitch"));
+            let _ = attack.single(2000, false, false, &mut vec!["glitch".to_string()].iter());
         })
     });
     group.bench_function("double attack", |b| {
         b.iter(|| {
-            let _ = attack.double(2000, false, false, Some(&"glitch"));
+            let _ = attack.double(2000, false, false, &mut vec!["glitch".to_string()].iter());
         })
     });
 }
