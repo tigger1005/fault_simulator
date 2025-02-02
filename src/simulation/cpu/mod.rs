@@ -1,4 +1,4 @@
-use crate::elf_file::{ElfFile, PF_X, PF_W, PF_R};
+use crate::elf_file::{ElfFile, PF_R, PF_W, PF_X};
 use crate::simulation::{
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
