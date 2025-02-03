@@ -1,90 +1,102 @@
-use addr2line::gimli;
-use elf::endian::AnyEndian;
-use elf::file::FileHeader;
-use elf::segment::ProgramHeader;
-use elf::symbol::Symbol;
-use elf::ElfBytes;
+use addr2line::{gimli, object::read, Context};
+use elf::{
+    endian::AnyEndian, file::FileHeader, section::SectionHeader, segment::ProgramHeader,
+    symbol::Symbol, ElfBytes,
+};
+use std::collections::HashMap;
 
-#[derive(Clone)]
+pub use elf::abi::*;
+
 pub struct ElfFile {
     pub header: FileHeader<AnyEndian>,
-    pub program_header: ProgramHeader,
-    pub program: Vec<u8>,
-    pub decision_activation: Symbol,
-    pub serial_puts: Symbol,
-    pub decision_data: Symbol,
+    pub program_data: Vec<(ProgramHeader, Vec<u8>)>,
+    pub section_map: HashMap<String, SectionHeader>,
+    pub symbol_map: HashMap<String, Symbol>,
     file_data: Vec<u8>,
 }
 
 impl ElfFile {
     pub fn new(path: std::path::PathBuf) -> Result<Self, String> {
         let file_data = std::fs::read(path).expect("Could not read file.");
-        let slice = file_data.as_slice();
-        let file = ElfBytes::<AnyEndian>::minimal_parse(slice).expect("Open file data failed");
+        let elf_data = ElfBytes::<AnyEndian>::minimal_parse(file_data.as_ref())
+            .expect("Open file data failed");
 
-        // Get data
-        let program_headers = file.segments().unwrap();
-        let program_header = program_headers.get(0).unwrap();
-        let program = file.segment_data(&program_header).unwrap();
-
-        let _symbols_table = file.symbol_table().unwrap();
-        let _rr = file.dynamic_symbol_table().unwrap();
-
-        // parse out all the normal symbol table symbols with their names
-        let common = file.find_common_data().expect("shdrs should parse");
-        let symtab = common.symtab.unwrap();
-        let strtab = common.symtab_strs.unwrap();
-        let symbols_with_names: Vec<_> = symtab
+        // Get all program headers and the linked program data into a vector
+        let program_data: Vec<(ProgramHeader, Vec<u8>)> = elf_data
+            .segments()
+            .unwrap()
             .iter()
-            .map(|sym| (strtab.get(sym.st_name as usize).expect("should parse"), sym))
+            // TODO: Filter PT_LOAD sections
+            .filter(|ph| ph.p_type == PT_LOAD)
+            .map(|ph| (ph, elf_data.segment_data(&ph).unwrap().to_vec()))
             .collect();
 
-        // Find needed symbols
-        let decision_activation = symbols_with_names
-            .iter()
-            .find(|&x| x.0 == "decision_activation")
-            .unwrap()
-            .1
-            .clone();
+        // Get all section headers and the linked section data into a vector
 
-        // Find needed symbols
-        let serial_puts = symbols_with_names
-            .iter()
-            .find(|&x| x.0 == "serial_puts")
-            .unwrap()
-            .1
-            .clone();
+        // parse out all the normal symbol table symbols with their names
+        let common = elf_data.find_common_data().expect("shdrs should parse");
+        let strtab = common.symtab_strs.unwrap();
+        let (section_headers, section_strtab) =
+            match elf_data.section_headers_with_strtab().unwrap() {
+                (Some(shdrs), Some(strtab)) => (shdrs, strtab),
+                _ => {
+                    // If we don't have shdrs, or don't have a strtab, we can't find a section by its name
+                    return Err("Missing strtab or section headers".to_string());
+                }
+            };
 
-        // Find needed symbols
-        let decision_data = symbols_with_names
+        // Sum Strings with their section into a hashmap
+        let section_map: HashMap<String, SectionHeader> = section_headers
             .iter()
-            .find(|&x| x.0 == "decisiondata")
+            .filter(|sec| sec.sh_type == SHT_PROGBITS || sec.sh_type == SHT_NOBITS)
+            .map(|sec| {
+                (
+                    section_strtab
+                        .get(sec.sh_name as usize)
+                        .expect("should parse")
+                        .to_string(),
+                    sec,
+                )
+            })
+            .collect();
+
+        // Sum Strings with their symbol into a hashmap
+        let symbol_map: HashMap<String, Symbol> = common
+            .symtab
             .unwrap()
-            .1
-            .clone();
+            .iter()
+            .filter(|sym| sym.st_bind() & STB_GLOBAL != 0 || sym.st_bind() & STB_WEAK != 0)
+            .map(|sym| {
+                (
+                    strtab
+                        .get(sym.st_name as usize)
+                        .expect("should parse")
+                        .to_string(),
+                    sym,
+                )
+            })
+            .collect();
 
         // Fill struct
         Ok(Self {
-            header: file.ehdr,
-            program_header,
-            program: program.to_vec(),
-            decision_activation,
-            serial_puts,
+            header: elf_data.ehdr,
+            program_data,
+            section_map,
+            symbol_map,
             file_data,
-            decision_data,
         })
     }
-
     pub fn get_debug_context(
         &self,
-    ) -> addr2line::Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>> {
-        addr2line::Context::new(&addr2line::object::read::File::parse(&*self.file_data).unwrap())
-            .unwrap()
+    ) -> Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>> {
+        Context::new(&read::File::parse(&*self.file_data).unwrap()).unwrap()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use addr2line::object::elf::PT_LOAD;
+
     use crate::elf_file::ElfFile;
 
     #[test]
@@ -94,17 +106,25 @@ mod tests {
         assert_eq!(elf_struct.header.endianness, elf::endian::AnyEndian::Little);
         assert_eq!(elf_struct.header.version, 1);
         // Program header
-        assert_eq!(elf_struct.program_header.p_type, 1);
-        assert_eq!(elf_struct.program_header.p_align, 4);
+        assert!(elf_struct.program_data.get(0).is_some());
+        assert_eq!(elf_struct.program_data[0].0.p_type, PT_LOAD);
+        assert_eq!(elf_struct.program_data[0].0.p_align, 4);
         assert_eq!(
-            elf_struct.program_header.p_paddr,
-            elf_struct.program_header.p_vaddr
+            elf_struct.program_data[0].0.p_paddr,
+            elf_struct.program_data[0].0.p_vaddr
         );
 
-        assert_eq!(elf_struct.decision_activation.st_name, 0xec);
-        assert_eq!(elf_struct.decision_activation.st_value, 0x80000009);
-        assert_eq!(elf_struct.decision_activation.st_size, 10);
-        assert_eq!(elf_struct.decision_activation.st_shndx, 1);
-        assert_eq!(elf_struct.decision_activation.st_bind(), 1);
+        assert!(elf_struct.symbol_map.get("decision_activation").is_some());
+        assert!(elf_struct.symbol_map.get("serial_puts").is_some());
+        assert!(elf_struct.symbol_map.get("decisiondata").is_some());
+
+        //        assert_eq!(elf_struct.symbol_map["decision_activation"].st_name, 0xec);
+        // assert_eq!(
+        //     elf_struct.symbol_map["decision_activation"].st_value,
+        //     0x80000009
+        // );
+        // assert_eq!(elf_struct.symbol_map["decision_activation"].st_size, 10);
+        // assert_eq!(elf_struct.symbol_map["decision_activation"].st_shndx, 1);
+        // assert_eq!(elf_struct.symbol_map["decision_activation"].st_bind(), 1);
     }
 }

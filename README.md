@@ -3,7 +3,7 @@
 This project is used as a tool to simulate fault attacks to ARM-M processors (Thumb mode).
 It includes a C project in the "content" folder which is loaded into the simulation.
 Faults are introduces depending the predefined ranges or manualy. For the simulated attacks "all", "single" and "double", all implemented faults are executed till one leads to an successful attack.
-(e.g. "--class double")
+(e.g. "--class double"). For specific cases the check of the C code operation can be disabled with the "--no-check" option. This will allow to remove for e.g. the SUCCESS_DATA from the file under attack.
 
 After finding a vulnerability the attack command sequence can be analysed with the '--analysis' command line parameter.
 ```ARM
@@ -44,6 +44,7 @@ Code examples for main.c are located at: "content\src\examples"
 > ### Register Bit Flip 
 > Inserted a bit flip into a register. Registers from R0 to R12. 
 > The bit flip is inserted via a XOR operation with the given hexadecimal value. Currently only single bits could be changed
+>
 > #### Syntax:
 > - Attack name: **regbf**
 > - Specific attack: **regbf_r0_00000001 .. regbf_r12_800000000**
@@ -54,7 +55,14 @@ Code examples for main.c are located at: "content\src\examples"
 > - Attack name: **regfld**
 > - Specific attack: **regflood_r0_00000000 or regflood_r0_FFFFFFFF** 
 >
-
+> ### Command fetch Bit Flip 
+> Flips a during command fetch.
+> The bit flip is inserted via a XOR operation with the given hexadecimal value. Currently only single bits could be changed
+>
+> #### Syntax:
+> - Attack name: **cmdbf**
+> - Specific attack: **cmdbf_00000001 .. cmdbf_800000000**
+>
 
 
 
@@ -103,15 +111,17 @@ Program parameters:
                               
 -n, --no-compilation          Suppress re-compilation of target program
     --class <ATTACK>,<GROUPS> Attack class to be executed. Possible values are: all, single, double [default: all]
-                              GROUPS can be the names of the implemented attacks. E.g. --class single,regbf separated by ' '
+                              GROUPS can be the names of the implemented attacks. E.g. --class single regbf separated by ' '
     --faults <FAULTS>         Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1 glitch_10)
                               Current implemented fault attacks: 
                                  glitch_1 .. glitch_10
                                  regbf_r0_00000001 .. regbf_r12_80000000
-                                 regfld_r0_00000000 or regfld_r0_FFFFFFFF 
+                                 regfld_r0_00000000 or regfld_r0_FFFFFFFF
+                                 cmdbf_00000000 .. cmdbf_80000000 
 -a, --analysis                Activate trace analysis of picked fault
 -d, --deep-analysis           Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
 -m, --max_instructions        Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
+    --no_check                Disable program flow check
 -e, --elf <FILE>              Use external elf file w/o compilation step
     --trace                   Trace and analyse program w/o fault injection
 -h, --help                    Print help
@@ -122,5 +132,6 @@ Command line examples:
 --class single glitch --analysis
 --class single glitch regbf --analysis
 --class single regbf --elf tests/bin/victim_4.elf --analysis -t 0
+--class double cmdbf --analysis
 --faults regbf_r1_0100 glitch_1
 ```

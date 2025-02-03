@@ -25,12 +25,16 @@ struct Args {
     #[arg(short, long, default_value_t = false)]
     no_compilation: bool,
 
-    /// Attacks class to be executed: --class [all, single, double] [optional: attack_name] E.g.: --class single glitch
-    #[arg(long,  value_delimiter = ' ', num_args = 1..)]
+    /// Attacks class to be executed:
+    ///   --class [all, single, double] [optional: glitch, regbf, regfld, cmdbf]
+    ///     E.g.: --class single glitch
+    #[arg(long,  value_delimiter = ' ', num_args = 1.., verbatim_doc_comment)]
     class: Vec<String>,
 
-    /// Run a command line defined sequence of faults. --faults [specific_attack] [optional: specific_attack2 specific_attack3 ...] E.g.: --faults regbf_r1_0100 glitch_1
-    #[arg(long, value_delimiter = ' ', num_args = 1..)]
+    /// Run a command line defined sequence of faults.
+    ///   --faults [specific_attack] [optional: specific_attack2 specific_attack3 ...]
+    ///     E.g.: --faults regbf_r1_0100 glitch_1
+    #[arg(long, value_delimiter = ' ', num_args = 1.., verbatim_doc_comment)]
     faults: Vec<String>,
 
     /// Activate trace analysis of picked fault
@@ -52,6 +56,10 @@ struct Args {
     /// Trace failure run w/o fault injection for analysis
     #[arg(long, default_value_t = false)]
     trace: bool,
+
+    /// Disable program flow check
+    #[arg(long, default_value_t = false)]
+    no_check: bool,
 }
 
 /// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
@@ -88,7 +96,9 @@ fn main() -> Result<(), String> {
 
     println!("Check for correct program behavior:");
     // Check for correct program behavior
-    attack_sim.check_for_correct_behavior(args.max_instructions)?;
+    if !args.no_check {
+        attack_sim.check_for_correct_behavior(args.max_instructions)?;
+    }
 
     // Check if trace is selected
     if args.trace {

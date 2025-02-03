@@ -37,7 +37,7 @@ impl RegisterFlood {
 
 impl FaultFunctions for RegisterFlood {
     /// Execute a bit flip in the given register.
-    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) {
+    fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
 
         // Read and write changed register
@@ -60,15 +60,20 @@ impl FaultFunctions for RegisterFlood {
                 reg_val,
                 self.value as u64
             ),
+            data: vec![],
         };
         cpu.get_trace_data().push(record.clone());
 
         // Push to fault data vector
         cpu.get_fault_data().push(FaultData {
-            original_instructions,
+            original_instruction: original_instructions,
+            modified_instruction: vec![],
             record,
             fault: fault.clone(),
         });
+
+        // No cleanup required
+        false
     }
 
     /// Filtering of traces to reduce the number of traces to analyze

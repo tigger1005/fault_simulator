@@ -28,7 +28,10 @@ impl Example {
 
 impl FaultFunctions for Example {
     /// Execute a Example skipping `n` instructions.
-    fn execute(&self, _cpu: &mut Cpu, _fault: &FaultRecord) {}
+    fn execute(&self, _cpu: &mut Cpu, _fault: &FaultRecord) -> bool {
+        // No cleanup required
+        false
+    }
 
     /// Filtering of traces to reduce the number of traces to analyze
     fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly) {}
