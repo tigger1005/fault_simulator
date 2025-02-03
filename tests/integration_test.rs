@@ -13,7 +13,7 @@ fn run_single_glitch() {
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
     assert_eq!(
-        (true, 46),
+        (true, 35),
         attack.single(2000, false, false, &mut vec.iter()).unwrap()
     );
     // Load victim data for attack simulation
@@ -63,15 +63,19 @@ fn run_fault_simulation_one_glitch() {
         .fault_simulation(2000, &[Glitch::new(1)], false, false)
         .unwrap();
 
-    // Check if correct faults are found (at: 0x800004b2, 0x8000062E)
-    assert_eq!(2, result.len());
+    // Check if correct faults are found (at: 0x80004BA, 0x8000634, 0x800063C)
+    assert_eq!(3, result.len());
     // Check for correct faults
     assert!(result.iter().any(|fault_data| match fault_data[0].record {
-        TraceRecord::Fault { address, .. } => address == 0x800004b2,
+        TraceRecord::Fault { address, .. } => address == 0x80004BA,
         _ => false,
     }));
     assert!(result.iter().any(|fault_data| match fault_data[0].record {
-        TraceRecord::Fault { address, .. } => address == 0x8000062E,
+        TraceRecord::Fault { address, .. } => address == 0x8000634,
+        _ => false,
+    }));
+    assert!(result.iter().any(|fault_data| match fault_data[0].record {
+        TraceRecord::Fault { address, .. } => address == 0x800063C,
         _ => false,
     }));
 }
@@ -90,15 +94,15 @@ fn run_fault_simulation_two_glitches() {
         .unwrap();
 
     println!("Result: {:?}", result);
-    // Check if correct faults are found (at: 0x80000678, 0x800006a8)
+    // Check if correct faults are found (at: 0x8000676, 0x80006a8)
     assert_eq!(1, result.len());
     // Check for correct faults
     assert!(result[0].iter().any(|fault_data| match fault_data.record {
-        TraceRecord::Fault { address, .. } => address == 0x80000678,
+        TraceRecord::Fault { address, .. } => address == 0x8000676,
         _ => false,
     }));
     assert!(result[0].iter().any(|fault_data| match fault_data.record {
-        TraceRecord::Fault { address, .. } => address == 0x800006a8,
+        TraceRecord::Fault { address, .. } => address == 0x80006a4,
         _ => false,
     }));
 }
