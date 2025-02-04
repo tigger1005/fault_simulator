@@ -117,18 +117,17 @@ impl FaultAttacks {
                 let fault = get_fault_from(&fault).unwrap();
 
                 // Run simulation with fault
-                let fault_data =
+                let mut fault_data =
                     self.fault_simulation(cycles, &[fault.clone()], deep_analysis, prograss_bar)?;
 
                 if !fault_data.is_empty() {
-                    any_success = true;
-                    for data in fault_data {
-                        // Push each inner Vec<FaultData>
-                        self.fault_data.push(data);
-                    }
+                    // Push intermediate data to fault data
+                    self.fault_data.append(&mut fault_data);
+                    // check for run through flag
                     if !run_through {
-                        return Ok((any_success, self.count_sum));
+                        return Ok((true, self.count_sum));
                     }
+                    any_success = true;
                 }
             }
         }
@@ -158,18 +157,17 @@ impl FaultAttacks {
                 let fault1 = get_fault_from(&t.0).unwrap();
                 let fault2 = get_fault_from(&t.1).unwrap();
 
-                let fault_data =
+                let mut fault_data =
                     self.fault_simulation(cycles, &[fault1, fault2], deep_analysis, prograss_bar)?;
 
                 if !fault_data.is_empty() {
-                    any_success = true;
-                    for data in fault_data {
-                        // Push each inner Vec<FaultData>
-                        self.fault_data.push(data);
-                    }
+                    // Push intermediate data to fault data
+                    self.fault_data.append(&mut fault_data);
+                    // check for run through flag
                     if !run_through {
-                        return Ok((any_success, self.count_sum));
+                        return Ok((true, self.count_sum));
                     }
+                    any_success = true;
                 }
             }
         }
