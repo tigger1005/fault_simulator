@@ -124,6 +124,7 @@ Program parameters:
     --no_check                Disable program flow check
 -e, --elf <FILE>              Use external elf file w/o compilation step
     --trace                   Trace and analyse program w/o fault injection
+-r, --run-through             Don't stop on first successful fault injection
 -h, --help                    Print help
 -V, --version                 Print version
 

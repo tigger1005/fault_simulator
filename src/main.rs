@@ -60,6 +60,10 @@ struct Args {
     /// Disable program flow check
     #[arg(long, default_value_t = false)]
     no_check: bool,
+
+    /// Don't stop on first successful fault injection
+    #[arg(short, long, default_value_t = false)]
+    run_through: bool,
 }
 
 /// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
@@ -114,7 +118,13 @@ fn main() -> Result<(), String> {
         match class.next().as_ref().map(|s| s.as_str()) {
             Some("all") | None => {
                 if !attack_sim
-                    .single(args.max_instructions, args.deep_analysis, true, &mut class)?
+                    .single(
+                        args.max_instructions,
+                        args.deep_analysis,
+                        true,
+                        &mut class,
+                        args.run_through,
+                    )?
                     .0
                 {
                     attack_sim.double(
@@ -122,14 +132,27 @@ fn main() -> Result<(), String> {
                         args.deep_analysis,
                         true,
                         &mut class,
+                        args.run_through,
                     )?;
                 }
             }
             Some("single") => {
-                attack_sim.single(args.max_instructions, args.deep_analysis, true, &mut class)?;
+                attack_sim.single(
+                    args.max_instructions,
+                    args.deep_analysis,
+                    true,
+                    &mut class,
+                    args.run_through,
+                )?;
             }
             Some("double") => {
-                attack_sim.double(args.max_instructions, args.deep_analysis, true, &mut class)?;
+                attack_sim.double(
+                    args.max_instructions,
+                    args.deep_analysis,
+                    true,
+                    &mut class,
+                    args.run_through,
+                )?;
             }
             _ => println!("Unknown attack class!"),
         }
