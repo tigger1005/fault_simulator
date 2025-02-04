@@ -105,38 +105,35 @@ impl FaultAttacks {
         deep_analysis: bool,
         prograss_bar: bool,
         groups: &mut Iter<String>,
-        run_through : bool,
+        run_through: bool,
     ) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
-        let mut total_attacks = 0;   // Track total number of attacks
-    
+
         for list in lists {
             // Iterate over all faults in the list
             for fault in list {
                 // Get fault type
                 let fault = get_fault_from(&fault).unwrap();
-    
+
                 // Run simulation with fault
-                let fault_data = 
+                let fault_data =
                     self.fault_simulation(cycles, &[fault.clone()], deep_analysis, prograss_bar)?;
-    
+
                 if !fault_data.is_empty() {
                     any_success = true;
-                    for data in fault_data { // Push each inner Vec<FaultData>
+                    for data in fault_data {
+                        // Push each inner Vec<FaultData>
                         self.fault_data.push(data);
                     }
                     if !run_through {
-                        return Ok((any_success, total_attacks + 1));
+                        return Ok((any_success, self.count_sum));
                     }
                 }
-    
-                total_attacks += 1; 
             }
         }
-        Ok((any_success, total_attacks))
+        Ok((any_success, self.count_sum))
     }
-    
 
     /// Run double glitch attacks
     ///
@@ -148,12 +145,11 @@ impl FaultAttacks {
         deep_analysis: bool,
         prograss_bar: bool,
         groups: &mut Iter<String>,
-        run_through : bool,
+        run_through: bool,
     ) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
-        let mut total_attacks = 0;   // Track total number of attacks
-    
+
         for list in lists {
             // Iterate over all faults in the list
             let iter = iproduct!(list.clone(), list).map(|(a, b)| (a, b));
@@ -161,24 +157,23 @@ impl FaultAttacks {
             for t in iter {
                 let fault1 = get_fault_from(&t.0).unwrap();
                 let fault2 = get_fault_from(&t.1).unwrap();
-    
+
                 let fault_data =
                     self.fault_simulation(cycles, &[fault1, fault2], deep_analysis, prograss_bar)?;
-    
+
                 if !fault_data.is_empty() {
                     any_success = true;
-                    for data in fault_data { // Push each inner Vec<FaultData>
+                    for data in fault_data {
+                        // Push each inner Vec<FaultData>
                         self.fault_data.push(data);
                     }
                     if !run_through {
-                        return Ok((any_success, total_attacks + 1));
+                        return Ok((any_success, self.count_sum));
                     }
                 }
-    
-                total_attacks += 1; 
             }
         }
-        Ok((any_success, total_attacks))
+        Ok((any_success, self.count_sum))
     }
 
     pub fn fault_simulation(
