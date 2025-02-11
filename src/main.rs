@@ -98,9 +98,9 @@ fn main() -> Result<(), String> {
     // Load victim data for attack simulation
     let mut attack_sim = FaultAttacks::new(path)?;
 
-    println!("Check for correct program behavior:");
     // Check for correct program behavior
     if !args.no_check {
+        println!("Check for correct program behavior:");
         attack_sim.check_for_correct_behavior(args.max_instructions)?;
     }
 
