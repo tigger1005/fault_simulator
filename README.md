@@ -1,11 +1,10 @@
-
 # Fault Simulator
 This project is used as a tool to simulate fault attacks to ARM-M processors (Thumb mode).
-It includes a C project in the "content" folder which is loaded into the simulation.
+Within the "content" folder, there is a C project that is loaded into the simulation environment.
 Faults are introduces depending the predefined ranges or manualy. For the simulated attacks "all", "single" and "double", all implemented faults are executed till one leads to an successful attack.
 (e.g. "--class double"). For specific cases the check of the C code operation can be disabled with the "--no-check" option. This will allow to remove for e.g. the SUCCESS_DATA from the file under attack.
 
-After finding a vulnerability the attack command sequence can be analysed with the '--analysis' command line parameter.
+Once a vulnerability is found, the attack command sequence can be further analyzed using the '--analysis' command line parameter.
 ```ARM
 Assembler trace of attack number 1
 0x80000000:  bl     #0x80000624                                  < NZCV:0000 >
@@ -31,43 +30,60 @@ For fast reproduction of a successful attack, the faults can be setup with the -
 (E.g. "--faults glitch_1,glitch_10" - a double attack with 1 and 10 instruction glitches)
 Code examples for main.c are located at: "content\src\examples"
 
+## Implemented Attacks
 
-## Implemented attacks:
-> 
-> ### Glitch 
-> Insert a glitch to the program counter PC (1 to 10 assembler commands)
-> 
-> #### Syntax:
-> - Attack name: **glitch**
-> - Specific attack: **glitch_1 .. glitch_10**
-> 
-> ### Register Bit Flip 
-> Inserted a bit flip into a register. Registers from R0 to R12. 
-> The bit flip is inserted via a XOR operation with the given hexadecimal value. Currently only single bits could be changed
->
-> #### Syntax:
-> - Attack name: **regbf**
-> - Specific attack: **regbf_r0_00000001 .. regbf_r12_800000000**
->
-> ### Register Flood 
-> The selected register is set or cleared (0x00000000 / 0xFFFFFFFF), to simulate a complete set or clear of e.g. laser attack
-> #### Syntax:
-> - Attack name: **regfld**
-> - Specific attack: **regflood_r0_00000000 or regflood_r0_FFFFFFFF** 
->
-> ### Command fetch Bit Flip 
-> Flips a during command fetch.
-> The bit flip is inserted via a XOR operation with the given hexadecimal value. Currently only single bits could be changed
->
-> #### Syntax:
-> - Attack name: **cmdbf**
-> - Specific attack: **cmdbf_00000001 .. cmdbf_800000000**
->
+### 1. Glitch
+Inject a program counter (PC) glitch (skips 1–10 assembly instructions).
 
+**Syntax:**
+- Attack class: `glitch`
+- Specific attacks: `glitch_1`, `glitch_2`, ..., `glitch_10`
 
+**Example:**
+```bash
+--faults glitch_3  # Skips 3 instructions
+```
 
-### Compiler flags are set to:
-The included main project is at the "content" folder.
+### 2. Register Bit Flip (regbf)
+Flip bits in registers R0–R12 using XOR with a hex mask (single-bit only).
+
+**Syntax:**
+- Attack class: `regbf`
+- Specific attacks: `regbf_rX_YYYYYYYY` (X=0–12, Y=hex mask)
+
+**Examples:**
+```bash
+regbf_r0_00000001  # Flip bit 0 of R0
+regbf_r12_80000000  # Flip bit 31 of R12
+```
+
+### 3. Register Flood (regfld)
+Flood a register with `0x00000000` or `0xFFFFFFFF`.
+
+**Syntax:**
+- Attack class: `regfld`
+- Specific attacks: `regfld_rX_00000000`, `regfld_rX_FFFFFFFF`
+
+**Example:**
+```bash
+regfld_r5_FFFFFFFF  # Set R5 to 0xFFFFFFFF
+```
+
+### 4. Command Fetch Bit Flip (cmdbf)
+Flip bits in instructions during fetch (single-bit only).
+
+**Syntax:**
+- Attack class: `cmdbf`
+- Specific attacks: `cmdbf_YYYYYYYY` (Y=hex mask)
+
+**Example:**
+```bash
+cmdbf_00000001  # Flip bit 0 of the fetched instruction
+```
+
+## Compiler Configuration
+
+The included C project (`/content`) is compiled with these flags:
 
 ```make
 TARGET = armv8-m.main
@@ -75,14 +91,13 @@ TARGET = armv8-m.main
 CFLAGS = -c -O3 -Iinclude \
          -g -gdwarf -Wno-unused-but-set-variable -fno-inline -fno-omit-frame-pointer \
          -fno-ipa-cp-clone -fno-ipa-cp -fno-common -fno-builtin -ffreestanding -fno-stack-protector \
-         -Wall Wno-format-security \ -Wno-format-nonliteral -Wno-return-local-addr -Wno-int-to-pointer-cast \
+         -Wall -Wno-format-security -Wno-format-nonliteral -Wno-return-local-addr -Wno-int-to-pointer-cast \
          -march=$(TARGET) -DMCUBOOT_FIH_PROFILE_ON -DMCUBOOT_FIH_PROFILE_HIGH -DFAULT_INJECTION_TEST
 
 CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
             -Wno-return-local-addr -fno-inline -fno-ipa-cp-clone \
             -fno-ipa-cp -nostartfiles -nodefaultlibs
 ```
-
 
 ## Setup / Requirements
 **Rust Toolchain**
@@ -107,43 +122,40 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 **Ghidra Trace Visualization**
 - Ghidra 11.3 with PyGhidra mode.
 
-## Execution
+## Usage
 
-To run the simulation use the command `cargo run` or `./target/debug/fault_simulator
+### Command-Line Options
+| Flag/Option                    | Description |
+|--------------------------------|-------------|
+| `-t, --threads <THREADS>`      | Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage |
+| `-n, --no-compilation`         | Suppress re-compilation of target program |
+| `--class <ATTACK>,<GROUPS>`    | Attack class to be executed. Possible values are: all, single, double [default: all]. GROUPS can be the names of the implemented attacks. E.g. --class single regbf separated by ' ' |
+| `--faults <FAULTS>`            | Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1 glitch_10). Current implemented fault attacks: <br> - glitch_1 .. glitch_10 <br> - regbf_r0_00000001 .. regbf_r12_80000000 <br> - regfld_r0_00000000 or regfld_r0_FFFFFFFF <br> - cmdbf_00000000 .. cmdbf_80000000 |
+| `-a, --analysis`               | Activate trace analysis of picked fault |
+| `-d, --deep-analysis`          | Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed |
+| `-m, --max_instructions`       | Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000) |
+| `--no_check`                   | Disable program flow check |
+| `-e, --elf <FILE>`             | Use external elf file w/o compilation step |
+| `--trace`                      | Trace and analyse program w/o fault injection |
+| `-r, --run-through`            | Don't stop on first successful fault injection |
+| `-h, --help`                   | Print help |
+| `-V, --version`                | Print version |
 
-Program parameters:
+### Examples
 
-```
--t, --threads <THREADS>       Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage
-                              
--n, --no-compilation          Suppress re-compilation of target program
-    --class <ATTACK>,<GROUPS> Attack class to be executed. Possible values are: all, single, double [default: all]
-                              GROUPS can be the names of the implemented attacks. E.g. --class single regbf separated by ' '
-    --faults <FAULTS>         Run a command line defined sequence of faults. Alternative to --attack. (E.g. --faults glitch_1 glitch_10)
-                              Current implemented fault attacks: 
-                                 glitch_1 .. glitch_10
-                                 regbf_r0_00000001 .. regbf_r12_80000000
-                                 regfld_r0_00000000 or regfld_r0_FFFFFFFF
-                                 cmdbf_00000000 .. cmdbf_80000000 
--a, --analysis                Activate trace analysis of picked fault
--d, --deep-analysis           Check with deep analysis scan. Repeated code (e.g. loops) are fully analysed
--m, --max_instructions        Maximum number of instructions to be executed. Required for longer code under investigation (Default value: 2000)
-    --no_check                Disable program flow check
--e, --elf <FILE>              Use external elf file w/o compilation step
-    --trace                   Trace and analyse program w/o fault injection
--r, --run-through             Don't stop on first successful fault injection
--h, --help                    Print help
--V, --version                 Print version
+1. **Single glitch attack with trace analysis:**
+   ```bash
+   cargo run -- --class single glitch --analysis
+   ```  
 
-Command line examples:
---class single
---class single glitch --analysis
---class single glitch regbf --analysis
---class single regbf --elf tests/bin/victim_4.elf --analysis -t 0
---class double cmdbf --analysis
---faults regbf_r1_0100 glitch_1
-```
-
+2. **Double attack (glitch + register flood) on custom ELF:**
+   ```bash
+   cargo run -- --class double glitch regfld --elf tests/bin/victim.elf -t 4
+   ```
+3. **Running a fault sequence with register bit-flip and glitch:**
+   ```bash
+   cargo run -- --faults regbf_r1_0100 glitch_1
+   ```
 
 ## Ghidra Visualization
 
