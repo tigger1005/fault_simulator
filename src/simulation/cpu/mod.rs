@@ -156,23 +156,24 @@ impl<'a> Cpu<'a> {
     ///
     /// BreakPoints
     /// { binInfo.Symbols["decision_activation"].Address }
-    pub fn setup_breakpoints(&mut self) {
-        let decision_activation = self
-            .emu
-            .get_data()
-            .file_data
-            .symbol_map
-            .get("decision_activation")
-            .expect("No decision_activation symbol found");
+    pub fn setup_breakpoints(&mut self, decision_activation_active: bool) {
+        if decision_activation_active {
+            let decision_activation = self
+                .emu
+                .get_data()
+                .file_data
+                .symbol_map
+                .get("decision_activation")
+                .expect("No decision_activation symbol found");
 
-        self.emu
-            .add_code_hook(
-                decision_activation.st_value,
-                decision_activation.st_value + 1,
-                hook_code_decision_activation_callback,
-            )
-            .expect("failed to set decision_activation code hook");
-
+            self.emu
+                .add_code_hook(
+                    decision_activation.st_value,
+                    decision_activation.st_value + 1,
+                    hook_code_decision_activation_callback,
+                )
+                .expect("failed to set decision_activation code hook");
+        }
         self.emu
             .add_mem_hook(
                 HookType::MEM_WRITE,

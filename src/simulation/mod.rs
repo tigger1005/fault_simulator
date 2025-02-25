@@ -30,12 +30,12 @@ impl<'a> Control<'a> {
     /// Create a new instance of the control module
     /// The elf file is used to load the program code
     /// and to setup the cpu emulation
-    pub fn new(program_data: &'a ElfFile) -> Self {
+    pub fn new(program_data: &'a ElfFile, decision_activation_active: bool) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(program_data);
         // Cpu setup
         emu.setup_mmio();
-        emu.setup_breakpoints();
+        emu.setup_breakpoints(decision_activation_active);
         Self { emu }
     }
 

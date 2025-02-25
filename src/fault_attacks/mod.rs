@@ -91,7 +91,7 @@ impl FaultAttacks {
 
     pub fn check_for_correct_behavior(&self, cycles: usize) -> Result<(), String> {
         // Get trace data from negative run
-        let mut simulation = Control::new(&self.file_data);
+        let mut simulation = Control::new(&self.file_data, true);
         simulation.check_program(cycles)
     }
 
@@ -335,7 +335,7 @@ fn trace_run(
     deep_analysis: bool,
     records: &[FaultRecord],
 ) -> Result<Vec<TraceRecord>, String> {
-    let mut simulation = Control::new(file_data);
+    let mut simulation = Control::new(file_data, false);
     let data = simulation.run_with_faults(cycles, run_type, deep_analysis, records)?;
     match data {
         Data::Trace(trace) => Ok(trace),
@@ -349,7 +349,7 @@ fn simulation_run(
     records: &[FaultRecord],
     s: &mut Sender<Vec<FaultData>>,
 ) -> Result<(), String> {
-    let mut simulation = Control::new(file_data);
+    let mut simulation = Control::new(file_data, false);
     let data = simulation.run_with_faults(cycles, RunType::Run, false, records)?;
     if let Data::Fault(fault) = data {
         if !fault.is_empty() {
