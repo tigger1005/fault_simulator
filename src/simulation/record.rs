@@ -1,15 +1,15 @@
 use crate::fault_attacks::faults::FaultType;
 use std::hash::{Hash, Hasher};
 
-#[derive(Clone, Debug)]
 /// Representation for a fault which shall be executed at step `index` of a simulation.
+#[derive(Clone, Debug)]
 pub struct FaultRecord {
     pub index: usize,
     pub fault_type: FaultType,
 }
 
+/// Enum representing a trace record.
 #[derive(Clone, Debug, Eq)]
-/// One recorded step of a simulation
 pub enum TraceRecord {
     Instruction {
         address: u64,
@@ -55,6 +55,11 @@ impl Hash for TraceRecord {
 }
 
 impl TraceRecord {
+    /// Returns the address of the trace record.
+    ///
+    /// # Returns
+    ///
+    /// * `u64` - The address of the trace record.
     pub fn address(&self) -> u64 {
         match self {
             TraceRecord::Instruction { address, .. } => *address,

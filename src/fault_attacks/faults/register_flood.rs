@@ -27,16 +27,34 @@ impl Debug for RegisterFlood {
     }
 }
 
-/// Implementation for Glitch fault
+/// Implementation for RegisterFlood fault
 impl RegisterFlood {
-    /// Create a new Glitch fault
+    /// Creates a new `RegisterFlood` fault.
+    ///
+    /// # Arguments
+    ///
+    /// * `register` - The register to flood.
+    /// * `value` - The value to flood the register with.
+    ///
+    /// # Returns
+    ///
+    /// * `Arc<Self>` - Returns an `Arc` containing the `RegisterFlood` instance.
     pub fn new(register: RegisterARM, value: u32) -> Arc<Self> {
         Arc::new(Self { register, value })
     }
 }
 
 impl FaultFunctions for RegisterFlood {
-    /// Execute a bit flip in the given register.
+    /// Executes the register flood fault.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - The CPU instance.
+    /// * `fault` - The fault record.
+    ///
+    /// # Returns
+    ///
+    /// * `bool` - Returns `false` as no cleanup is required.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
 
@@ -76,7 +94,12 @@ impl FaultFunctions for RegisterFlood {
         false
     }
 
-    /// Filtering of traces to reduce the number of traces to analyze
+    /// Filters the trace records based on the disassembly.
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - The trace records to filter.
+    /// * `cs` - The disassembly context.
     fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly) {
         records.retain(|record| match record {
             TraceRecord::Instruction {
@@ -92,7 +115,15 @@ impl FaultFunctions for RegisterFlood {
         });
     }
 
-    /// Try to parse a Glitch fault from a string
+    /// Tries to create a `RegisterFlood` fault from the given input string.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The input string.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
     fn try_from(&self, input: &str) -> Option<FaultType> {
         // divide name from attribute
         let collect: Vec<&str> = input.split('_').collect();
@@ -116,7 +147,12 @@ impl FaultFunctions for RegisterFlood {
         }
         None
     }
-    /// Get the list of possible/good faults
+
+    /// Returns a list of possible/good faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<String>` - Returns a vector of fault names.
     fn get_list(&self) -> Vec<String> {
         let mut list = Vec::new();
         // Generate a list of all possible register bitflips

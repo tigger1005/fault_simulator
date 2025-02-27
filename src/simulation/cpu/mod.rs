@@ -51,6 +51,7 @@ pub enum RunState {
     Error,
 }
 
+/// Struct representing the CPU for the simulation.
 pub struct Cpu<'a> {
     emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
@@ -68,6 +69,15 @@ struct CpuState<'a> {
 }
 
 impl<'a> Cpu<'a> {
+    /// Creates a new `Cpu` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_data` - The ELF file data.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - Returns a `Cpu` instance.
     pub fn new(file_data: &'a ElfFile) -> Self {
         // Setup platform -> ARMv8-m.base
         let emu = Unicorn::new_with_data(
@@ -261,6 +271,15 @@ impl<'a> Cpu<'a> {
         ret_val
     }
 
+    /// Returns the size of the assembler command at the specified address.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The address of the command.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<usize>` - Returns the size of the command if successful, otherwise `None`.
     pub fn get_asm_cmd_size(&self, address: u64) -> Option<usize> {
         let mut data: [u8; 2] = [0; 2];
         // Check for 32bit cmd (0b11101... 0b1111....)
@@ -304,6 +323,11 @@ impl<'a> Cpu<'a> {
             .expect("failed to setup trace hook");
     }
 
+    /// Starts tracing the CPU execution.
+    ///
+    /// # Arguments
+    ///
+    /// * `record_registers` - Whether to record register values during tracing.
     pub fn start_tracing(&mut self, with_register_data: bool) {
         let cpu_state = self.emu.get_data_mut();
         cpu_state.with_register_data = with_register_data;

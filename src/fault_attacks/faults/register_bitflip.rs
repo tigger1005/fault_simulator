@@ -27,9 +27,18 @@ impl Debug for RegisterBitFlip {
     }
 }
 
-/// Implementation for Glitch fault
+/// Implementation for RegisterBitFlip fault
 impl RegisterBitFlip {
-    /// Create a new Glitch fault
+    /// Creates a new `RegisterBitFlip` fault.
+    ///
+    /// # Arguments
+    ///
+    /// * `register` - The register to bit flip.
+    /// * `xor_value` - The XOR value to apply to the register.
+    ///
+    /// # Returns
+    ///
+    /// * `Arc<Self>` - Returns an `Arc` containing the `RegisterBitFlip` instance.
     pub fn new(register: RegisterARM, xor_value: u32) -> Arc<Self> {
         Arc::new(Self {
             register,
@@ -39,7 +48,16 @@ impl RegisterBitFlip {
 }
 
 impl FaultFunctions for RegisterBitFlip {
-    /// Execute a bit flip in the given register.
+    /// Executes the register bit flip fault.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - The CPU instance.
+    /// * `fault` - The fault record.
+    ///
+    /// # Returns
+    ///
+    /// * `bool` - Returns `false` as no cleanup is required.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
 
@@ -79,7 +97,12 @@ impl FaultFunctions for RegisterBitFlip {
         false
     }
 
-    /// Filtering of traces to reduce the number of traces to analyze
+    /// Filters the trace records based on the disassembly.
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - The trace records to filter.
+    /// * `cs` - The disassembly context.
     fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly) {
         records.retain(|record| match record {
             TraceRecord::Instruction {
@@ -95,7 +118,15 @@ impl FaultFunctions for RegisterBitFlip {
         });
     }
 
-    /// Try to parse a Glitch fault from a string
+    /// Tries to create a `RegisterBitFlip` fault from the given input string.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The input string.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
     fn try_from(&self, input: &str) -> Option<FaultType> {
         // divide name from attribute
         let collect: Vec<&str> = input.split('_').collect();
@@ -103,7 +134,7 @@ impl FaultFunctions for RegisterBitFlip {
         let fault_type = collect.first().copied()?;
         let attribute_1 = collect.get(1).copied()?;
         let attribute_2 = collect.get(2).copied()?;
-        // check if fault type is glitch
+        // check if fault type is register bit flip
         if fault_type == "regbf" {
             // check if attribute is a register
             if let Some(stripped) = attribute_1.strip_prefix('r') {
@@ -111,7 +142,7 @@ impl FaultFunctions for RegisterBitFlip {
                 if let Ok(register) = stripped.parse::<usize>() {
                     // check if attribute is a valid value
                     if let Ok(xor_value) = u32::from_str_radix(attribute_2, 16) {
-                        // return Glitch struct
+                        // return RegisterBitFlip struct
                         return Some(Self::new(ARM_REG[register], xor_value));
                     }
                 }
@@ -119,7 +150,12 @@ impl FaultFunctions for RegisterBitFlip {
         }
         None
     }
-    /// Get the list of possible/good faults
+
+    /// Get the list of possible/good faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<String>` - Returns a vector of fault names.
     fn get_list(&self) -> Vec<String> {
         let mut list = Vec::new();
         // Generate a list of all possible register bitflips

@@ -10,6 +10,7 @@ use capstone::prelude::*;
 use colored::Colorize;
 use regex::Regex;
 
+/// Struct for disassembling instructions and analyzing faults.
 pub struct Disassembly {
     cs: Capstone,
 }
@@ -21,6 +22,11 @@ impl Default for Disassembly {
 }
 
 impl Disassembly {
+    /// Creates a new `Disassembly` instance.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - Returns a `Disassembly` instance.
     pub fn new() -> Self {
         let cs = Capstone::new()
             .arm()
@@ -30,10 +36,20 @@ impl Disassembly {
             .build()
             .expect("Failed to create Capstone object");
 
-        Self { cs } // Define regex to extract register number from instruction
+        Self { cs }
     }
 
-    // Check if register is used in given instruction
+    /// Checks if a register is used in the given instruction.
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The instruction bytes.
+    /// * `addr` - The address of the instruction.
+    /// * `register` - The register number to check.
+    ///
+    /// # Returns
+    ///
+    /// * `bool` - Returns `true` if the register is used, otherwise `false`.
     pub fn check_for_register(&self, instruction: &[u8], addr: u64, register: u32) -> bool {
         let inst = self.cs.disasm_count(instruction, addr, 1).unwrap();
         inst[0]
@@ -42,7 +58,12 @@ impl Disassembly {
             .contains(format!("r{}", register).as_str())
     }
 
-    /// Disassemble fault data structure
+    /// Disassembles the fault data structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `fault_data` - The fault data to disassemble.
+    /// * `debug_context` - The debug context for the ELF file.
     fn disassembly_fault_data(
         &self,
         fault_data: &FaultData,
@@ -72,7 +93,12 @@ impl Disassembly {
         }
     }
 
-    /// Print trace_record of given trace_records vector
+    /// Prints the trace records.
+    ///
+    /// # Arguments
+    ///
+    /// * `trace_records` - The trace records to print.
+    /// * `debug_context` - The debug context for the ELF file.
     pub fn disassembly_trace_records(
         &self,
         trace_records: &Option<Vec<TraceRecord>>,
@@ -110,7 +136,7 @@ impl Disassembly {
                         // Print register and flags get next trace record::Instruction
                         for next_trace_record in iter.clone() {
                             if let TraceRecord::Instruction { registers, .. } = next_trace_record {
-                                // Allways print CPU flags
+                                // Always print CPU flags
                                 print_flags_and_registers(
                                     &re,
                                     &registers.unwrap(),
@@ -156,7 +182,12 @@ impl Disassembly {
         println!("------------------------");
     }
 
-    /// Print fault data of given fault_data_vec vector
+    /// Prints the fault data records.
+    ///
+    /// # Arguments
+    ///
+    /// * `fault_data_vec` - The vector of fault data records to print.
+    /// * `debug_context` - The debug context for the ELF file.
     pub fn print_fault_records(
         &self,
         fault_data_vec: &[Vec<FaultData>],
@@ -177,6 +208,18 @@ impl Disassembly {
             });
     }
 
+    /// Prints debug information for the given address.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - The address to print debug information for.
+    /// * `debug_context` - The debug context for the ELF file.
+    /// * `code` - Whether to print the source code line.
+    /// * `comp_string` - The previous source code line for comparison.
+    ///
+    /// # Returns
+    ///
+    /// * `String` - Returns the current source code line.
     fn print_debug_info(
         &self,
         address: u64,
@@ -230,6 +273,10 @@ impl Disassembly {
 }
 
 /// Print opcode of given instruction
+///
+/// # Arguments
+///
+/// * `ins` - The instruction to print.
 fn print_opcode(ins: &capstone::Insn) {
     print!(
         "0x{:X}:  {:6} {:40}     < ",
@@ -239,6 +286,15 @@ fn print_opcode(ins: &capstone::Insn) {
     );
 }
 
+/// Extracts the flags from the given value.
+///
+/// # Arguments
+///
+/// * `value` - The value to extract flags from.
+///
+/// # Returns
+///
+/// * `(bool, bool, bool, bool)` - Returns a tuple containing the flags (N, Z, C, V).
 fn get_flags(value: u32) -> (bool, bool, bool, bool) {
     let n = (value & 0x80000000) >> 31;
     let z = (value & 0x40000000) >> 30;
@@ -247,7 +303,14 @@ fn get_flags(value: u32) -> (bool, bool, bool, bool) {
     (n == 1, z == 1, c == 1, v == 1)
 }
 
-/// Print registers and flags of given registers vector
+/// Prints the registers and flags of the given registers vector.
+///
+/// # Arguments
+///
+/// * `re` - The regex to extract register numbers.
+/// * `registers` - The current register values.
+/// * `old_registers` - The previous register values.
+/// * `ins` - The instruction to print.
 fn print_flags_and_registers(
     re: &Regex,
     registers: &[u32; 17],
@@ -296,12 +359,22 @@ fn print_flags_and_registers(
             print!("LR=0x{:08X} ", registers[14]);
         }
     }
-    // PC allways change -> no coloring
+    // PC always changes -> no coloring
     if ins.op_str().unwrap().contains("pc") {
         print!("PC=0x{:08X} ", registers[15]);
     }
 }
 
+/// Formats the flag value with color if it has changed.
+///
+/// # Arguments
+///
+/// * `new_val` - The new flag value.
+/// * `old_val` - The old flag value.
+///
+/// # Returns
+///
+/// * `String` - Returns the formatted flag value.
 fn format_colored_flag(new_val: bool, old_val: bool) -> String {
     let new_value = format!("{}", new_val as u8);
     if new_val != old_val {

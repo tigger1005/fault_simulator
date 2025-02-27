@@ -1,5 +1,6 @@
 use std::process::Command;
 
+/// Compiles the victim binary if necessary.
 pub fn compile() {
     // Compile victim
     println!("Compile victim if necessary:");
