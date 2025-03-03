@@ -5,29 +5,12 @@ Faults are introduces depending the predefined ranges or manualy. For the simula
 (e.g. "--class double"). For specific cases the check of the C code operation can be disabled with the "--no-check" option. This will allow to remove for e.g. the SUCCESS_DATA from the file under attack.
 
 Once a vulnerability is found, the attack command sequence can be further analyzed using the '--analysis' command line parameter.
-```ARM
-Assembler trace of attack number 1
-0x80000000:  bl     #0x80000624                                  < NZCV:0000 >
-int main() {                                                               - "/home/ebrecht/github/fault_simulator/content/src/main.c":45
-0x80000624:  push   {r7, lr}                                     < NZCV:0000 R7=0x00000000 LR=0x80000005 >
-0x80000626:  add    r7, sp, #0                                   < NZCV:0000 R7=0x8010FFF4 SP=0x8010FFF4 >
-  decision_activation();                                                   - "/home/ebrecht/github/fault_simulator/content/src/main.c":46
-0x80000628:  bl     #0x80000008                                  < NZCV:0000 >
-__attribute__((used, noinline)) void decision_activation(void) {}          - "/home/ebrecht/github/fault_simulator/content/src/common.c":16
-0x80000008:  push   {r7}                                         < NZCV:0000 R7=0x8010FFF4 >
-0x8000000A:  add    r7, sp, #0                                   < NZCV:0000 R7=0x8010FFF0 SP=0x8010FFF0 >
-0x8000000C:  mov    sp, r7                                       < NZCV:0000 R7=0x8010FFF0 SP=0x8010FFF0 >
-0x8000000E:  pop    {r7}                                         < NZCV:0000 R7=0x8010FFF4 >
-0x80000010:  bx     lr                                           < NZCV:0000 LR=0x8000062D >
-      memcmp(&decisiondata.data_element, &decisiondata.success_data_element,     - "/home/ebrecht/github/fault_simulator/content/src/main.c":49
-0x8000062C:  ldr    r1, [pc, #0x24]                              < NZCV:0000 R1=0x800006D4 PC=0x8000062E >
-0x8000062E:  adds   r0, r1, #4                                   < NZCV:1000 R0=0x800006D8 R1=0x800006D4 >
--> Glitch (1 assembler instruction)
-0x80000634:  bl     #0x800004a0                                  < NZCV:1000 >
-```
+
+![Ghidra Visualization](assets/fault_listing.png)
+*Screenshot of the attack visualization with highlighted instructions.*
 
 For fast reproduction of a successful attack, the faults can be setup with the --faults feature manualy.
-(E.g. "--faults glitch_1,glitch_10" - a double attack with 1 and 10 instruction glitches)
+(E.g. *"--faults glitch_1 glitch_10"* -a double attack with 1 and 10 instruction glitches)
 Code examples for main.c are located at: "content\src\examples"
 
 ## Implemented Attacks
@@ -41,7 +24,7 @@ Inject a program counter (PC) glitch (skips 1–10 assembly instructions).
 
 **Example:**
 ```bash
---faults glitch_3  # Skips 3 instructions
+glitch_3  # Skips 3 instructions
 ```
 
 ### 2. Register Bit Flip (regbf)
