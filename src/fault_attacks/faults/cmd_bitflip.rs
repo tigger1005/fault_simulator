@@ -20,9 +20,17 @@ impl Debug for CmdBitFlip {
     }
 }
 
-/// Implementation for Example fault
+/// Implementation for CmdBitFlip fault
 impl CmdBitFlip {
-    /// Create a new Example fault
+    /// Create a new CmdBitFlip fault
+    ///
+    /// # Arguments
+    ///
+    /// * `xor_value` - The XOR value to apply to the command.
+    ///
+    /// # Returns
+    ///
+    /// * `Arc<Self>` - Returns an `Arc` containing the `CmdBitFlip` instance.
     pub fn new(xor_value: u32) -> Arc<Self> {
         Arc::new(Self { xor_value })
     }
@@ -30,9 +38,15 @@ impl CmdBitFlip {
 
 impl FaultFunctions for CmdBitFlip {
     /// Do bit flips to command code before execution
-    /// Return
-    ///     false:  No code repair needed
-    ///     true:   Code repair after fault injection is required
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - The CPU instance.
+    /// * `fault` - The fault record.
+    ///
+    /// # Returns
+    ///
+    /// * `bool` - Returns `true` as code repair after fault injection is required.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         // Get current assembler instruction
         let (address, original_instruction) = cpu.asm_cmd_read();
@@ -78,27 +92,45 @@ impl FaultFunctions for CmdBitFlip {
         true
     }
 
-    /// Filtering of traces to reduce the number of traces to analyze
+    /// Filtering of traces to reduce the number of traces to analyze.
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - The trace records to filter.
+    /// * `cs` - The disassembly context.
     fn filter(&self, _records: &mut Vec<TraceRecord>, _cs: &Disassembly) {}
 
-    /// Try to parse a Example fault from a string
+    /// Try to parse a CmdBitFlip fault from a string.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The input string.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
     fn try_from(&self, input: &str) -> Option<FaultType> {
         // divide name from attribute
         let collect: Vec<&str> = input.split('_').collect();
         // check if name and attribute are present
         let fault_type = collect.first().copied()?;
         let attribute_1 = collect.get(1).copied()?;
-        // check if fault type is glitch
+        // check if fault type is cmd bit flip
         if fault_type == "cmdbf" {
             // check if attribute is a valid value
             if let Ok(xor_value) = u32::from_str_radix(attribute_1, 16) {
-                // return Glitch struct
+                // return CmdBitFlip struct
                 return Some(Self::new(xor_value));
             }
         }
         None
     }
-    /// Get the list of possible/good faults
+
+    /// Get the list of possible/good faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<String>` - Returns a vector of fault names.
     fn get_list(&self) -> Vec<String> {
         let mut list = Vec::new();
         // Generate a list of all possible cmd bitflips

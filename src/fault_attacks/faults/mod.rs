@@ -31,9 +31,42 @@ const FAULTS: [&dyn FaultFunctions; 4] = [
 
 /// Trait for fault injection functions
 pub trait FaultFunctions: Send + Sync + Debug {
+    /// Executes the fault injection on the given CPU with the provided fault record.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - The CPU instance.
+    /// * `fault` - The fault record.
+    ///
+    /// # Returns
+    ///
+    /// * `bool` - Returns `true` if code repair is needed, otherwise `false`.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool;
+
+    /// Filters the trace records based on the disassembly.
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - The trace records to filter.
+    /// * `cs` - The disassembly context.
     fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly);
+
+    /// Tries to create a fault from the given input string.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The input string.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
     fn try_from(&self, input: &str) -> Option<FaultType>;
+
+    /// Returns a list of possible/good faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<String>` - Returns a vector of fault names.
     fn get_list(&self) -> Vec<String>;
 }
 
@@ -41,6 +74,14 @@ pub trait FaultFunctions: Send + Sync + Debug {
 pub type FaultType = Arc<dyn FaultFunctions>;
 
 /// Get the fault type from a string
+///
+/// # Arguments
+///
+/// * `input` - The input string.
+///
+/// # Returns
+///
+/// * `Result<FaultType, String>` - Returns the fault type if found, otherwise an error message.
 pub fn get_fault_from(input: &str) -> Result<FaultType, String> {
     // Parse the fault types
     let result = FAULTS.iter().find_map(|fault| fault.try_from(input));
@@ -51,6 +92,14 @@ pub fn get_fault_from(input: &str) -> Result<FaultType, String> {
 }
 
 /// Get lists of all suggested faults
+///
+/// # Arguments
+///
+/// * `groups` - An iterator over a list of fault group names.
+///
+/// # Returns
+///
+/// * `Vec<Vec<String>>` - A vector of vectors containing fault names.
 pub fn get_fault_lists(groups: &mut Iter<String>) -> Vec<Vec<String>> {
     let fault_types: String = groups.join(" ");
     if !fault_types.is_empty() {

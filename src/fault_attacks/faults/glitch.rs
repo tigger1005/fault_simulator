@@ -27,6 +27,14 @@ impl Debug for Glitch {
 /// Implementation for Glitch fault
 impl Glitch {
     /// Create a new Glitch fault
+    ///
+    /// # Arguments
+    ///
+    /// * `number` - The number of assembler instructions to advance the program counter.
+    ///
+    /// # Returns
+    ///
+    /// * `Arc<Self>` - Returns an `Arc` containing the `Glitch` instance.
     pub fn new(number: usize) -> Arc<Self> {
         Arc::new(Self { number })
     }
@@ -34,6 +42,15 @@ impl Glitch {
 
 impl FaultFunctions for Glitch {
     /// Execute a glitch skipping `n` instructions.
+    ///
+    /// # Arguments
+    ///
+    /// * `cpu` - The CPU instance.
+    /// * `fault` - The fault record.
+    ///
+    /// # Returns
+    ///
+    /// * `bool` - Returns `false` as no cleanup is required.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
         let mut offset = 0;
@@ -71,10 +88,23 @@ impl FaultFunctions for Glitch {
         false
     }
 
-    /// Filtering of traces to reduce the number of traces to analyze
+    /// Filtering of traces to reduce the number of traces to analyze.
+    ///
+    /// # Arguments
+    ///
+    /// * `records` - The trace records to filter.
+    /// * `cs` - The disassembly context.
     fn filter(&self, _records: &mut Vec<TraceRecord>, _cs: &Disassembly) {}
 
-    /// Try to parse a Glitch fault from a string
+    /// Try to parse a Glitch fault from a string.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - The input string.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<FaultType>` - Returns the fault type if successful, otherwise `None`.
     fn try_from(&self, input: &str) -> Option<FaultType> {
         // divide name from attribute
         let collect: Vec<&str> = input.split('_').collect();
@@ -91,7 +121,12 @@ impl FaultFunctions for Glitch {
         }
         None
     }
-    /// Get the list of possible/good faults
+
+    /// Get the list of possible/good faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Vec<String>` - Returns a vector of fault names.
     fn get_list(&self) -> Vec<String> {
         let list: Vec<String> = (1..=8).map(|index| format!("glitch_{}", index)).collect();
         list

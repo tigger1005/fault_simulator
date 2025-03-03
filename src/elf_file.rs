@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 pub use elf::abi::*;
 
+/// This struct is used to parse an elf file and store the relevant data
 pub struct ElfFile {
     pub header: FileHeader<AnyEndian>,
     pub program_data: Vec<(ProgramHeader, Vec<u8>)>,
@@ -16,6 +17,15 @@ pub struct ElfFile {
 }
 
 impl ElfFile {
+    /// Creates a new `ElfFile` instance from the given file path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A `PathBuf` representing the path to the ELF file.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Self, String>` - Returns an `ElfFile` instance if successful, otherwise an error message.
     pub fn new(path: std::path::PathBuf) -> Result<Self, String> {
         let file_data = std::fs::read(path).expect("Could not read file.");
         let elf_data = ElfBytes::<AnyEndian>::minimal_parse(file_data.as_ref())
@@ -86,6 +96,12 @@ impl ElfFile {
             file_data,
         })
     }
+
+    /// Returns a debug context for the ELF file.
+    ///
+    /// # Returns
+    ///
+    /// * `Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>>` - The debug context.
     pub fn get_debug_context(
         &self,
     ) -> Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>> {

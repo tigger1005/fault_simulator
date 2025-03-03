@@ -10,37 +10,58 @@ use record::FaultRecord;
 pub use record::TraceRecord;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
+/// Enum representing the type of run for the simulation.
 pub enum RunType {
     Run,
     RecordTrace,
     RecordFullTrace,
 }
 
+/// Enum representing the data returned by the simulation.
 pub enum Data {
     Fault(Vec<FaultData>),
     Trace(Vec<TraceRecord>),
     None,
 }
 
+/// Struct representing the control for the simulation.
 pub struct Control<'a> {
     emu: Cpu<'a>,
 }
 
 impl<'a> Control<'a> {
-    /// Create a new instance of the control module
+    /// Creates a new `Control` instance.
     /// The elf file is used to load the program code
     /// and to setup the cpu emulation
-    pub fn new(program_data: &'a ElfFile) -> Self {
+    ///
+    /// # Arguments
+    ///
+    /// * `elf_file` - The ELF file data.
+    /// * `trace` - Whether to enable tracing.
+    ///
+    /// # Returns
+    ///
+    /// * `Self` - Returns a `Control` instance.
+    pub fn new(program_data: &'a ElfFile, decision_activation_active: bool) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(program_data);
         // Cpu setup
         emu.setup_mmio();
-        emu.setup_breakpoints();
+        emu.setup_breakpoints(decision_activation_active);
         Self { emu }
     }
 
     /// Setup system state to a successful or failed state
     /// and run the program. Return the state of the program after compilation
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the program.
+    /// * `run_successful` - Whether to run the program in a successful state.
+    ///
+    /// # Returns
+    ///
+    /// * `RunState` - Returns the state of the program after running.
     fn run(&mut self, cycles: usize, run_successful: bool) -> RunState {
         // Initial and load program
         self.init_and_load(run_successful);
@@ -62,8 +83,17 @@ impl<'a> Control<'a> {
         self.emu.init_states(run_successful);
     }
 
+    /// Checks the program for correct behavior.
     /// Check if code under investigation is working correct for
     /// positive and negative execution
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the check.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
     pub fn check_program(&mut self, cycles: usize) -> Result<(), String> {
         // Deactivate io print
         self.emu.deactivate_printf_function();
@@ -81,9 +111,21 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
+    /// Runs the simulation with the specified faults.
     /// Execute or trace loaded code with the given faults
     /// If code execution with successful state, a vector array will be returned with the injected faults
     /// If code tracing was activated a vector array with the trace records will be returned
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the simulation.
+    /// * `run_type` - The type of run to execute (e.g., normal, stress test).
+    /// * `deep_analysis` - Whether to perform a deep analysis during the simulation.
+    /// * `records` - A collection of records to be used during the simulation.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Data, String>` - Returns the resulting data from the simulation if successful, otherwise an error message.
     pub fn run_with_faults(
         &mut self,
         cycles: usize,

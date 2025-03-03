@@ -16,6 +16,7 @@ use std::{
     sync::mpsc::{channel, Sender},
 };
 
+/// Struct representing fault attacks.
 pub struct FaultAttacks {
     cs: Disassembly,
     pub file_data: ElfFile,
@@ -24,6 +25,15 @@ pub struct FaultAttacks {
 }
 
 impl FaultAttacks {
+    /// Creates a new `FaultAttacks` instance from the given path.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A `PathBuf` representing the path to the ELF file.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Self, String>` - Returns a `FaultAttacks` instance if successful, otherwise an error message.
     pub fn new(path: std::path::PathBuf) -> Result<Self, String> {
         // Load victim data
         let file_data: ElfFile = ElfFile::new(path)?;
@@ -36,10 +46,16 @@ impl FaultAttacks {
         })
     }
 
+    /// Sets the fault data for the `FaultAttacks` instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `fault_data` - A vector of vectors containing `FaultData`.
     pub fn set_fault_data(&mut self, fault_data: Vec<Vec<FaultData>>) {
         self.fault_data = fault_data;
     }
 
+    /// Prints the fault data.
     pub fn print_fault_data(&self) {
         let debug_context = self.file_data.get_debug_context();
 
@@ -47,6 +63,16 @@ impl FaultAttacks {
             .print_fault_records(&self.fault_data, &debug_context);
     }
 
+    /// Prints the trace for a specific fault.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the trace.
+    /// * `attack_number` - The attack number to trace.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
     pub fn print_trace_for_fault(&self, cycles: usize, attack_number: usize) -> Result<(), String> {
         if !self.fault_data.is_empty() {
             let fault_records = FaultData::get_simulation_fault_records(
@@ -71,6 +97,15 @@ impl FaultAttacks {
         Ok(())
     }
 
+    /// Prints the trace.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the trace.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
     pub fn print_trace(&self, cycles: usize) -> Result<(), String> {
         // Run full trace
         let trace_records = Some(trace_run(
@@ -89,16 +124,34 @@ impl FaultAttacks {
         Ok(())
     }
 
+    /// Checks for correct behavior.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the check.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
     pub fn check_for_correct_behavior(&self, cycles: usize) -> Result<(), String> {
         // Get trace data from negative run
-        let mut simulation = Control::new(&self.file_data);
+        let mut simulation = Control::new(&self.file_data, true);
         simulation.check_program(cycles)
     }
 
-    /// Run single glitch attacks
+    /// Runs single glitch attacks.
     ///
-    /// Parameter is the range of the single glitch size in commands
-    /// Return (success: bool, number_of_attacks: usize)
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the attack.
+    /// * `deep_analysis` - Whether to perform a deep analysis.
+    /// * `prograss_bar` - Whether to show a progress bar.
+    /// * `groups` - An iterator over the fault groups.
+    /// * `run_through` - Whether to run through all faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(bool, usize), String>` - Returns a tuple containing a boolean indicating success and the number of attacks.
     pub fn single(
         &mut self,
         cycles: usize,
@@ -117,28 +170,36 @@ impl FaultAttacks {
                 let fault = get_fault_from(&fault).unwrap();
 
                 // Run simulation with fault
-                let fault_data =
+                let mut fault_data =
                     self.fault_simulation(cycles, &[fault.clone()], deep_analysis, prograss_bar)?;
 
                 if !fault_data.is_empty() {
-                    any_success = true;
-                    for data in fault_data {
-                        // Push each inner Vec<FaultData>
-                        self.fault_data.push(data);
-                    }
+                    // Push intermediate data to fault data
+                    self.fault_data.append(&mut fault_data);
+                    // check for run through flag
                     if !run_through {
-                        return Ok((any_success, self.count_sum));
+                        return Ok((true, self.count_sum));
                     }
+                    any_success = true;
                 }
             }
         }
         Ok((any_success, self.count_sum))
     }
 
-    /// Run double glitch attacks
+    /// Runs double glitch attacks.
     ///
-    /// Parameter is the range of the double glitch size in commands
-    /// Return (success: bool, number_of_attacks: usize)
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the attack.
+    /// * `deep_analysis` - Whether to perform a deep analysis.
+    /// * `prograss_bar` - Whether to show a progress bar.
+    /// * `groups` - An iterator over the fault groups.
+    /// * `run_through` - Whether to run through all faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(bool, usize), String>` - Returns a tuple containing a boolean indicating success and the number of attacks.
     pub fn double(
         &mut self,
         cycles: usize,
@@ -158,24 +219,35 @@ impl FaultAttacks {
                 let fault1 = get_fault_from(&t.0).unwrap();
                 let fault2 = get_fault_from(&t.1).unwrap();
 
-                let fault_data =
+                let mut fault_data =
                     self.fault_simulation(cycles, &[fault1, fault2], deep_analysis, prograss_bar)?;
 
                 if !fault_data.is_empty() {
-                    any_success = true;
-                    for data in fault_data {
-                        // Push each inner Vec<FaultData>
-                        self.fault_data.push(data);
-                    }
+                    // Push intermediate data to fault data
+                    self.fault_data.append(&mut fault_data);
+                    // check for run through flag
                     if !run_through {
-                        return Ok((any_success, self.count_sum));
+                        return Ok((true, self.count_sum));
                     }
+                    any_success = true;
                 }
             }
         }
         Ok((any_success, self.count_sum))
     }
 
+    /// Runs the fault simulation.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - The number of cycles to run the simulation.
+    /// * `faults` - The faults to inject.
+    /// * `deep_analysis` - Whether to perform a deep analysis.
+    /// * `prograss_bar` - Whether to show a progress bar.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Vec<Vec<FaultData>>, String>` - Returns a vector of fault data if successful, otherwise an error message.
     pub fn fault_simulation(
         &mut self,
         cycles: usize,
@@ -266,6 +338,21 @@ impl FaultAttacks {
         }
     }
 
+    /// Inner recursive function for fault simulation.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_data` - The ELF file data.
+    /// * `cycles` - The number of cycles to run the simulation.
+    /// * `faults` - The faults to inject.
+    /// * `simulation_fault_records` - The current simulation fault records.
+    /// * `deep_analysis` - Whether to perform a deep analysis.
+    /// * `s` - The sender for fault data.
+    /// * `cs` - The disassembly context.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<usize, String>` - Returns the number of successful attacks if successful, otherwise an error message.
     fn fault_simulation_inner(
         file_data: &ElfFile,
         cycles: usize,
@@ -326,10 +413,22 @@ impl FaultAttacks {
     }
 }
 
-/// Run the simulation with faults and return a trace of the program flow
+/// Runs the simulation with faults for the specified number of cycles and returns the resulting data.
 ///
-/// If the simulation fails, return an empty vector
+/// # Arguments
 ///
+/// * `cycles` - The number of cycles to run the simulation.
+/// * `run_type` - The type of run to execute (e.g., normal, stress test).
+/// * `deep_analysis` - A boolean indicating whether to perform a deep analysis during the simulation.
+/// * `records` - A collection of records to be used during the simulation.
+///
+/// # Returns
+///
+/// * `data` - The resulting data from running the simulation with faults.
+///
+/// # Errors
+///
+/// This function will return an error if the simulation fails to run with the specified faults.
 fn trace_run(
     file_data: &ElfFile,
     cycles: usize,
@@ -337,7 +436,7 @@ fn trace_run(
     deep_analysis: bool,
     records: &[FaultRecord],
 ) -> Result<Vec<TraceRecord>, String> {
-    let mut simulation = Control::new(file_data);
+    let mut simulation = Control::new(file_data, false);
     let data = simulation.run_with_faults(cycles, run_type, deep_analysis, records)?;
     match data {
         Data::Trace(trace) => Ok(trace),
@@ -345,13 +444,25 @@ fn trace_run(
     }
 }
 
+/// Runs the simulation with faults and sends the resulting fault data to the provided sender.
+///
+/// # Arguments
+///
+/// * `file_data` - The ELF file data.
+/// * `cycles` - The number of cycles to run the simulation.
+/// * `records` - A collection of fault records to be used during the simulation.
+/// * `s` - The sender for fault data.
+///
+/// # Returns
+///
+/// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
 fn simulation_run(
     file_data: &ElfFile,
     cycles: usize,
     records: &[FaultRecord],
     s: &mut Sender<Vec<FaultData>>,
 ) -> Result<(), String> {
-    let mut simulation = Control::new(file_data);
+    let mut simulation = Control::new(file_data, false);
     let data = simulation.run_with_faults(cycles, RunType::Run, false, records)?;
     if let Data::Fault(fault) = data {
         if !fault.is_empty() {
