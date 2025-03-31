@@ -1,41 +1,51 @@
 /**
- * @file main.c
+ * @file main_5.c
  * @author Roland Ebrecht
- * @brief
+ * @brief Demonstration of "--no-check" command line parameter. This switch deactivate the verification
+ * of the program flow for the positive and the negative case. With this the DECISION_DATA_STRUCTURE is
+ * not required to hold the positive data value and the decision_activation() function can be removed.
  * @version 0.1
  * @date 2024-04-29
  *
  */
 
+#include "bootutil/fault_injection_hardening.h"
 #include "common.h"
-#include "fih_mem.h"
 #include "utils.h"
 
 void start_success_handling(void);
 
-typedef struct
+// When "--no-check" is activated, a SUCCESS data value is not necessary and reduces false-positive findings.
+DECISION_DATA_STRUCTURE(fih_uint, FIH_FAILURE, FIH_FAILURE);
+// DECISION_DATA_STRUCTURE(fih_uint, FIH_SUCCESS, FIH_FAILURE);
+
+//  __attribute__((noinline)) fih_uint get_value(fih_uint *t)
+//  {
+//      return *t;
+//  }
+
+//  __attribute__((noinline)) bool check_equal(fih_uint *a, fih_uint *b)
+//  {
+//      return a->val == b->val;
+//  }
+
+__attribute__((noinline)) bool check_equal_mask(fih_uint *a, fih_uint *b)
 {
-    uint8_t val[24];
-} data_el;
+    return a->msk == b->msk;
+}
 
-#define SUCCESS_DATA                                                                \
-    {                                                                               \
-        {                                                                           \
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, \
-                0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,   \
-                0x18                                                                \
-        }                                                                           \
-    }
-#define FAILED_DATA                                                                 \
-    {                                                                               \
-        {                                                                           \
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, \
-                0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x14, 0x16, 0x17,   \
-                0x18                                                                \
-        }                                                                           \
-    }
+//  __attribute__((noinline)) bool check_address(fih_uint *a, fih_uint *b)
+//  {
+//      return a != b;
+//  }
 
-DECISION_DATA_STRUCTURE(data_el, SUCCESS_DATA, FAILED_DATA);
+#define fih_uint_eq_new(x, y)                 \
+    ((x.val == y.val) &&                      \
+     fih_delay() &&                           \
+     ((y).val == FIH_UINT_VAL_MASK(x.msk)) && \
+     fih_delay() &&                           \
+     fih_uint_validate(x) &&                  \
+     check_equal_mask(&x, &y))
 
 /*******************************************************************************
  * Function Name:  main
@@ -45,29 +55,31 @@ DECISION_DATA_STRUCTURE(data_el, SUCCESS_DATA, FAILED_DATA);
  *******************************************************************************/
 int main()
 {
-    decision_activation();
+    int ret = -1;
 
-    int res =
-        memcmp(&decisiondata.data_element, &decisiondata.success_data_element,
-               decisiondata.decision_element_size);
-    if (res == 0)
+    serial_puts("Some code 1...\n");
+
+    if (fih_uint_eq_new(DECISION_DATA, FIH_SUCCESS))
     {
-        serial_puts("Verification positive path  : OK\n");
+        // Fix for linker problem (success_handling is directly behind the return function)
+        __SET_SIM_CONDITION_TRUE();
 
+        serial_puts("Verification positive path : OK\n");
         start_success_handling();
+        ret = 0;
     }
     else
     {
+
         serial_puts("Verification negative path : OK\n");
         __SET_SIM_FAILED();
+        ret = 1;
     }
-
-    FIH_PANIC;
-    return 0;
+    return ret;
 }
 
 /*******************************************************************************
- * Function Name:  launch_oem_ram_app
+ * Function Name:  start_success_handling
  *******************************************************************************
  * \brief This function launch CM33 OEM RAM App.
  *
@@ -77,5 +89,5 @@ int main()
  *******************************************************************************/
 void start_success_handling(void)
 {
-    __SET_SIM_SUCCESS();
+    __SET_SIM_SUCCESS_WITH_CONDITION();
 }
