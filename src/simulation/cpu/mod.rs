@@ -131,8 +131,6 @@ impl<'a> Cpu<'a> {
     }
 
     /// Load source code from elf file into simulation
-    ///
-    /// The PC is set to the start of the program
     pub fn load_code(&mut self) {
         let program_parts = &self.emu.get_data().file_data.program_data;
 
