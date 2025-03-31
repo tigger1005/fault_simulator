@@ -121,7 +121,6 @@ fn main() -> Result<(), String> {
                     .single(
                         args.max_instructions,
                         args.deep_analysis,
-                        true,
                         &mut class,
                         args.run_through,
                     )?
@@ -130,7 +129,6 @@ fn main() -> Result<(), String> {
                     attack_sim.double(
                         args.max_instructions,
                         args.deep_analysis,
-                        true,
                         &mut class,
                         args.run_through,
                     )?;
@@ -140,7 +138,6 @@ fn main() -> Result<(), String> {
                 attack_sim.single(
                     args.max_instructions,
                     args.deep_analysis,
-                    true,
                     &mut class,
                     args.run_through,
                 )?;
@@ -149,7 +146,6 @@ fn main() -> Result<(), String> {
                 attack_sim.double(
                     args.max_instructions,
                     args.deep_analysis,
-                    true,
                     &mut class,
                     args.run_through,
                 )?;
@@ -164,12 +160,8 @@ fn main() -> Result<(), String> {
             .filter_map(|argument| get_fault_from(argument).ok())
             .collect();
 
-        let result = attack_sim.fault_simulation(
-            args.max_instructions,
-            &faults,
-            args.deep_analysis,
-            true,
-        )?;
+        let result =
+            attack_sim.fault_simulation(args.max_instructions, &faults, args.deep_analysis)?;
         // Save result to attack struct
         attack_sim.set_fault_data(result);
     }

@@ -48,6 +48,9 @@ impl<'a> Control<'a> {
         // Cpu setup
         emu.setup_mmio();
         emu.setup_breakpoints(decision_activation_active);
+        // Write code to memory area
+        emu.load_code();
+
         Self { emu }
     }
 
@@ -64,7 +67,7 @@ impl<'a> Control<'a> {
     /// * `RunState` - Returns the state of the program after running.
     fn run(&mut self, cycles: usize, run_successful: bool) -> RunState {
         // Initial and load program
-        self.init_and_load(run_successful);
+        self.init(run_successful);
         // Start execution with the given amount of instructions
         let ret_info = self.emu.run_steps(cycles, false);
 
@@ -75,10 +78,8 @@ impl<'a> Control<'a> {
 
     /// Initialize registers and load the program code into the cpu
     /// and set the initial state
-    fn init_and_load(&mut self, run_successful: bool) {
+    fn init(&mut self, run_successful: bool) {
         self.emu.init_register();
-        // Write code to memory area
-        self.emu.load_code();
         // Init state
         self.emu.init_states(run_successful);
     }
@@ -135,7 +136,7 @@ impl<'a> Control<'a> {
     ) -> Result<Data, String> {
         let mut restore_required = false;
         // Initialize and load
-        self.init_and_load(false);
+        self.init(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 

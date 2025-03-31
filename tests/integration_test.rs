@@ -14,18 +14,14 @@ fn run_single_glitch() {
     let vec = vec!["glitch".to_string()];
     assert_eq!(
         (true, 35),
-        attack
-            .single(2000, false, false, &mut vec.iter(), false)
-            .unwrap()
+        attack.single(2000, false, &mut vec.iter(), false).unwrap()
     );
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!(
         (false, 376),
-        attack
-            .single(2000, false, false, &mut vec.iter(), false)
-            .unwrap()
+        attack.single(2000, false, &mut vec.iter(), false).unwrap()
     );
 }
 
@@ -42,18 +38,14 @@ fn run_double_glitch() {
     let vec = vec!["glitch".to_string()];
     assert_eq!(
         (false, 22808),
-        attack
-            .double(2000, false, false, &mut vec.iter(), false)
-            .unwrap()
+        attack.double(2000, false, &mut vec.iter(), false).unwrap()
     );
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["regbf".to_string()];
     assert_eq!(
         (true, 6916),
-        attack
-            .double(2000, false, false, &mut vec.iter(), false)
-            .unwrap()
+        attack.double(2000, false, &mut vec.iter(), false).unwrap()
     );
 }
 
@@ -68,7 +60,7 @@ fn run_fault_simulation_one_glitch() {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Result is Vec<Vec<FaultData>>
     let result = attack
-        .fault_simulation(2000, &[Glitch::new(1)], false, false)
+        .fault_simulation(2000, &[Glitch::new(1)], false)
         .unwrap();
 
     // Check if correct faults are found (at: 0x80004BA, 0x8000634, 0x800063C)
@@ -98,7 +90,7 @@ fn run_fault_simulation_two_glitches() {
     let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
 
     let result = attack
-        .fault_simulation(2000, &[Glitch::new(1), Glitch::new(10)], false, false)
+        .fault_simulation(2000, &[Glitch::new(1), Glitch::new(10)], false)
         .unwrap();
 
     println!("Result: {:?}", result);

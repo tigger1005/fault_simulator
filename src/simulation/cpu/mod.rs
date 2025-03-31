@@ -125,11 +125,12 @@ impl<'a> Cpu<'a> {
         self.emu
             .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
             .expect("failed to set register");
+
+        // set initial program start address
+        self.program_counter = self.emu.get_data().file_data.header.e_entry;
     }
 
     /// Load source code from elf file into simulation
-    ///
-    /// The PC is set to the start of the program
     pub fn load_code(&mut self) {
         let program_parts = &self.emu.get_data().file_data.program_data;
 
@@ -139,9 +140,6 @@ impl<'a> Cpu<'a> {
                 .mem_write(part.0.p_paddr, &part.1)
                 .expect("failed to write program data");
         }
-
-        // set initial program start address
-        self.program_counter = self.emu.get_data().file_data.header.e_entry;
     }
 
     /// Function to deactivate printf of c program to
