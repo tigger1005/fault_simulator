@@ -109,6 +109,18 @@ impl ElfFile {
     }
 }
 
+impl Clone for ElfFile {
+    fn clone(&self) -> Self {
+        Self {
+            header: self.header.clone(),
+            program_data: self.program_data.clone(),
+            section_map: self.section_map.clone(),
+            symbol_map: self.symbol_map.clone(),
+            file_data: self.file_data.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use addr2line::object::elf::PT_LOAD;

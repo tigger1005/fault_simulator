@@ -5,8 +5,6 @@ use std::path::PathBuf;
 
 use fault_simulator::prelude::*;
 
-use std::env;
-
 mod compile;
 
 use git_version::git_version;
@@ -72,7 +70,6 @@ fn main() -> Result<(), String> {
     // Get parameter from command line
     let args = Args::parse();
     // Set parameter from cli
-    env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
 
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
@@ -96,17 +93,17 @@ fn main() -> Result<(), String> {
     };
 
     // Load victim data for attack simulation
-    let mut attack_sim = FaultAttacks::new(path)?;
+    let mut attack_sim = FaultAttacks::new(path, args.max_instructions)?;
 
     // Check for correct program behavior
-    if !args.no_check {
-        println!("Check for correct program behavior:");
-        attack_sim.check_for_correct_behavior(args.max_instructions)?;
-    }
+    // if !args.no_check {
+    //     println!("Check for correct program behavior:");
+    //     attack_sim.check_for_correct_behavior()?;
+    // }
 
     // Check if trace is selected
     if args.trace {
-        attack_sim.print_trace(args.max_instructions)?;
+        attack_sim.print_trace()?;
         return Ok(());
     }
 
@@ -118,37 +115,17 @@ fn main() -> Result<(), String> {
         match class.next().as_ref().map(|s| s.as_str()) {
             Some("all") | None => {
                 if !attack_sim
-                    .single(
-                        args.max_instructions,
-                        args.deep_analysis,
-                        &mut class,
-                        args.run_through,
-                    )?
+                    .single(args.deep_analysis, &mut class, args.run_through)?
                     .0
                 {
-                    attack_sim.double(
-                        args.max_instructions,
-                        args.deep_analysis,
-                        &mut class,
-                        args.run_through,
-                    )?;
+                    attack_sim.double(args.deep_analysis, &mut class, args.run_through)?;
                 }
             }
             Some("single") => {
-                attack_sim.single(
-                    args.max_instructions,
-                    args.deep_analysis,
-                    &mut class,
-                    args.run_through,
-                )?;
+                attack_sim.single(args.deep_analysis, &mut class, args.run_through)?;
             }
             Some("double") => {
-                attack_sim.double(
-                    args.max_instructions,
-                    args.deep_analysis,
-                    &mut class,
-                    args.run_through,
-                )?;
+                attack_sim.double(args.deep_analysis, &mut class, args.run_through)?;
             }
             _ => println!("Unknown attack class!"),
         }
@@ -160,8 +137,7 @@ fn main() -> Result<(), String> {
             .filter_map(|argument| get_fault_from(argument).ok())
             .collect();
 
-        let result =
-            attack_sim.fault_simulation(args.max_instructions, &faults, args.deep_analysis)?;
+        let result = attack_sim.fault_simulation(&faults, args.deep_analysis)?;
         // Save result to attack struct
         attack_sim.set_fault_data(result);
     }
@@ -183,7 +159,7 @@ fn main() -> Result<(), String> {
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
                     if let Ok(number) = buffer.trim().parse::<usize>() {
-                        attack_sim.print_trace_for_fault(args.max_instructions, number - 1)?;
+                        attack_sim.print_trace_for_fault(number - 1)?;
                         continue;
                     }
                 }
