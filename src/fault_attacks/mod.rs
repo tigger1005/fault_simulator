@@ -7,7 +7,6 @@ use super::simulation::{
 };
 use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use faults::*;
-use indicatif::ProgressBar;
 use itertools::iproduct;
 use log::debug;
 use rayon::prelude::*;
@@ -145,7 +144,6 @@ impl FaultAttacks {
     ///
     /// * `cycles` - The number of cycles to run the attack.
     /// * `deep_analysis` - Whether to perform a deep analysis.
-    /// * `prograss_bar` - Whether to show a progress bar.
     /// * `groups` - An iterator over the fault groups.
     /// * `run_through` - Whether to run through all faults.
     ///
@@ -156,7 +154,6 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         deep_analysis: bool,
-        prograss_bar: bool,
         groups: &mut Iter<String>,
         run_through: bool,
     ) -> Result<(bool, usize), String> {
@@ -171,7 +168,7 @@ impl FaultAttacks {
 
                 // Run simulation with fault
                 let mut fault_data =
-                    self.fault_simulation(cycles, &[fault.clone()], deep_analysis, prograss_bar)?;
+                    self.fault_simulation(cycles, &[fault.clone()], deep_analysis)?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
@@ -193,7 +190,6 @@ impl FaultAttacks {
     ///
     /// * `cycles` - The number of cycles to run the attack.
     /// * `deep_analysis` - Whether to perform a deep analysis.
-    /// * `prograss_bar` - Whether to show a progress bar.
     /// * `groups` - An iterator over the fault groups.
     /// * `run_through` - Whether to run through all faults.
     ///
@@ -204,7 +200,6 @@ impl FaultAttacks {
         &mut self,
         cycles: usize,
         deep_analysis: bool,
-        prograss_bar: bool,
         groups: &mut Iter<String>,
         run_through: bool,
     ) -> Result<(bool, usize), String> {
@@ -220,7 +215,7 @@ impl FaultAttacks {
                 let fault2 = get_fault_from(&t.1).unwrap();
 
                 let mut fault_data =
-                    self.fault_simulation(cycles, &[fault1, fault2], deep_analysis, prograss_bar)?;
+                    self.fault_simulation(cycles, &[fault1, fault2], deep_analysis)?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
@@ -243,7 +238,6 @@ impl FaultAttacks {
     /// * `cycles` - The number of cycles to run the simulation.
     /// * `faults` - The faults to inject.
     /// * `deep_analysis` - Whether to perform a deep analysis.
-    /// * `prograss_bar` - Whether to show a progress bar.
     ///
     /// # Returns
     ///
@@ -253,7 +247,6 @@ impl FaultAttacks {
         cycles: usize,
         faults: &[FaultType],
         deep_analysis: bool,
-        prograss_bar: bool,
     ) -> Result<Vec<Vec<FaultData>>, String> {
         //
         println!("Running simulation for faults: {faults:?}");
@@ -273,11 +266,7 @@ impl FaultAttacks {
         )?;
         debug!("Number of trace steps: {}", records.len());
 
-        let mut bar: Option<ProgressBar> = None;
-        // Setup progress bar and channel for fault data
-        if prograss_bar {
-            bar = Some(ProgressBar::new(records.len() as u64));
-        }
+        // Setup channel for fault data
         let (sender, receiver) = channel();
 
         // Split faults into first and remaining faults
@@ -289,10 +278,6 @@ impl FaultAttacks {
         let n_result: Result<usize, String> = records
             .into_par_iter()
             .map_with(sender, |s, record| -> Result<usize, String> {
-                if let Some(bar) = &bar {
-                    bar.inc(1);
-                }
-
                 let number;
                 // Get index of the record
                 if let TraceRecord::Instruction { index, .. } = record {
@@ -319,10 +304,6 @@ impl FaultAttacks {
                 Ok(number)
             })
             .sum();
-
-        if let Some(bar) = bar {
-            bar.finish_and_clear();
-        }
 
         // Sum up successful attacks
         let n = n_result?;
