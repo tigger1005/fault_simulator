@@ -32,7 +32,10 @@ impl FaultAttacks {
     /// # Arguments
     ///
     /// * `path` - A `PathBuf` representing the path to the ELF file.
-    ///
+    /// * `max_instructions` - Max number of cycles the simulation run, bevor it is stopped
+    /// * `deep_analysis` - Boolean value if deep_analysis of faults are switched on 
+    /// * `run_through` - Boolean value if the analysis should stop after first occurence of an positive attack
+    /// 
     /// # Returns
     ///
     /// * `Result<Self, String>` - Returns a `FaultAttacks` instance if successful, otherwise an error message.
@@ -89,7 +92,7 @@ impl FaultAttacks {
             );
             // Run full trace
             let trace_records = Some(trace_run(
-                &self.file_data,
+                &mut Control::new(&self.file_data, false),
                 self.max_instructions,
                 RunType::RecordFullTrace,
                 true,
@@ -114,7 +117,7 @@ impl FaultAttacks {
     pub fn print_trace(&self) -> Result<(), String> {
         // Run full trace
         let trace_records = Some(trace_run(
-            &self.file_data,
+            &mut Control::new(&self.file_data, false),
             self.max_instructions,
             RunType::RecordFullTrace,
             true,
@@ -244,7 +247,7 @@ impl FaultAttacks {
 
         // Run simulation to record normal fault program flow as a base for fault injection
         let mut records = trace_run(
-            &self.file_data,
+            &mut Control::new(&self.file_data, false), // Use a temporary Control for tracing
             self.max_instructions,
             RunType::RecordTrace,
             self.deep_analysis,
@@ -264,6 +267,9 @@ impl FaultAttacks {
         let n_result: Result<usize, String> = records
             .into_par_iter()
             .map_with(sender, |s, record| -> Result<usize, String> {
+                // Create a simulation instance for each thread
+                let mut simulation = Control::new(&self.file_data, false);
+
                 let number;
                 // Get index of the record
                 if let TraceRecord::Instruction { index, .. } = record {
@@ -275,7 +281,7 @@ impl FaultAttacks {
 
                     // Call recursive fault simulation with first simulation fault record
                     number = Self::fault_simulation_inner(
-                        &self.file_data,
+                        &mut simulation,
                         self.max_instructions,
                         remaining_faults,
                         &simulation_fault_records,
@@ -309,7 +315,7 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `file_data` - The ELF file data.
+    /// * `simulation` - Pointer to a simulation instance
     /// * `cycles` - The number of cycles to run the simulation.
     /// * `faults` - The faults to inject.
     /// * `simulation_fault_records` - The current simulation fault records.
@@ -321,7 +327,7 @@ impl FaultAttacks {
     ///
     /// * `Result<usize, String>` - Returns the number of successful attacks if successful, otherwise an error message.
     fn fault_simulation_inner(
-        file_data: &ElfFile,
+        simulation: &mut Control,
         cycles: usize,
         faults: &[FaultType],
         simulation_fault_records: &[FaultRecord],
@@ -330,22 +336,22 @@ impl FaultAttacks {
         cs: &Disassembly,
     ) -> Result<usize, String> {
         let mut n = 0;
-
+    
         // Check if there are no remaining faults left
         if faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
-            simulation_run(file_data, cycles, simulation_fault_records, s)?;
+            simulation_run(simulation, cycles, simulation_fault_records, s)?;
             n += 1;
         } else {
             // Collect trace records with simulation fault records to get new running length (time)
             let mut records = trace_run(
-                file_data,
+                simulation,
                 cycles,
                 RunType::RecordTrace,
                 deep_analysis,
                 simulation_fault_records,
             )?;
-
+    
             // Split faults into first and remaining faults
             let (first_fault, remaining_faults) = faults.split_first().unwrap();
             // Filter records according to fault type
@@ -361,10 +367,10 @@ impl FaultAttacks {
                         index,
                         fault_type: first_fault.clone(),
                     });
-
+    
                     // Call recursive fault simulation with remaining faults
                     n += Self::fault_simulation_inner(
-                        file_data,
+                        simulation,
                         cycles,
                         remaining_faults,
                         &index_simulation_fault_records,
@@ -375,7 +381,7 @@ impl FaultAttacks {
                 }
             }
         }
-
+    
         Ok(n)
     }
 }
@@ -384,6 +390,7 @@ impl FaultAttacks {
 ///
 /// # Arguments
 ///
+/// * `simulation` - Pointer to a simulation instance
 /// * `cycles` - The number of cycles to run the simulation.
 /// * `run_type` - The type of run to execute (e.g., normal, stress test).
 /// * `deep_analysis` - A boolean indicating whether to perform a deep analysis during the simulation.
@@ -397,13 +404,12 @@ impl FaultAttacks {
 ///
 /// This function will return an error if the simulation fails to run with the specified faults.
 fn trace_run(
-    file_data: &ElfFile,
+    simulation: &mut Control,
     cycles: usize,
     run_type: RunType,
     deep_analysis: bool,
     records: &[FaultRecord],
 ) -> Result<Vec<TraceRecord>, String> {
-    let mut simulation = Control::new(file_data, false);
     let data = simulation.run_with_faults(cycles, run_type, deep_analysis, records)?;
     match data {
         Data::Trace(trace) => Ok(trace),
@@ -415,7 +421,7 @@ fn trace_run(
 ///
 /// # Arguments
 ///
-/// * `file_data` - The ELF file data.
+/// * `simulation` - Pointer to a simulation instance
 /// * `cycles` - The number of cycles to run the simulation.
 /// * `records` - A collection of fault records to be used during the simulation.
 /// * `s` - The sender for fault data.
@@ -424,12 +430,11 @@ fn trace_run(
 ///
 /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
 fn simulation_run(
-    file_data: &ElfFile,
+    simulation: &mut Control,
     cycles: usize,
     records: &[FaultRecord],
     s: &mut Sender<Vec<FaultData>>,
 ) -> Result<(), String> {
-    let mut simulation = Control::new(file_data, false);
     let data = simulation.run_with_faults(cycles, RunType::Run, false, records)?;
     if let Data::Fault(fault) = data {
         if !fault.is_empty() {
