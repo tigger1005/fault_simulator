@@ -170,12 +170,12 @@ fn main() -> Result<(), String> {
                     println!("No successful attacks!");
                     break;
                 }
-                print!("\nList trace for attack number : (Return for no list): ");
+                print!("\nList trace for attack number : (Return for exit): ");
                 stdout().flush().unwrap();
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
-                    if let Ok(number) = buffer.trim().parse::<usize>() {
-                        attack_sim.print_trace_for_fault(number - 1)?;
+                    if let Ok(number) = buffer.trim().parse::<isize>() {
+                        attack_sim.print_trace_for_fault(number)?;
                         continue;
                     }
                 }
