@@ -85,10 +85,10 @@ impl FaultAttacks {
     /// # Returns
     ///
     /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
-    pub fn print_trace_for_fault(&self, attack_number: usize) -> Result<(), String> {
-        if !self.fault_data.is_empty() {
+    pub fn print_trace_for_fault(&self, attack_number: isize) -> Result<(), String> {
+        if !self.fault_data.is_empty() && attack_number > 0 && attack_number as usize <= self.fault_data.len(){
             let fault_records = FaultData::get_simulation_fault_records(
-                self.fault_data.get(attack_number).unwrap(),
+                self.fault_data.get(attack_number as usize - 1).unwrap(),
             );
             // Run full trace
             let trace_records = Some(trace_run(
