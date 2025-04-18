@@ -48,6 +48,9 @@ impl<'a> Control<'a> {
         // Cpu setup
         emu.setup_mmio();
         emu.setup_breakpoints(decision_activation_active);
+        emu.init_register();
+        // Save current cpu state
+        emu.save_state().unwrap();
         Self { emu }
     }
 
@@ -73,10 +76,11 @@ impl<'a> Control<'a> {
         self.emu.get_state()
     }
 
-    /// Initialize registers and load the program code into the cpu
+    /// Initialize cpu state and load the program code into the cpu
     /// and set the initial state
     fn init_and_load(&mut self, run_successful: bool) {
-        self.emu.init_register();
+        // Reset cpu state
+        self.emu.restore_state().unwrap();
         // Write code to memory area
         self.emu.load_code();
         // Init state
