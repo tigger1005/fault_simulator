@@ -80,6 +80,8 @@ impl<'a> Control<'a> {
     /// and set the initial state
     fn init(&mut self, run_successful: bool) {
         self.emu.init_register();
+        // Write code to memory area
+        self.emu.load_code();
         // Init state
         self.emu.init_states(run_successful);
     }

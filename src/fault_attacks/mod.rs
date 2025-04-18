@@ -24,8 +24,9 @@ pub struct FaultAttacks {
     pub fault_data: Vec<Vec<FaultData>>,
     pub count_sum: usize,
     cycles: usize,
-    workload_sender: Sender<Vec<FaultRecord>>,
-    result_receiver: Receiver<Vec<FaultData>>,
+    fault_workload_sender: Sender<(RunType, Vec<FaultRecord>)>,
+    fault_response_receiver: Receiver<Vec<FaultData>>,
+    trace_response_receiver: Receiver<Vec<TraceRecord>>,
     handles: Vec<thread::JoinHandle<()>>,
 }
 
@@ -44,33 +45,48 @@ impl FaultAttacks {
         let file_data: ElfFile = ElfFile::new(path)?;
 
         // Create a channel for sending lines to threads
-        let (workload_sender, workload_receiver) = unbounded::<Vec<FaultRecord>>();
+        let (fault_workload_sender, fault_workload_receiver) =
+            unbounded::<(RunType, Vec<FaultRecord>)>();
         // Create a channel for collecting results from threads
-        let (result_sender, result_receiver) = unbounded();
+        let (fault_response_sender, fault_response_receiver) = unbounded();
+        // Create a channel for collecting results from threads
+        let (trace_response_sender, trace_response_receiver) = unbounded();
 
         // Create a new thread to handle the workload
         // Shared receiver for threads
-        let workload_receiver = Arc::new(Mutex::new(workload_receiver));
+        let fault_workload_receiver = Arc::new(Mutex::new(fault_workload_receiver));
 
         let mut handles = vec![];
         for _ in 0..1 {
             // Copy data to be moved into threads
             let cycles = cycles.clone();
-            let file_data = file_data.clone();
-            let receiver = Arc::clone(&workload_receiver);
-            let sender = result_sender.clone();
+            let file = file_data.clone();
+            let receiver = Arc::clone(&fault_workload_receiver);
+            let fault_sender = fault_response_sender.clone();
+            let trace_sender = trace_response_sender.clone();
             let handle = thread::spawn(move || {
                 // Create a new simulation instance
-                let mut simulation = Control::new(&file_data, false);
+                let mut simulation = Control::new(&file, false);
                 // Wait for workload
                 // Loop until the workload receiver is closed
-                while let Ok(records) = receiver.lock().unwrap_or_else(|e| e.into_inner()).recv() {
+                while let Ok((run_type, records)) =
+                    receiver.lock().unwrap_or_else(|e| e.into_inner()).recv()
+                {
                     // Todo: Do error handling
                     let data = simulation
-                        .run_with_faults(cycles, RunType::Run, false, &records)
+                        .run_with_faults(cycles, run_type, false, &records)
                         .unwrap();
-                    if let Data::Fault(fault) = data {
-                        sender.send(fault).expect("Unable to send result");
+                    match data {
+                        Data::Trace(trace) => {
+                            trace_sender.send(trace).expect("Unable to send result");
+                        }
+                        Data::Fault(fault) => {
+                            fault_sender.send(fault).expect("Unable to send result");
+                        }
+                        _ => {
+                            // Handle other data types if needed
+                            println!("Received unknown data type");
+                        }
                     }
                 }
             });
@@ -83,8 +99,9 @@ impl FaultAttacks {
             fault_data: Vec::new(),
             count_sum: 0,
             cycles,
-            workload_sender,
-            result_receiver,
+            fault_workload_sender,
+            fault_response_receiver,
+            trace_response_receiver,
             handles,
         })
     }
@@ -121,13 +138,14 @@ impl FaultAttacks {
                 self.fault_data.get(attack_number).unwrap(),
             );
             // Run full trace
-            let trace_records = Some(trace_run(
-                &mut Control::new(&self.file_data, false),
-                self.cycles,
-                RunType::RecordFullTrace,
-                true,
-                &fault_records,
-            )?);
+            self.fault_workload_sender
+                .send((RunType::RecordFullTrace, fault_records.to_vec()))
+                .unwrap();
+            let trace_records = Some(
+                self.trace_response_receiver
+                    .recv()
+                    .expect("Unable to receive trace data"),
+            );
             // Print trace
             println!("\nAssembler trace of attack number {}", attack_number + 1);
 
@@ -146,13 +164,15 @@ impl FaultAttacks {
     /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
     pub fn print_trace(&self) -> Result<(), String> {
         // Run full trace
-        let trace_records = Some(trace_run(
-            &mut Control::new(&self.file_data, false),
-            self.cycles,
-            RunType::RecordFullTrace,
-            true,
-            &[],
-        )?);
+        // Run simulation to record normal fault program flow as a base for fault injection
+        self.fault_workload_sender
+            .send((RunType::RecordFullTrace, [].to_vec()))
+            .unwrap();
+        let trace_records = Some(
+            self.trace_response_receiver
+                .recv()
+                .expect("Unable to receive trace data"),
+        );
 
         let debug_context = self.file_data.get_debug_context();
 
@@ -200,8 +220,7 @@ impl FaultAttacks {
                 let fault = get_fault_from(&fault).unwrap();
 
                 // Run simulation with fault
-                let mut fault_data =
-                    self.fault_simulation(&[fault.clone()], deep_analysis)?;
+                let mut fault_data = self.fault_simulation(&[fault.clone()], deep_analysis)?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
@@ -245,8 +264,7 @@ impl FaultAttacks {
                 let fault1 = get_fault_from(&t.0).unwrap();
                 let fault2 = get_fault_from(&t.1).unwrap();
 
-                let mut fault_data =
-                    self.fault_simulation(&[fault1, fault2], deep_analysis)?;
+                let mut fault_data = self.fault_simulation(&[fault1, fault2], deep_analysis)?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
@@ -286,13 +304,13 @@ impl FaultAttacks {
         }
 
         // Run simulation to record normal fault program flow as a base for fault injection
-        let mut records = trace_run(
-            &mut Control::new(&self.file_data, false), // Use a temporary Control for tracing
-            self.cycles,
-            RunType::RecordTrace,
-            deep_analysis,
-            &[],
-        )?;
+        self.fault_workload_sender
+            .send((RunType::RecordTrace, [].to_vec()))
+            .unwrap();
+        let mut records = self
+            .trace_response_receiver
+            .recv()
+            .expect("Unable to receive trace data");
         debug!("Number of trace steps: {}", records.len());
 
         // Split faults into first and remaining faults
@@ -322,7 +340,8 @@ impl FaultAttacks {
                         remaining_faults,
                         &simulation_fault_records,
                         deep_analysis,
-                        &mut self.workload_sender,
+                        &mut self.fault_workload_sender,
+                        &self.trace_response_receiver,
                         &Disassembly::new(),
                     )?;
                 } else {
@@ -338,7 +357,7 @@ impl FaultAttacks {
         self.count_sum += n;
 
         // Return collected successful attacks to caller
-        let data: Vec<_> = self.result_receiver.iter().collect();
+        let data: Vec<_> = self.fault_response_receiver.iter().collect();
         println!("-> {} attacks executed, {} successful", n, data.len());
         if data.is_empty() {
             Ok(Vec::new())
@@ -368,7 +387,8 @@ impl FaultAttacks {
         faults: &[FaultType],
         simulation_fault_records: &[FaultRecord],
         deep_analysis: bool,
-        workload_sender: &mut Sender<Vec<FaultRecord>>,
+        workload_sender: &mut Sender<(RunType, Vec<FaultRecord>)>,
+        trace_response_receiver: &Receiver<Vec<TraceRecord>>,
         cs: &Disassembly,
     ) -> Result<usize, String> {
         let mut n = 0;
@@ -377,18 +397,19 @@ impl FaultAttacks {
         if faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
             workload_sender
-                .send(simulation_fault_records.to_vec())
+                .send((RunType::Run, simulation_fault_records.to_vec()))
                 .expect("Not able to send fault record to thread");
             n += 1;
         } else {
             // Collect trace records with simulation fault records to get new running length (time)
-            let mut records = trace_run(
-                simulation,
-                cycles,
-                RunType::RecordTrace,
-                deep_analysis,
-                simulation_fault_records,
-            )?;
+
+            // Run simulation to record normal fault program flow as a base for fault injection
+            workload_sender
+                .send((RunType::RecordTrace, simulation_fault_records.to_vec()))
+                .unwrap();
+            let mut records = trace_response_receiver
+                .recv()
+                .expect("Unable to receive trace data");
 
             // Split faults into first and remaining faults
             let (first_fault, remaining_faults) = faults.split_first().unwrap();
@@ -414,6 +435,7 @@ impl FaultAttacks {
                         &index_simulation_fault_records,
                         deep_analysis,
                         workload_sender,
+                        trace_response_receiver,
                         cs,
                     )?;
                 }
@@ -431,42 +453,12 @@ impl Drop for FaultAttacks {
     /// Cleans up the `FaultAttacks` instance by resetting the fault data.
     fn drop(&mut self) {
         // Drop the sender to signal threads no more data will be sent
-        drop(self.workload_sender.clone());
+        drop(self.fault_workload_sender.clone());
         // Wait for all threads to finish processing
         for handle in self.handles.drain(..) {
             if let Err(e) = handle.join() {
                 eprintln!("A thread panicked: {:?}", e);
             }
         }
-    }
-}
-
-/// Runs the simulation with faults for the specified number of cycles and returns the resulting data.
-///
-/// # Arguments
-///
-/// * `cycles` - The number of cycles to run the simulation.
-/// * `run_type` - The type of run to execute (e.g., normal, stress test).
-/// * `deep_analysis` - A boolean indicating whether to perform a deep analysis during the simulation.
-/// * `records` - A collection of records to be used during the simulation.
-///
-/// # Returns
-///
-/// * `data` - The resulting data from running the simulation with faults.
-///
-/// # Errors
-///
-/// This function will return an error if the simulation fails to run with the specified faults.
-fn trace_run(
-    simulation: &mut Control,
-    cycles: usize,
-    run_type: RunType,
-    deep_analysis: bool,
-    records: &[FaultRecord],
-) -> Result<Vec<TraceRecord>, String> {
-    let data = simulation.run_with_faults(cycles, run_type, deep_analysis, records)?;
-    match data {
-        Data::Trace(trace) => Ok(trace),
-        _ => Ok(Vec::new()),
     }
 }
