@@ -33,9 +33,9 @@ impl FaultAttacks {
     ///
     /// * `path` - A `PathBuf` representing the path to the ELF file.
     /// * `max_instructions` - Max number of cycles the simulation run, bevor it is stopped
-    /// * `deep_analysis` - Boolean value if deep_analysis of faults are switched on 
+    /// * `deep_analysis` - Boolean value if deep_analysis of faults are switched on
     /// * `run_through` - Boolean value if the analysis should stop after first occurence of an positive attack
-    /// 
+    ///
     /// # Returns
     ///
     /// * `Result<Self, String>` - Returns a `FaultAttacks` instance if successful, otherwise an error message.
@@ -152,10 +152,7 @@ impl FaultAttacks {
     /// # Returns
     ///
     /// * `Result<(bool, usize), String>` - Returns a tuple containing a boolean indicating success and the number of attacks.
-    pub fn single(
-        &mut self,
-        groups: &mut Iter<String>,
-    ) -> Result<(bool, usize), String> {
+    pub fn single(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
 
@@ -166,8 +163,7 @@ impl FaultAttacks {
                 let fault = get_fault_from(&fault).unwrap();
 
                 // Run simulation with fault
-                let mut fault_data =
-                    self.fault_simulation(&[fault.clone()])?;
+                let mut fault_data = self.fault_simulation(&[fault.clone()])?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
@@ -192,10 +188,7 @@ impl FaultAttacks {
     /// # Returns
     ///
     /// * `Result<(bool, usize), String>` - Returns a tuple containing a boolean indicating success and the number of attacks.
-    pub fn double(
-        &mut self,
-        groups: &mut Iter<String>,
-    ) -> Result<(bool, usize), String> {
+    pub fn double(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
 
@@ -207,8 +200,7 @@ impl FaultAttacks {
                 let fault1 = get_fault_from(&t.0).unwrap();
                 let fault2 = get_fault_from(&t.1).unwrap();
 
-                let mut fault_data =
-                    self.fault_simulation(&[fault1, fault2])?;
+                let mut fault_data = self.fault_simulation(&[fault1, fault2])?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
@@ -336,7 +328,7 @@ impl FaultAttacks {
         cs: &Disassembly,
     ) -> Result<usize, String> {
         let mut n = 0;
-    
+
         // Check if there are no remaining faults left
         if faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
@@ -351,7 +343,7 @@ impl FaultAttacks {
                 deep_analysis,
                 simulation_fault_records,
             )?;
-    
+
             // Split faults into first and remaining faults
             let (first_fault, remaining_faults) = faults.split_first().unwrap();
             // Filter records according to fault type
@@ -367,7 +359,7 @@ impl FaultAttacks {
                         index,
                         fault_type: first_fault.clone(),
                     });
-    
+
                     // Call recursive fault simulation with remaining faults
                     n += Self::fault_simulation_inner(
                         simulation,
@@ -381,7 +373,7 @@ impl FaultAttacks {
                 }
             }
         }
-    
+
         Ok(n)
     }
 }
