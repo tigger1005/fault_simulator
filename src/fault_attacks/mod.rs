@@ -11,10 +11,13 @@ use itertools::iproduct;
 use log::debug;
 use std::{
     slice::Iter,
-    sync::{Arc, Mutex},
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc, Mutex,
+    },
 };
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+//use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::thread;
 
 /// Struct representing fault attacks.
@@ -24,10 +27,11 @@ pub struct FaultAttacks {
     pub fault_data: Vec<Vec<FaultData>>,
     pub count_sum: usize,
     cycles: usize,
-    fault_workload_sender: Sender<(RunType, Vec<FaultRecord>)>,
+    workload_sender: Option<Sender<(RunType, bool, Vec<FaultRecord>)>>,
     fault_response_receiver: Receiver<Vec<FaultData>>,
     trace_response_receiver: Receiver<Vec<TraceRecord>>,
     handles: Vec<thread::JoinHandle<()>>,
+    work_load_counter: Arc<Mutex<usize>>,
 }
 
 impl FaultAttacks {
@@ -45,47 +49,57 @@ impl FaultAttacks {
         let file_data: ElfFile = ElfFile::new(path)?;
 
         // Create a channel for sending lines to threads
-        let (fault_workload_sender, fault_workload_receiver) =
-            unbounded::<(RunType, Vec<FaultRecord>)>();
+        let (workload_sender, workload_receiver): (Sender<(RunType, bool, Vec<FaultRecord>)>, _) =
+            channel();
         // Create a channel for collecting results from threads
-        let (fault_response_sender, fault_response_receiver) = unbounded();
+        let (fault_response_sender, fault_response_receiver) = channel();
         // Create a channel for collecting results from threads
-        let (trace_response_sender, trace_response_receiver) = unbounded();
+        let (trace_response_sender, trace_response_receiver) = channel();
+        // Create a counter for the workload done
+        let work_load_counter = Arc::new(Mutex::new(0));
 
         // Create a new thread to handle the workload
         // Shared receiver for threads
-        let fault_workload_receiver = Arc::new(Mutex::new(fault_workload_receiver));
+        let workload_receiver = Arc::new(Mutex::new(workload_receiver));
 
         let mut handles = vec![];
-        for _ in 0..1 {
+        for _ in 0..5 {
             // Copy data to be moved into threads
             let cycles = cycles.clone();
             let file = file_data.clone();
-            let receiver = Arc::clone(&fault_workload_receiver);
+            let receiver = Arc::clone(&workload_receiver);
             let fault_sender = fault_response_sender.clone();
             let trace_sender = trace_response_sender.clone();
+            let workload_counter = Arc::clone(&work_load_counter);
             let handle = thread::spawn(move || {
                 // Create a new simulation instance
                 let mut simulation = Control::new(&file, false);
                 // Wait for workload
                 // Loop until the workload receiver is closed
-                while let Ok((run_type, records)) =
+                while let Ok((run_type, deep_analysis, records)) =
                     receiver.lock().unwrap_or_else(|e| e.into_inner()).recv()
                 {
                     // Todo: Do error handling
                     let data = simulation
-                        .run_with_faults(cycles, run_type, false, &records)
+                        .run_with_faults(cycles, run_type, deep_analysis, &records)
                         .unwrap();
-                    match data {
-                        Data::Trace(trace) => {
-                            trace_sender.send(trace).expect("Unable to send result");
-                        }
-                        Data::Fault(fault) => {
-                            fault_sender.send(fault).expect("Unable to send result");
-                        }
-                        _ => {
-                            // Handle other data types if needed
-                            println!("Received unknown data type");
+                    match run_type {
+                        RunType::RecordFullTrace | RunType::RecordTrace => match data {
+                            Data::Trace(trace) => {
+                                trace_sender.send(trace).expect("Unable to send trace data")
+                            }
+                            _ => trace_sender
+                                .send(vec![])
+                                .expect("Unable to send trace data"),
+                        },
+                        RunType::Run => {
+                            if let Data::Fault(fault) = data {
+                                if !fault.is_empty() {
+                                    fault_sender.send(fault).expect("Unable to send fault data");
+                                }
+                            }
+                            let mut counter = workload_counter.lock().unwrap();
+                            *counter += 1;
                         }
                     }
                 }
@@ -99,10 +113,11 @@ impl FaultAttacks {
             fault_data: Vec::new(),
             count_sum: 0,
             cycles,
-            fault_workload_sender,
+            workload_sender: Some(workload_sender),
             fault_response_receiver,
             trace_response_receiver,
             handles,
+            work_load_counter,
         })
     }
 
@@ -138,8 +153,10 @@ impl FaultAttacks {
                 self.fault_data.get(attack_number).unwrap(),
             );
             // Run full trace
-            self.fault_workload_sender
-                .send((RunType::RecordFullTrace, fault_records.to_vec()))
+            self.workload_sender
+                .as_ref()
+                .unwrap()
+                .send((RunType::RecordFullTrace, true, fault_records.to_vec()))
                 .unwrap();
             let trace_records = Some(
                 self.trace_response_receiver
@@ -165,8 +182,10 @@ impl FaultAttacks {
     pub fn print_trace(&self) -> Result<(), String> {
         // Run full trace
         // Run simulation to record normal fault program flow as a base for fault injection
-        self.fault_workload_sender
-            .send((RunType::RecordFullTrace, [].to_vec()))
+        self.workload_sender
+            .as_ref()
+            .unwrap()
+            .send((RunType::RecordFullTrace, true, [].to_vec()))
             .unwrap();
         let trace_records = Some(
             self.trace_response_receiver
@@ -304,8 +323,10 @@ impl FaultAttacks {
         }
 
         // Run simulation to record normal fault program flow as a base for fault injection
-        self.fault_workload_sender
-            .send((RunType::RecordTrace, [].to_vec()))
+        self.workload_sender
+            .as_ref()
+            .unwrap()
+            .send((RunType::RecordTrace, deep_analysis, [].to_vec()))
             .unwrap();
         let mut records = self
             .trace_response_receiver
@@ -317,6 +338,11 @@ impl FaultAttacks {
         let (first_fault, remaining_faults) = faults.split_first().unwrap();
         // Filter records according to fault type
         first_fault.filter(&mut records, &self.cs);
+
+        // Clear workload counter
+        let mut counter = self.work_load_counter.lock().unwrap();
+        *counter = 0;
+        drop(counter);
 
         // Run main fault simulation loop
         let n_result: Result<usize, String> = records
@@ -340,7 +366,7 @@ impl FaultAttacks {
                         remaining_faults,
                         &simulation_fault_records,
                         deep_analysis,
-                        &mut self.fault_workload_sender,
+                        &self.workload_sender.as_ref().unwrap(),
                         &self.trace_response_receiver,
                         &Disassembly::new(),
                     )?;
@@ -356,8 +382,21 @@ impl FaultAttacks {
         let n = n_result?;
         self.count_sum += n;
 
+        // Wait till the workload messegage is empty
+        // while !self.workload_sender..is_empty() {
+        //     std::thread::sleep(std::time::Duration::from_millis(10));
+        // }
+
+        // Wait that the workload counter is the same as the n_result
+        while {
+            let counter = self.work_load_counter.lock().unwrap();
+            *counter != n
+        } {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
         // Return collected successful attacks to caller
-        let data: Vec<_> = self.fault_response_receiver.iter().collect();
+        let data: Vec<_> = self.fault_response_receiver.try_iter().collect();
         println!("-> {} attacks executed, {} successful", n, data.len());
         if data.is_empty() {
             Ok(Vec::new())
@@ -387,7 +426,7 @@ impl FaultAttacks {
         faults: &[FaultType],
         simulation_fault_records: &[FaultRecord],
         deep_analysis: bool,
-        workload_sender: &mut Sender<(RunType, Vec<FaultRecord>)>,
+        workload_sender: &Sender<(RunType, bool, Vec<FaultRecord>)>,
         trace_response_receiver: &Receiver<Vec<TraceRecord>>,
         cs: &Disassembly,
     ) -> Result<usize, String> {
@@ -397,7 +436,7 @@ impl FaultAttacks {
         if faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
             workload_sender
-                .send((RunType::Run, simulation_fault_records.to_vec()))
+                .send((RunType::Run, false, simulation_fault_records.to_vec()))
                 .expect("Not able to send fault record to thread");
             n += 1;
         } else {
@@ -405,7 +444,11 @@ impl FaultAttacks {
 
             // Run simulation to record normal fault program flow as a base for fault injection
             workload_sender
-                .send((RunType::RecordTrace, simulation_fault_records.to_vec()))
+                .send((
+                    RunType::RecordTrace,
+                    deep_analysis,
+                    simulation_fault_records.to_vec(),
+                ))
                 .unwrap();
             let mut records = trace_response_receiver
                 .recv()
@@ -452,8 +495,9 @@ impl FaultAttacks {
 impl Drop for FaultAttacks {
     /// Cleans up the `FaultAttacks` instance by resetting the fault data.
     fn drop(&mut self) {
-        // Drop the sender to signal threads no more data will be sent
-        drop(self.fault_workload_sender.clone());
+        // Drop the main workload channel
+        self.workload_sender = None;
+
         // Wait for all threads to finish processing
         for handle in self.handles.drain(..) {
             if let Err(e) = handle.join() {
