@@ -10,9 +10,10 @@ use callback::{
     hook_code_callback, hook_code_decision_activation_callback, mmio_auth_write_callback,
     mmio_serial_write_callback,
 };
+
 use unicorn_engine::unicorn_const::uc_error;
 use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
-use unicorn_engine::{RegisterARM, Unicorn};
+use unicorn_engine::{Context, RegisterARM, Unicorn};
 
 use log::debug;
 use std::collections::HashSet;
@@ -55,6 +56,7 @@ pub enum RunState {
 pub struct Cpu<'a> {
     emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
+    cpu_context: Context,
 }
 
 struct CpuState<'a> {
@@ -96,11 +98,14 @@ impl<'a> Cpu<'a> {
         )
         .expect("failed to initialize Unicorn instance");
 
-        debug!("Setup new unicorn instance");
+        // Get inital context
+        let cpu_context = emu.context_init().unwrap();
 
+        debug!("Setup new unicorn instance");
         Self {
             emu,
             program_counter: 0,
+            cpu_context,
         }
     }
 
@@ -412,5 +417,23 @@ impl<'a> Cpu<'a> {
         // Clear cached instruction
         self.emu
             .ctl_remove_cache(address, address + instruction.len() as u64)
+    }
+
+    /// Save the current state of the CPU.
+    pub fn save_state(&mut self) -> Result<(), uc_error> {
+        // Save current state of the CPU
+        self.emu
+            .context_save(&mut self.cpu_context)
+            .expect("failed to save context");
+        Ok(())
+    }
+
+    /// Restore the CPU state from a saved context.
+    pub fn restore_state(&mut self) -> Result<(), uc_error> {
+        // Restore CPU state
+        self.emu
+            .context_restore(&self.cpu_context)
+            .expect("failed to restore context");
+        Ok(())
     }
 }
