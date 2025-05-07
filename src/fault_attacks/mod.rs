@@ -8,7 +8,6 @@ use super::simulation::{
 use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use faults::*;
 use itertools::iproduct;
-use log::debug;
 use rayon::prelude::*;
 use std::{
     slice::Iter,
@@ -19,6 +18,7 @@ use std::{
 pub struct FaultAttacks {
     cs: Disassembly,
     pub file_data: ElfFile,
+    standard_trace: Vec<TraceRecord>,
     pub fault_data: Vec<Vec<FaultData>>,
     pub count_sum: usize,
     max_instructions: usize,
@@ -51,6 +51,7 @@ impl FaultAttacks {
         Ok(Self {
             cs: Disassembly::new(),
             file_data,
+            standard_trace: Vec::new(),
             fault_data: Vec::new(),
             count_sum: 0,
             max_instructions,
@@ -86,7 +87,10 @@ impl FaultAttacks {
     ///
     /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
     pub fn print_trace_for_fault(&self, attack_number: isize) -> Result<(), String> {
-        if !self.fault_data.is_empty() && attack_number > 0 && attack_number as usize <= self.fault_data.len(){
+        if !self.fault_data.is_empty()
+            && attack_number > 0
+            && attack_number as usize <= self.fault_data.len()
+        {
             let fault_records = FaultData::get_simulation_fault_records(
                 self.fault_data.get(attack_number as usize - 1).unwrap(),
             );
@@ -106,6 +110,20 @@ impl FaultAttacks {
             self.cs
                 .disassembly_trace_records(&trace_records, &debug_context);
         }
+        Ok(())
+    }
+
+    /// Gets trace data for a run w/o a injection.
+    ///
+    pub fn set_standard_trace(&mut self) -> Result<(), String> {
+        // Run simulation to record normal fault program flow as a base for fault injection
+        self.standard_trace = trace_run(
+            &mut Control::new(&self.file_data, false), // Use a temporary Control for tracing
+            self.max_instructions,
+            RunType::RecordTrace,
+            self.deep_analysis,
+            &[],
+        )?;
         Ok(())
     }
 
@@ -237,22 +255,18 @@ impl FaultAttacks {
             return Ok(Vec::new());
         }
 
-        // Run simulation to record normal fault program flow as a base for fault injection
-        let mut records = trace_run(
-            &mut Control::new(&self.file_data, false), // Use a temporary Control for tracing
-            self.max_instructions,
-            RunType::RecordTrace,
-            self.deep_analysis,
-            &[],
-        )?;
-        debug!("Number of trace steps: {}", records.len());
-
         // Setup channel for fault data
         let (sender, receiver) = channel();
 
         // Split faults into first and remaining faults
         let (first_fault, remaining_faults) = faults.split_first().unwrap();
-        // Filter records according to fault type
+
+        // Call standard trace if not set
+        if self.standard_trace.is_empty() {
+            self.set_standard_trace()?;
+        }
+
+        let mut records = self.standard_trace.clone();
         first_fault.filter(&mut records, &self.cs);
 
         // Run main fault simulation loop
