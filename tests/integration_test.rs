@@ -9,20 +9,26 @@ use std::env;
 fn run_single_glitch() {
     env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_.elf"),
+        2000,
+        false,
+        false,
+    )
+    .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
-    assert_eq!(
-        (true, 35),
-        attack.single(2000, false, &mut vec.iter(), false).unwrap()
-    );
+    assert_eq!((true, 35), attack.single(&mut vec.iter()).unwrap());
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_4.elf"),
+        2000,
+        false,
+        false,
+    )
+    .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!(
-        (false, 376),
-        attack.single(2000, false, &mut vec.iter(), false).unwrap()
-    );
+    assert_eq!((false, 376), attack.single(&mut vec.iter()).unwrap());
 }
 
 #[test]
@@ -33,20 +39,26 @@ fn run_single_glitch() {
 fn run_double_glitch() {
     env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+        2000,
+        false,
+        false,
+    )
+    .unwrap();
     // Result is (false: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
-    assert_eq!(
-        (false, 22808),
-        attack.double(2000, false, &mut vec.iter(), false).unwrap()
-    );
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    assert_eq!((false, 22808), attack.double(&mut vec.iter()).unwrap());
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+        2000,
+        false,
+        false,
+    )
+    .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["regbf".to_string()];
-    assert_eq!(
-        (true, 6916),
-        attack.double(2000, false, &mut vec.iter(), false).unwrap()
-    );
+    assert_eq!((true, 6916), attack.double(&mut vec.iter()).unwrap());
 }
 
 #[test]
@@ -57,11 +69,15 @@ fn run_double_glitch() {
 fn run_fault_simulation_one_glitch() {
     env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_.elf"),
+        2000,
+        false,
+        false,
+    )
+    .unwrap();
     // Result is Vec<Vec<FaultData>>
-    let result = attack
-        .fault_simulation(2000, &[Glitch::new(1)], false)
-        .unwrap();
+    let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
 
     // Check if correct faults are found (at: 0x80004BA, 0x8000634, 0x800063C)
     assert_eq!(3, result.len());
@@ -87,10 +103,16 @@ fn run_fault_simulation_one_glitch() {
 /// and checks if the correct faults are found, identfied by their addresses
 fn run_fault_simulation_two_glitches() {
     env::set_var("RAYON_NUM_THREADS", "1");
-    let mut attack = FaultAttacks::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+        2000,
+        false,
+        false,
+    )
+    .unwrap();
 
     let result = attack
-        .fault_simulation(2000, &[Glitch::new(1), Glitch::new(10)], false)
+        .fault_simulation(&[Glitch::new(1), Glitch::new(10)])
         .unwrap();
 
     println!("Result: {:?}", result);
