@@ -93,7 +93,12 @@ fn main() -> Result<(), String> {
     };
 
     // Load victim data for attack simulation
-    let mut attack_sim = FaultAttacks::new(path, args.max_instructions)?;
+    let mut attack_sim = FaultAttacks::new(
+        path,
+        args.max_instructions,
+        args.deep_analysis,
+        args.run_through,
+    )?;
 
     // Check for correct program behavior
     // if !args.no_check {
@@ -114,18 +119,15 @@ fn main() -> Result<(), String> {
         let mut class = args.class.iter();
         match class.next().as_ref().map(|s| s.as_str()) {
             Some("all") | None => {
-                if !attack_sim
-                    .single(args.deep_analysis, &mut class, args.run_through)?
-                    .0
-                {
-                    attack_sim.double(args.deep_analysis, &mut class, args.run_through)?;
+                if !attack_sim.single(&mut class)?.0 {
+                    attack_sim.double(&mut class)?;
                 }
             }
             Some("single") => {
-                attack_sim.single(args.deep_analysis, &mut class, args.run_through)?;
+                attack_sim.single(&mut class)?;
             }
             Some("double") => {
-                attack_sim.double(args.deep_analysis, &mut class, args.run_through)?;
+                attack_sim.double(&mut class)?;
             }
             _ => println!("Unknown attack class!"),
         }
@@ -137,7 +139,7 @@ fn main() -> Result<(), String> {
             .filter_map(|argument| get_fault_from(argument).ok())
             .collect();
 
-        let result = attack_sim.fault_simulation(&faults, args.deep_analysis)?;
+        let result = attack_sim.fault_simulation(&faults)?;
         // Save result to attack struct
         attack_sim.set_fault_data(result);
     }

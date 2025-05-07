@@ -112,7 +112,7 @@ impl ElfFile {
 impl Clone for ElfFile {
     fn clone(&self) -> Self {
         Self {
-            header: self.header.clone(),
+            header: self.header,
             program_data: self.program_data.clone(),
             section_map: self.section_map.clone(),
             symbol_map: self.symbol_map.clone(),

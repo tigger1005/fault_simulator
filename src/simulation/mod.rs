@@ -82,6 +82,8 @@ impl<'a> Control<'a> {
         self.emu.init_register();
         // Write code to memory area
         self.emu.load_code();
+        // Set initial state
+        self.emu.init_cpu_state();
         // Init state
         self.emu.init_states(run_successful);
     }

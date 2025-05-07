@@ -338,6 +338,24 @@ impl<'a> Cpu<'a> {
         self.emu.get_data_mut().fault_data.clear();
     }
 
+    /// Clear trace data in internal structure
+    pub fn clear_trace_data(&mut self) {
+        // Remove hooks from list
+        self.emu.get_data_mut().trace_data.clear();
+    }
+
+    /// Initialize the CPUState
+    ///
+    pub fn init_cpu_state(&mut self) {
+        self.emu.get_data_mut().state = RunState::Init;
+        self.emu.get_data_mut().start_trace = false;
+        self.emu.get_data_mut().with_register_data = false;
+        self.emu.get_data_mut().negative_run = false;
+        self.emu.get_data_mut().deactivate_print = false;
+        self.emu.get_data_mut().trace_data.clear();
+        self.emu.get_data_mut().fault_data.clear();
+    }
+
     /// Copy trace data to caller
     pub fn get_trace_data(&mut self) -> &mut Vec<TraceRecord> {
         &mut self.emu.get_data_mut().trace_data
