@@ -1,6 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use fault_simulator::prelude::*;
-use std::env;
 
 fn criterion_benchmark(c: &mut Criterion) {
     // Load victim data for attack simulation
@@ -9,10 +8,9 @@ fn criterion_benchmark(c: &mut Criterion) {
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
-    // Set threads to one because of current MacOS problems
-    env::set_var("RAYON_NUM_THREADS", "1");
 
     let mut group = c.benchmark_group("fault-attack_peformance");
     group.warm_up_time(std::time::Duration::from_secs(1));
@@ -21,10 +19,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("single attack", |b| {
         b.iter(|| {
             let _ = attack.single(&mut vec!["glitch".to_string()].iter());
+            let _ = attack.single(&mut vec!["glitch".to_string()].iter());
         })
     });
     group.bench_function("double attack", |b| {
         b.iter(|| {
+            let _ = attack.double(&mut vec!["glitch".to_string()].iter());
             let _ = attack.double(&mut vec!["glitch".to_string()].iter());
         })
     });

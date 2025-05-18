@@ -37,16 +37,19 @@ impl CmdBitFlip {
 }
 
 impl FaultFunctions for CmdBitFlip {
-    /// Do bit flips to command code before execution
+    /// Executes a command bit flip fault injection.
+    ///
+    /// This method modifies the command code by applying an XOR operation with the specified value.
+    /// It records the original and modified instructions, as well as the fault details, for analysis.
     ///
     /// # Arguments
     ///
-    /// * `cpu` - The CPU instance.
-    /// * `fault` - The fault record.
+    /// * `cpu` - The CPU instance where the fault is injected.
+    /// * `fault` - The fault record containing details of the fault.
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns `true` as code repair after fault injection is required.
+    /// * `bool` - Always returns `true` to indicate that code repair is required after the fault injection.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         // Get current assembler instruction
         let (address, original_instruction) = cpu.asm_cmd_read();

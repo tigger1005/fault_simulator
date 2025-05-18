@@ -7,17 +7,18 @@ use std::env;
 /// This test runs a single glitch atttacks on two different binaries (victim_.elf, victim_4.elf)
 /// and checks if faults are found with the correct number of attack iterations
 fn run_single_glitch() {
-    env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_.elf"),
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
+    assert_eq!((true, 35), attack.single(&mut vec.iter()).unwrap());
     assert_eq!((true, 35), attack.single(&mut vec.iter()).unwrap());
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
@@ -25,9 +26,11 @@ fn run_single_glitch() {
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
+    assert_eq!((false, 376), attack.single(&mut vec.iter()).unwrap());
     assert_eq!((false, 376), attack.single(&mut vec.iter()).unwrap());
 }
 
@@ -37,13 +40,13 @@ fn run_single_glitch() {
 /// This test runs a double glitch atttacks on two different binaries (victim_3.elf, victim_4.elf)
 /// and checks if faults are found with the correct number of attack iterations
 fn run_double_glitch() {
-    env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_3.elf"),
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (false: bool, number_of_attacks: usize)
@@ -54,10 +57,12 @@ fn run_double_glitch() {
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["regbf".to_string()];
+    assert_eq!((true, 6916), attack.double(&mut vec.iter()).unwrap());
     assert_eq!((true, 6916), attack.double(&mut vec.iter()).unwrap());
 }
 
@@ -67,16 +72,17 @@ fn run_double_glitch() {
 /// This test runs a fault simulation on two different binaries (victim_.elf, victim_3.elf)
 /// and checks if the correct faults are found, identfied by their addresses
 fn run_fault_simulation_one_glitch() {
-    env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_.elf"),
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is Vec<Vec<FaultData>>
+    let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
     let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
 
     // Check if correct faults are found (at: 0x80004BA, 0x8000634, 0x800063C)
@@ -108,10 +114,12 @@ fn run_fault_simulation_two_glitches() {
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
 
     let result = attack
+        .fault_simulation(&[Glitch::new(1), Glitch::new(10)])
         .fault_simulation(&[Glitch::new(1), Glitch::new(10)])
         .unwrap();
 

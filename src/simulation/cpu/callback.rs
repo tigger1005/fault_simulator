@@ -5,9 +5,24 @@ use unicorn_engine::Unicorn;
 
 use log::debug;
 
-/// Callback for auth mem IO write access
+/// Handles memory-mapped IO (MMIO) write access for authentication.
 ///
-/// This IO call signalize the Successful or Failed DECISION_DATA flow
+/// This callback updates the simulation state based on the written value:
+/// - `0x11111111`: Sets the state to `Success`.
+/// - `0x22222222`: Sets the state to `Failed`.
+/// - Any other value: Sets the state to `Error`.
+///
+/// # Arguments
+///
+/// * `emu` - The Unicorn emulator instance.
+/// * `_mem_type` - The type of memory access (unused).
+/// * `_address` - The memory address being written to (unused).
+/// * `_size` - The size of the write operation (unused).
+/// * `value` - The value being written.
+///
+/// # Returns
+///
+/// * `bool` - Always returns `true` to indicate the callback was handled.
 pub fn mmio_auth_write_callback(
     emu: &mut Unicorn<CpuState>,
     _mem_type: MemType,

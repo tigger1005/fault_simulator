@@ -130,11 +130,12 @@ impl<'a> Cpu<'a> {
         self.emu
             .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
             .expect("failed to set register");
+
+        // set initial program start address
+        self.program_counter = self.emu.get_data().file_data.header.e_entry;
     }
 
     /// Load source code from elf file into simulation
-    ///
-    /// The PC is set to the start of the program
     pub fn load_code(&mut self) {
         let program_parts = &self.emu.get_data().file_data.program_data;
 
@@ -144,9 +145,6 @@ impl<'a> Cpu<'a> {
                 .mem_write(part.0.p_paddr, &part.1)
                 .expect("failed to write program data");
         }
-
-        // set initial program start address
-        self.program_counter = self.emu.get_data().file_data.header.e_entry;
     }
 
     /// Function to deactivate printf of c program to
@@ -342,6 +340,24 @@ impl<'a> Cpu<'a> {
     /// Clear fault data in internal structure
     pub fn clear_fault_data(&mut self) {
         // Remove hooks from list
+        self.emu.get_data_mut().fault_data.clear();
+    }
+
+    /// Clear trace data in internal structure
+    pub fn clear_trace_data(&mut self) {
+        // Remove hooks from list
+        self.emu.get_data_mut().trace_data.clear();
+    }
+
+    /// Initialize the CPUState
+    ///
+    pub fn init_cpu_state(&mut self) {
+        self.emu.get_data_mut().state = RunState::Init;
+        self.emu.get_data_mut().start_trace = false;
+        self.emu.get_data_mut().with_register_data = false;
+        self.emu.get_data_mut().negative_run = false;
+        self.emu.get_data_mut().deactivate_print = false;
+        self.emu.get_data_mut().trace_data.clear();
         self.emu.get_data_mut().fault_data.clear();
     }
 

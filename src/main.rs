@@ -5,21 +5,32 @@ use std::path::PathBuf;
 
 use fault_simulator::prelude::*;
 
-use std::env;
-
 mod compile;
 
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
-/// Command line parameter structure
+/// Command line parameter structure for configuring the fault injection simulator.
 ///
+/// # Fields
+///
+/// * `threads` - Number of threads started in parallel.
+/// * `no_compilation` - Suppress re-compilation of the target program.
+/// * `class` - Specifies the attack class to execute. Options include `all`, `single`, `double`, and optional subtypes like `glitch`, `regbf`, `regfld`, `cmdbf`.
+/// * `faults` - Defines a sequence of faults to simulate, e.g., `regbf_r1_0100` or `glitch_1`.
+/// * `analysis` - Activates trace analysis of the selected fault.
+/// * `deep_analysis` - Enables a deep scan of repeated code (e.g., loops).
+/// * `max_instructions` - Maximum number of instructions to execute.
+/// * `elf` - Path to the ELF file to load without compilation.
+/// * `trace` - Enables tracing of failure runs without fault injection.
+/// * `no_check` - Disables program flow checks.
+/// * `run_through` - Continues simulation without stopping at the first successful fault injection.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Number of threads started in parallel
-    #[arg(short, long, default_value_t = 1)]
-    threads: u16,
+    #[arg(short, long, default_value_t = 15)]
+    threads: usize,
 
     /// Suppress re-compilation of target program
     #[arg(short, long, default_value_t = false)]
@@ -72,7 +83,6 @@ fn main() -> Result<(), String> {
     // Get parameter from command line
     let args = Args::parse();
     // Set parameter from cli
-    env::set_var("RAYON_NUM_THREADS", args.threads.to_string());
     env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
 
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
@@ -101,6 +111,7 @@ fn main() -> Result<(), String> {
         args.max_instructions,
         args.deep_analysis,
         args.run_through,
+        args.threads,
     )?;
 
     // Check for correct program behavior
@@ -111,6 +122,7 @@ fn main() -> Result<(), String> {
 
     // Check if trace is selected
     if args.trace {
+        attack_sim.print_trace()?;
         attack_sim.print_trace()?;
         return Ok(());
     }
@@ -124,12 +136,16 @@ fn main() -> Result<(), String> {
             Some("all") | None => {
                 if !attack_sim.single(&mut class)?.0 {
                     attack_sim.double(&mut class)?;
+                if !attack_sim.single(&mut class)?.0 {
+                    attack_sim.double(&mut class)?;
                 }
             }
             Some("single") => {
                 attack_sim.single(&mut class)?;
+                attack_sim.single(&mut class)?;
             }
             Some("double") => {
+                attack_sim.double(&mut class)?;
                 attack_sim.double(&mut class)?;
             }
             _ => println!("Unknown attack class!"),
@@ -142,6 +158,7 @@ fn main() -> Result<(), String> {
             .filter_map(|argument| get_fault_from(argument).ok())
             .collect();
 
+        let result = attack_sim.fault_simulation(&faults)?;
         let result = attack_sim.fault_simulation(&faults)?;
         // Save result to attack struct
         attack_sim.set_fault_data(result);
@@ -164,6 +181,7 @@ fn main() -> Result<(), String> {
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
                     if let Ok(number) = buffer.trim().parse::<usize>() {
+                        attack_sim.print_trace_for_fault(number - 1)?;
                         attack_sim.print_trace_for_fault(number - 1)?;
                         continue;
                     }

@@ -43,12 +43,12 @@ pub trait FaultFunctions: Send + Sync + Debug {
     /// * `bool` - Returns `true` if code repair is needed, otherwise `false`.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool;
 
-    /// Filters the trace records based on the disassembly.
+    /// Filters the trace records based on the disassembly context.
     ///
     /// # Arguments
     ///
-    /// * `records` - The trace records to filter.
-    /// * `cs` - The disassembly context.
+    /// * `records` - A mutable reference to the vector of trace records to filter.
+    /// * `cs` - The disassembly context used for filtering.
     fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly);
 
     /// Tries to create a fault from the given input string.

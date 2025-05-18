@@ -31,26 +31,24 @@ pub struct Control<'a> {
 
 impl<'a> Control<'a> {
     /// Creates a new `Control` instance.
-    /// The elf file is used to load the program code
-    /// and to setup the cpu emulation
     ///
     /// # Arguments
     ///
-    /// * `elf_file` - The ELF file data.
-    /// * `trace` - Whether to enable tracing.
+    /// * `program_data` - A reference to the ELF file containing the program data.
+    /// * `decision_activation_active` - A boolean indicating whether decision activation is enabled.
     ///
     /// # Returns
     ///
-    /// * `Self` - Returns a `Control` instance.
+    /// * `Self` - Returns a new `Control` instance.
     pub fn new(program_data: &'a ElfFile, decision_activation_active: bool) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(program_data);
         // Cpu setup
         emu.setup_mmio();
         emu.setup_breakpoints(decision_activation_active);
-        emu.init_register();
-        // Save current cpu state
-        emu.save_state().unwrap();
+        // Write code to memory area
+        emu.load_code();
+
         Self { emu }
     }
 
@@ -67,7 +65,7 @@ impl<'a> Control<'a> {
     /// * `RunState` - Returns the state of the program after running.
     fn run(&mut self, cycles: usize, run_successful: bool) -> RunState {
         // Initial and load program
-        self.init_and_load(run_successful);
+        self.init(run_successful);
         // Start execution with the given amount of instructions
         let ret_info = self.emu.run_steps(cycles, false);
 
@@ -78,11 +76,12 @@ impl<'a> Control<'a> {
 
     /// Initialize cpu state and load the program code into the cpu
     /// and set the initial state
-    fn init_and_load(&mut self, run_successful: bool) {
-        // Reset cpu state
-        self.emu.restore_state().unwrap();
+    fn init(&mut self, run_successful: bool) {
+        self.emu.init_register();
         // Write code to memory area
         self.emu.load_code();
+        // Set initial state
+        self.emu.init_cpu_state();
         // Init state
         self.emu.init_states(run_successful);
     }
@@ -139,7 +138,7 @@ impl<'a> Control<'a> {
     ) -> Result<Data, String> {
         let mut restore_required = false;
         // Initialize and load
-        self.init_and_load(false);
+        self.init(false);
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
