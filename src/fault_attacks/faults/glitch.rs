@@ -43,14 +43,17 @@ impl Glitch {
 impl FaultFunctions for Glitch {
     /// Execute a glitch skipping `n` instructions.
     ///
+    /// This method advances the program counter by the number of instructions specified in the fault.
+    /// It records the original and modified instructions, as well as the fault details, for analysis.
+    ///
     /// # Arguments
     ///
-    /// * `cpu` - The CPU instance.
-    /// * `fault` - The fault record.
+    /// * `cpu` - The CPU instance where the fault is injected.
+    /// * `fault` - The fault record containing details of the fault.
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns `false` as no cleanup is required.
+    /// * `bool` - Always returns `false` as no cleanup is required after the fault injection.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
         let mut offset = 0;

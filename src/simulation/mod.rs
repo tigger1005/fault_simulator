@@ -31,17 +31,15 @@ pub struct Control<'a> {
 
 impl<'a> Control<'a> {
     /// Creates a new `Control` instance.
-    /// The elf file is used to load the program code
-    /// and to setup the cpu emulation
     ///
     /// # Arguments
     ///
-    /// * `elf_file` - The ELF file data.
-    /// * `trace` - Whether to enable tracing.
+    /// * `program_data` - A reference to the ELF file containing the program data.
+    /// * `decision_activation_active` - A boolean indicating whether decision activation is enabled.
     ///
     /// # Returns
     ///
-    /// * `Self` - Returns a `Control` instance.
+    /// * `Self` - Returns a new `Control` instance.
     pub fn new(program_data: &'a ElfFile, decision_activation_active: bool) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(program_data);

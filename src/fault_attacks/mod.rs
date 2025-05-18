@@ -19,6 +19,14 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 //use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::thread;
 
+/// Type alias for the workload message sent to worker threads.
+pub struct WorkloadMessage {
+    pub run_type: RunType,
+    pub deep_analysis: bool,
+    pub fault_records: Vec<FaultRecord>,
+    pub trace_sender: Option<Sender<Vec<TraceRecord>>>,
+}
+
 /// Struct representing fault attacks.
 pub struct FaultAttacks {
     cs: Disassembly,
@@ -29,14 +37,8 @@ pub struct FaultAttacks {
     deep_analysis: bool,
     run_through: bool,
     cycles: usize,
-    workload_sender: Option<
-        Sender<(
-            RunType,
-            bool,
-            Vec<FaultRecord>,
-            Option<Sender<Vec<TraceRecord>>>,
-        )>,
-    >,
+    /// Channel for sending workloads to worker threads.
+    workload_sender: Option<Sender<WorkloadMessage>>,
     fault_response_receiver: Receiver<Vec<FaultData>>,
     handles: Vec<thread::JoinHandle<()>>,
     work_load_counter: std::sync::Arc<std::sync::Mutex<usize>>,
@@ -47,37 +49,29 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `path` - A `PathBuf` representing the path to the ELF file.
-    /// * `cycles` - The number of cycles to run the program.
-    /// * `deep_analysis` - A boolean indicating whether to perform deep analysis.
-    /// * `run_through` - A boolean indicating whether to run through all faults.
+    /// * `path` - Path to the ELF file.
+    /// * `cycles` - Number of cycles to run the program.
+    /// * `deep_analysis` - Whether to perform deep analysis.
+    /// * `run_through` - Whether to run through all faults.
+    /// * `threads` - Number of threads to use (must be > 0).
     ///
     /// # Returns
     ///
-    /// * `Result<Self, String>` - Returns a `FaultAttacks` instance if successful, otherwise an error message.
+    /// * `Ok(Self)` if successful, otherwise `Err(String)` with an error message.
     pub fn new(
         path: std::path::PathBuf,
         cycles: usize,
         deep_analysis: bool,
         run_through: bool,
+        threads: usize,
     ) -> Result<Self, String> {
         // Load victim data
         let file_data: ElfFile = ElfFile::new(path)?;
 
         // Create a channel for sending lines to threads
         let (workload_sender, workload_receiver): (
-            Sender<(
-                RunType,
-                bool,
-                Vec<FaultRecord>,
-                Option<Sender<Vec<TraceRecord>>>,
-            )>,
-            Receiver<(
-                RunType,
-                bool,
-                Vec<FaultRecord>,
-                Option<Sender<Vec<TraceRecord>>>,
-            )>,
+            Sender<WorkloadMessage>,
+            Receiver<WorkloadMessage>,
         ) = unbounded();
         // Create a channel for collecting results from threads
         let (fault_response_sender, fault_response_receiver) = unbounded();
@@ -88,10 +82,14 @@ impl FaultAttacks {
         // Shared receiver for threads
         let workload_receiver = workload_receiver.clone();
 
+        if threads == 0 {
+            return Err("Number of threads must be greater than 0".to_string());
+        }
+        // Create a vector to hold the thread handles
+
         let mut handles = vec![];
-        for _ in 0..20 {
+        for _ in 0..threads {
             // Copy data to be moved into threads
-            let cycles = cycles;
             let file = file_data.clone();
             let receiver = workload_receiver.clone();
             let fault_sender = fault_response_sender.clone();
@@ -101,7 +99,13 @@ impl FaultAttacks {
                 // Create a new simulation instance
                 let mut simulation = Control::new(&file, false);
                 // Loop until the workload receiver is closed
-                while let Ok((run_type, deep_analysis, records, trace_sender)) = receiver.recv() {
+                while let Ok(msg) = receiver.recv() {
+                    let WorkloadMessage {
+                        run_type,
+                        deep_analysis,
+                        fault_records: records,
+                        trace_sender,
+                    } = msg;
                     // println!(
                     //     "Thread: {:?}, start time: {}, run_type: {:?}",
                     //     thread::current().id(),
@@ -169,12 +173,12 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `fault_data` - A vector of vectors containing `FaultData`.
+    /// * `fault_data` - Fault data as a vector of vectors of `FaultData`.
     pub fn set_fault_data(&mut self, fault_data: Vec<Vec<FaultData>>) {
         self.fault_data = fault_data;
     }
 
-    /// Prints the fault data.
+    /// Prints the fault data using the disassembly context.
     pub fn print_fault_data(&self) {
         let debug_context = self.file_data.get_debug_context();
 
@@ -183,34 +187,30 @@ impl FaultAttacks {
     }
 
     /// Get trace data from the fault data.
-    /// Establish a channel to receive the trace data.
     ///
     /// # Arguments
     /// * `run_type` - The type of run to perform.
     /// * `deep_analysis` - Whether to perform a deep analysis.
-    /// * `fault_data` - A vector of fault records to process.
+    /// * `fault_data` - Fault records to process.
     ///
     /// # Returns
-    /// * `Vec<TraceRecord>` - A vector of trace records.
-    ///
+    /// * `Ok(Vec<TraceRecord>)` with trace records, or `Err(String)` on failure.
     pub fn get_trace_data(
         &self,
         run_type: RunType,
         deep_analysis: bool,
         fault_data: Vec<FaultRecord>,
     ) -> Result<Vec<TraceRecord>, String> {
-        // Setup the trace response channel
         let (trace_response_sender, trace_response_receiver) = unbounded();
-        // Run simulation to record normal fault program flow as a base for fault injection
         self.workload_sender
             .as_ref()
             .unwrap()
-            .send((
+            .send(WorkloadMessage {
                 run_type,
                 deep_analysis,
-                fault_data,
-                Some(trace_response_sender),
-            ))
+                fault_records: fault_data,
+                trace_sender: Some(trace_response_sender),
+            })
             .unwrap();
         let trace_record = trace_response_receiver
             .recv()
@@ -222,11 +222,11 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `attack_number` - The attack number to trace.
+    /// * `attack_number` - Index of the attack to trace.
     ///
     /// # Returns
     ///
-    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
+    /// * `Ok(())` if successful, otherwise `Err(String)`.
     pub fn print_trace_for_fault(&self, attack_number: usize) -> Result<(), String> {
         if !self.fault_data.is_empty() {
             let fault_records = FaultData::get_simulation_fault_records(
@@ -250,11 +250,11 @@ impl FaultAttacks {
         Ok(())
     }
 
-    /// Prints the trace.
+    /// Prints the trace for the program without faults.
     ///
     /// # Returns
     ///
-    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
+    /// * `Ok(())` if successful, otherwise `Err(String)`.
     pub fn print_trace(&self) -> Result<(), String> {
         // Run full trace
         let trace_records =
@@ -268,11 +268,11 @@ impl FaultAttacks {
         Ok(())
     }
 
-    /// Checks for correct behavior.
+    /// Checks for correct behavior of the program (no faults injected).
     ///
     /// # Returns
     ///
-    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
+    /// * `Ok(())` if successful, otherwise `Err(String)`.
     pub fn check_for_correct_behavior(&self) -> Result<(), String> {
         // Get trace data from negative run
         let mut simulation = Control::new(&self.file_data, true);
@@ -283,11 +283,11 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `groups` - An iterator over the fault groups.
+    /// * `groups` - Iterator over fault group names.
     ///
     /// # Returns
     ///
-    /// * `Result<(bool, usize), String>` - Returns a tuple containing a boolean indicating success and the number of attacks.
+    /// * `Ok((bool, usize))` where bool indicates if any attack succeeded, usize is the number of attacks. Returns `Err(String)` on error.
     pub fn single(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
@@ -315,15 +315,15 @@ impl FaultAttacks {
         Ok((any_success, self.count_sum))
     }
 
-    /// Runs double glitch attacks.
+    /// Runs double glitch attacks (all pairs).
     ///
     /// # Arguments
     ///
-    /// * `groups` - An iterator over the fault groups.
+    /// * `groups` - Iterator over fault group names.
     ///
     /// # Returns
     ///
-    /// * `Result<(bool, usize), String>` - Returns a tuple containing a boolean indicating success and the number of attacks.
+    /// * `Ok((bool, usize))` where bool indicates if any attack succeeded, usize is the number of attacks. Returns `Err(String)` on error.
     pub fn double(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
@@ -352,15 +352,15 @@ impl FaultAttacks {
         Ok((any_success, self.count_sum))
     }
 
-    /// Runs the fault simulation.
+    /// Runs the fault simulation for the given faults.
     ///
     /// # Arguments
     ///
-    /// * `faults` - The faults to inject.
+    /// * `faults` - Slice of faults to inject.
     ///
     /// # Returns
     ///
-    /// * `Result<Vec<Vec<FaultData>>, String>` - Returns a vector of fault data if successful, otherwise an error message.
+    /// * `Ok(Vec<Vec<FaultData>>)` with successful attacks, or `Err(String)` on error.
     pub fn fault_simulation(
         &mut self,
         faults: &[FaultType],
@@ -456,13 +456,12 @@ impl FaultAttacks {
     ///
     /// # Arguments
     ///
-    /// * `file_data` - The ELF file data.
-    /// * `faults` - The faults to inject.
-    /// * `simulation_fault_records` - The current simulation fault records.
+    /// * `faults` - Remaining faults to inject (slice).
+    /// * `simulation_fault_records` - Current simulation fault records.
     ///
     /// # Returns
     ///
-    /// * `Result<usize, String>` - Returns the number of successful attacks if successful, otherwise an error message.
+    /// * `Ok(usize)` with the number of successful attacks, or `Err(String)` on error.
     fn fault_simulation_inner(
         &self,
         faults: &[FaultType],
@@ -484,7 +483,12 @@ impl FaultAttacks {
             self.workload_sender
                 .as_ref()
                 .unwrap()
-                .send((RunType::Run, false, simulation_fault_records.to_vec(), None))
+                .send(WorkloadMessage {
+                    run_type: RunType::Run,
+                    deep_analysis: false,
+                    fault_records: simulation_fault_records.to_vec(),
+                    trace_sender: None,
+                })
                 .expect("Not able to send fault record to thread");
             n += 1;
         } else {
@@ -495,12 +499,12 @@ impl FaultAttacks {
             self.workload_sender
                 .as_ref()
                 .unwrap()
-                .send((
-                    RunType::RecordTrace,
-                    self.deep_analysis,
-                    simulation_fault_records.to_vec(),
-                    Some(trace_response_sender),
-                ))
+                .send(WorkloadMessage {
+                    run_type: RunType::RecordTrace,
+                    deep_analysis: self.deep_analysis,
+                    fault_records: simulation_fault_records.to_vec(),
+                    trace_sender: Some(trace_response_sender),
+                })
                 .unwrap();
             // println!(
             //     "Send: start time: {}, run_type: {:?}",
@@ -547,7 +551,7 @@ impl FaultAttacks {
 /// This trait is used to clean up the `FaultAttacks` instance when it goes out of scope.
 /// It ensures that all threads are properly joined and that the sender channels are closed.
 impl Drop for FaultAttacks {
-    /// Cleans up the `FaultAttacks` instance by resetting the fault data.
+    /// Cleans up the `FaultAttacks` instance by resetting the fault data and joining threads.
     fn drop(&mut self) {
         // Drop the main workload channel
         self.workload_sender = None;

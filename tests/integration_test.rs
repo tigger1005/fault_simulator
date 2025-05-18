@@ -7,13 +7,13 @@ use std::env;
 /// This test runs a single glitch atttacks on two different binaries (victim_.elf, victim_4.elf)
 /// and checks if faults are found with the correct number of attack iterations
 fn run_single_glitch() {
-    env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_.elf"),
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -25,6 +25,7 @@ fn run_single_glitch() {
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -37,13 +38,13 @@ fn run_single_glitch() {
 /// This test runs a double glitch atttacks on two different binaries (victim_3.elf, victim_4.elf)
 /// and checks if faults are found with the correct number of attack iterations
 fn run_double_glitch() {
-    env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_3.elf"),
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (false: bool, number_of_attacks: usize)
@@ -54,6 +55,7 @@ fn run_double_glitch() {
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -67,13 +69,13 @@ fn run_double_glitch() {
 /// This test runs a fault simulation on two different binaries (victim_.elf, victim_3.elf)
 /// and checks if the correct faults are found, identfied by their addresses
 fn run_fault_simulation_one_glitch() {
-    env::set_var("RAYON_NUM_THREADS", "1");
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_.elf"),
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
     // Result is Vec<Vec<FaultData>>
@@ -108,6 +110,7 @@ fn run_fault_simulation_two_glitches() {
         2000,
         false,
         false,
+        15,
     )
     .unwrap();
 

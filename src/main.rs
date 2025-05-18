@@ -10,14 +10,27 @@ mod compile;
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
-/// Command line parameter structure
+/// Command line parameter structure for configuring the fault injection simulator.
 ///
+/// # Fields
+///
+/// * `threads` - Number of threads started in parallel.
+/// * `no_compilation` - Suppress re-compilation of the target program.
+/// * `class` - Specifies the attack class to execute. Options include `all`, `single`, `double`, and optional subtypes like `glitch`, `regbf`, `regfld`, `cmdbf`.
+/// * `faults` - Defines a sequence of faults to simulate, e.g., `regbf_r1_0100` or `glitch_1`.
+/// * `analysis` - Activates trace analysis of the selected fault.
+/// * `deep_analysis` - Enables a deep scan of repeated code (e.g., loops).
+/// * `max_instructions` - Maximum number of instructions to execute.
+/// * `elf` - Path to the ELF file to load without compilation.
+/// * `trace` - Enables tracing of failure runs without fault injection.
+/// * `no_check` - Disables program flow checks.
+/// * `run_through` - Continues simulation without stopping at the first successful fault injection.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Number of threads started in parallel
-    #[arg(short, long, default_value_t = 1)]
-    threads: u16,
+    #[arg(short, long, default_value_t = 15)]
+    threads: usize,
 
     /// Suppress re-compilation of target program
     #[arg(short, long, default_value_t = false)]
@@ -98,6 +111,7 @@ fn main() -> Result<(), String> {
         args.max_instructions,
         args.deep_analysis,
         args.run_through,
+        args.threads,
     )?;
 
     // Check for correct program behavior

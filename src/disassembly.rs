@@ -58,12 +58,12 @@ impl Disassembly {
             .contains(format!("r{}", register).as_str())
     }
 
-    /// Disassembles the fault data structure.
+    /// Disassembles the fault data structure and prints the disassembled instructions.
     ///
     /// # Arguments
     ///
-    /// * `fault_data` - The fault data to disassemble.
-    /// * `debug_context` - The debug context for the ELF file.
+    /// * `fault_data` - A reference to the fault data to disassemble.
+    /// * `debug_context` - The debug context for resolving source code information from addresses.
     fn disassembly_fault_data(
         &self,
         fault_data: &FaultData,

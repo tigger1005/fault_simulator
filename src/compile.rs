@@ -1,6 +1,10 @@
 use std::process::Command;
 
-/// Compiles the victim binary if necessary.
+/// Compiles the victim binary using the `make` command in the `./content` directory.
+///
+/// This function checks if the compilation is necessary and executes the `make` command.
+/// If the compilation fails, it prints the status, stdout, and stderr for debugging purposes.
+/// The function asserts that the compilation is successful.
 pub fn compile() {
     // Compile victim
     println!("Compile victim if necessary:");

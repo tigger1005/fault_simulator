@@ -48,16 +48,18 @@ impl RegisterBitFlip {
 }
 
 impl FaultFunctions for RegisterBitFlip {
-    /// Executes the register bit flip fault.
+    /// Executes a register bit flip fault by applying an XOR operation to the specified register.
+    ///
+    /// This method modifies the value of the specified register and records the fault details for analysis.
     ///
     /// # Arguments
     ///
-    /// * `cpu` - The CPU instance.
-    /// * `fault` - The fault record.
+    /// * `cpu` - The CPU instance where the fault is injected.
+    /// * `fault` - The fault record containing details of the fault.
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns `false` as no cleanup is required.
+    /// * `bool` - Always returns `false` as no cleanup is required after the fault injection.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
 

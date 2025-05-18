@@ -45,16 +45,18 @@ impl RegisterFlood {
 }
 
 impl FaultFunctions for RegisterFlood {
-    /// Executes the register flood fault.
+    /// Executes a register flood fault by overwriting the specified register with a given value.
+    ///
+    /// This method modifies the value of the specified register and records the fault details for analysis.
     ///
     /// # Arguments
     ///
-    /// * `cpu` - The CPU instance.
-    /// * `fault` - The fault record.
+    /// * `cpu` - The CPU instance where the fault is injected.
+    /// * `fault` - The fault record containing details of the fault.
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns `false` as no cleanup is required.
+    /// * `bool` - Always returns `false` as no cleanup is required after the fault injection.
     fn execute(&self, cpu: &mut Cpu, fault: &FaultRecord) -> bool {
         let address = cpu.get_program_counter();
 
