@@ -74,7 +74,7 @@ impl<'a> Control<'a> {
         self.emu.get_state()
     }
 
-    /// Initialize registers and load the program code into the cpu
+    /// Initialize cpu state and load the program code into the cpu
     /// and set the initial state
     fn init(&mut self, run_successful: bool) {
         self.emu.init_register();

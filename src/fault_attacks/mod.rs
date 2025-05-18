@@ -300,11 +300,13 @@ impl FaultAttacks {
 
                 // Run simulation with fault
                 let mut fault_data = self.fault_simulation(&[fault.clone()])?;
+                let mut fault_data = self.fault_simulation(&[fault.clone()])?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
+                    if !self.run_through {
                     if !self.run_through {
                         return Ok((true, self.count_sum));
                     }
@@ -337,11 +339,13 @@ impl FaultAttacks {
                 let fault2 = get_fault_from(&t.1).unwrap();
 
                 let mut fault_data = self.fault_simulation(&[fault1, fault2])?;
+                let mut fault_data = self.fault_simulation(&[fault1, fault2])?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
+                    if !self.run_through {
                     if !self.run_through {
                         return Ok((true, self.count_sum));
                     }

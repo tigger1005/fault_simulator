@@ -19,10 +19,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.bench_function("single attack", |b| {
         b.iter(|| {
             let _ = attack.single(&mut vec!["glitch".to_string()].iter());
+            let _ = attack.single(&mut vec!["glitch".to_string()].iter());
         })
     });
     group.bench_function("double attack", |b| {
         b.iter(|| {
+            let _ = attack.double(&mut vec!["glitch".to_string()].iter());
             let _ = attack.double(&mut vec!["glitch".to_string()].iter());
         })
     });

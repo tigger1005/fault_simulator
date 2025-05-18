@@ -115,13 +115,14 @@ fn main() -> Result<(), String> {
     )?;
 
     // Check for correct program behavior
-    // if !args.no_check {
-    //     println!("Check for correct program behavior:");
-    //     attack_sim.check_for_correct_behavior()?;
-    // }
+    if !args.no_check {
+        println!("Check for correct program behavior:");
+        attack_sim.check_for_correct_behavior()?;
+    }
 
     // Check if trace is selected
     if args.trace {
+        attack_sim.print_trace()?;
         attack_sim.print_trace()?;
         return Ok(());
     }
@@ -135,12 +136,16 @@ fn main() -> Result<(), String> {
             Some("all") | None => {
                 if !attack_sim.single(&mut class)?.0 {
                     attack_sim.double(&mut class)?;
+                if !attack_sim.single(&mut class)?.0 {
+                    attack_sim.double(&mut class)?;
                 }
             }
             Some("single") => {
                 attack_sim.single(&mut class)?;
+                attack_sim.single(&mut class)?;
             }
             Some("double") => {
+                attack_sim.double(&mut class)?;
                 attack_sim.double(&mut class)?;
             }
             _ => println!("Unknown attack class!"),
@@ -153,6 +158,7 @@ fn main() -> Result<(), String> {
             .filter_map(|argument| get_fault_from(argument).ok())
             .collect();
 
+        let result = attack_sim.fault_simulation(&faults)?;
         let result = attack_sim.fault_simulation(&faults)?;
         // Save result to attack struct
         attack_sim.set_fault_data(result);
@@ -175,6 +181,7 @@ fn main() -> Result<(), String> {
                 let mut buffer = String::new();
                 if io::stdin().read_line(&mut buffer).is_ok() {
                     if let Ok(number) = buffer.trim().parse::<usize>() {
+                        attack_sim.print_trace_for_fault(number - 1)?;
                         attack_sim.print_trace_for_fault(number - 1)?;
                         continue;
                     }
