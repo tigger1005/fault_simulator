@@ -19,7 +19,6 @@ fn run_single_glitch() {
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
     assert_eq!((true, 35), attack.single(&mut vec.iter()).unwrap());
-    assert_eq!((true, 35), attack.single(&mut vec.iter()).unwrap());
     // Load victim data for attack simulation
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_4.elf"),
@@ -30,7 +29,6 @@ fn run_single_glitch() {
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
-    assert_eq!((false, 376), attack.single(&mut vec.iter()).unwrap());
     assert_eq!((false, 376), attack.single(&mut vec.iter()).unwrap());
 }
 
@@ -63,7 +61,6 @@ fn run_double_glitch() {
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["regbf".to_string()];
     assert_eq!((true, 6916), attack.double(&mut vec.iter()).unwrap());
-    assert_eq!((true, 6916), attack.double(&mut vec.iter()).unwrap());
 }
 
 #[test]
@@ -82,7 +79,6 @@ fn run_fault_simulation_one_glitch() {
     )
     .unwrap();
     // Result is Vec<Vec<FaultData>>
-    let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
     let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
 
     // Check if correct faults are found (at: 0x80004BA, 0x8000634, 0x800063C)
@@ -119,7 +115,6 @@ fn run_fault_simulation_two_glitches() {
     .unwrap();
 
     let result = attack
-        .fault_simulation(&[Glitch::new(1), Glitch::new(10)])
         .fault_simulation(&[Glitch::new(1), Glitch::new(10)])
         .unwrap();
 

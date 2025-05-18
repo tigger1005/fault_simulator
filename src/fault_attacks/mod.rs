@@ -300,13 +300,11 @@ impl FaultAttacks {
 
                 // Run simulation with fault
                 let mut fault_data = self.fault_simulation(&[fault.clone()])?;
-                let mut fault_data = self.fault_simulation(&[fault.clone()])?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
-                    if !self.run_through {
                     if !self.run_through {
                         return Ok((true, self.count_sum));
                     }
@@ -339,13 +337,11 @@ impl FaultAttacks {
                 let fault2 = get_fault_from(&t.1).unwrap();
 
                 let mut fault_data = self.fault_simulation(&[fault1, fault2])?;
-                let mut fault_data = self.fault_simulation(&[fault1, fault2])?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
-                    if !self.run_through {
                     if !self.run_through {
                         return Ok((true, self.count_sum));
                     }
@@ -383,15 +379,6 @@ impl FaultAttacks {
             self.initial_trace =
                 self.get_trace_data(RunType::RecordTrace, self.deep_analysis, [].to_vec())?;
         }
-
-        // println!(
-        //     "Send: start time: {}, run_type: {:?}",
-        //     SystemTime::now()
-        //         .duration_since(UNIX_EPOCH)
-        //         .unwrap()
-        //         .as_nanos(),
-        //     RunType::RecordTrace
-        // );
 
         // Split faults into first and remaining faults
         let (first_fault, remaining_faults) = faults.split_first().unwrap();
@@ -476,14 +463,6 @@ impl FaultAttacks {
         // Check if there are no remaining faults left
         if faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
-            // println!(
-            //     "Send: start time: {}, run_type: {:?}",
-            //     SystemTime::now()
-            //         .duration_since(UNIX_EPOCH)
-            //         .unwrap()
-            //         .as_nanos(),
-            //     RunType::Run
-            // );
             self.workload_sender
                 .as_ref()
                 .unwrap()
@@ -510,14 +489,7 @@ impl FaultAttacks {
                     trace_sender: Some(trace_response_sender),
                 })
                 .unwrap();
-            // println!(
-            //     "Send: start time: {}, run_type: {:?}",
-            //     SystemTime::now()
-            //         .duration_since(UNIX_EPOCH)
-            //         .unwrap()
-            //         .as_nanos(),
-            //     RunType::RecordTrace
-            // );
+
             let mut records = trace_response_receiver
                 .recv()
                 .expect("Unable to receive trace data");
