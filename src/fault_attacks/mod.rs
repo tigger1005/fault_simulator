@@ -106,19 +106,8 @@ impl FaultAttacks {
                         fault_records: records,
                         trace_sender,
                     } = msg;
-                    // println!(
-                    //     "Thread: {:?}, start time: {}, run_type: {:?}",
-                    //     thread::current().id(),
-                    //     SystemTime::now()
-                    //         .duration_since(UNIX_EPOCH)
-                    //         .unwrap()
-                    //         .as_nanos(),
-                    //     run_type
-                    // );
-                    // Todo: Do error handling
 
-                    // Print thread id
-                    //println!("Thread: {:?}", thread::current().id());
+                    // Todo: Do error handling
                     match run_type {
                         RunType::RecordFullTrace | RunType::RecordTrace => {
                             match Control::new(&file, false)
@@ -228,7 +217,10 @@ impl FaultAttacks {
     ///
     /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
     pub fn print_trace_for_fault(&self, attack_number: isize) -> Result<(), String> {
-        if !self.fault_data.is_empty() && attack_number > 0 && attack_number as usize <= self.fault_data.len(){
+        if !self.fault_data.is_empty()
+            && attack_number > 0
+            && attack_number as usize <= self.fault_data.len()
+        {
             let fault_records = FaultData::get_simulation_fault_records(
                 self.fault_data.get(attack_number as usize - 1).unwrap(),
             );
@@ -425,7 +417,6 @@ impl FaultAttacks {
         // }
 
         // Wait that the workload counter is the same as the n_result
-        // println!("Waiting for {} attacks to finish", n);
         while {
             let counter = self.work_load_counter.lock().unwrap();
             *counter != n
