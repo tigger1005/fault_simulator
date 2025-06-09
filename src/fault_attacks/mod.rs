@@ -242,6 +242,15 @@ impl FaultAttacks {
         Ok(())
     }
 
+    /// Set initial trace data for the `FaultAttacks` instance.
+    ///
+    fn set_initial_trace(&mut self) -> Result<(), String> {
+        // Run full trace
+        self.initial_trace =
+            self.get_trace_data(RunType::RecordTrace, self.deep_analysis, [].to_vec())?;
+        Ok(())
+    }
+
     /// Prints the trace for the program without faults.
     ///
     /// # Returns
@@ -284,6 +293,8 @@ impl FaultAttacks {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
 
+        self.set_initial_trace()?; // Set initial trace data
+
         for list in lists {
             // Iterate over all faults in the list
             for fault in list {
@@ -319,6 +330,8 @@ impl FaultAttacks {
     pub fn double(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
+
+        self.set_initial_trace()?; // Set initial trace data
 
         for list in lists {
             // Iterate over all faults in the list
@@ -365,11 +378,10 @@ impl FaultAttacks {
             return Ok(Vec::new());
         }
 
-        // Setup the trace response channel
+        // Setup the trace response channel if not already set
         if self.initial_trace.is_empty() {
             // Run full trace
-            self.initial_trace =
-                self.get_trace_data(RunType::RecordTrace, self.deep_analysis, [].to_vec())?;
+            self.set_initial_trace()?;
         }
 
         // Split faults into first and remaining faults
@@ -446,13 +458,13 @@ impl FaultAttacks {
     /// * `Ok(usize)` with the number of successful attacks, or `Err(String)` on error.
     fn fault_simulation_inner(
         &self,
-        faults: &[FaultType],
+        remaining_faults: &[FaultType],
         simulation_fault_records: &[FaultRecord],
     ) -> Result<usize, String> {
         let mut n = 0;
 
         // Check if there are no remaining faults left
-        if faults.is_empty() {
+        if remaining_faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
             self.workload_sender
                 .as_ref()
@@ -486,7 +498,7 @@ impl FaultAttacks {
                 .expect("Unable to receive trace data");
 
             // Split faults into first and remaining faults
-            let (first_fault, remaining_faults) = faults.split_first().unwrap();
+            let (first_fault, remaining_faults) = remaining_faults.split_first().unwrap();
             // Filter records according to fault type
             first_fault.filter(&mut records, &self.cs);
             // Iterate over trace records
