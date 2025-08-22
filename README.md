@@ -103,7 +103,7 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 - `make` toolchain
 
 **Ghidra Trace Visualization**
-- Ghidra 11.3 with PyGhidra mode.
+- Ghidra 11.3 or newer with PyGhidra mode.
 
 ## Usage
 
@@ -121,6 +121,8 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 | `-e, --elf <FILE>`             | Use external elf file w/o compilation step |
 | `--trace`                      | Trace and analyse program w/o fault injection |
 | `-r, --run-through`            | Don't stop on first successful fault injection |
+| `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456 |
+| `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc |
 | `-h, --help`                   | Print help |
 | `-V, --version`                | Print version |
 
@@ -146,7 +148,7 @@ The Ghidra script you created enhances the visualization of the trace output gen
 
 **Usage:**
 
-1.  Ensure Ghidra 11.3 is installed and running in PyGhidra mode as described in the [Ghidra Installation Guide](https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_11.3_build/GhidraDocs/InstallationGuide.md#pyghidra-mode).
+1.  Ensure Ghidra 11.3 or newer is installed and running in PyGhidra mode as described in the [Ghidra Installation Guide](https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_11.3_build/GhidraDocs/InstallationGuide.md#pyghidra-mode).
 2. Start the script in Ghidra.
 3. Paste the trace output from the simulation.
 4. Observe the executed instructions highlighted in green and the faulted instruction in red.
