@@ -14,6 +14,8 @@ fn run_single_glitch() {
         false,
         false,
         15,
+        vec![], // success_addresses
+        vec![], // failure_addresses
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -26,6 +28,8 @@ fn run_single_glitch() {
         false,
         false,
         15,
+        vec![], // success_addresses
+        vec![], // failure_addresses
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -45,6 +49,8 @@ fn run_double_glitch() {
         false,
         false,
         15,
+        vec![], // success_addresses
+        vec![], // failure_addresses
     )
     .unwrap();
     // Result is (false: bool, number_of_attacks: usize)
@@ -56,6 +62,8 @@ fn run_double_glitch() {
         false,
         false,
         15,
+        vec![], // success_addresses
+        vec![], // failure_addresses
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -76,6 +84,8 @@ fn run_fault_simulation_one_glitch() {
         false,
         false,
         15,
+        vec![], // success_addresses
+        vec![], // failure_addresses
     )
     .unwrap();
     // Result is Vec<Vec<FaultData>>
@@ -111,6 +121,8 @@ fn run_fault_simulation_two_glitches() {
         false,
         false,
         15,
+        vec![], // success_addresses
+        vec![], // failure_addresses
     )
     .unwrap();
 
