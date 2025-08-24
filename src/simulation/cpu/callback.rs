@@ -60,7 +60,7 @@ pub fn hook_custom_addresses_callback(emu: &mut Unicorn<CpuState>, address: u64,
         emu.emu_stop().expect("failed to stop");
         return;
     }
-    
+
     // Check for failure addresses
     if emu_data.failure_addresses.contains(&address) {
         emu.get_data_mut().state = RunState::Failed;

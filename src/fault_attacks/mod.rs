@@ -105,7 +105,8 @@ impl FaultAttacks {
             let handle = thread::spawn(move || {
                 // Wait for workload
                 // Create a new simulation instance
-                let mut simulation = Control::new(&file, false, success_addrs.clone(), failure_addrs.clone());
+                let mut simulation =
+                    Control::new(&file, false, success_addrs.clone(), failure_addrs.clone());
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
                     let WorkloadMessage {
@@ -118,9 +119,14 @@ impl FaultAttacks {
                     // Todo: Do error handling
                     match run_type {
                         RunType::RecordFullTrace | RunType::RecordTrace => {
-                            match Control::new(&file, false, success_addrs.clone(), failure_addrs.clone())
-                                .run_with_faults(cycles, run_type, deep_analysis, &records)
-                                .unwrap()
+                            match Control::new(
+                                &file,
+                                false,
+                                success_addrs.clone(),
+                                failure_addrs.clone(),
+                            )
+                            .run_with_faults(cycles, run_type, deep_analysis, &records)
+                            .unwrap()
                             {
                                 Data::Trace(trace) => trace_sender
                                     .unwrap()
@@ -277,7 +283,12 @@ impl FaultAttacks {
     /// * `Ok(())` if successful, otherwise `Err(String)`.
     pub fn check_for_correct_behavior(&self) -> Result<(), String> {
         // Get trace data from negative run
-        let mut simulation = Control::new(&self.file_data, true, self.success_addresses.clone(), self.failure_addresses.clone());
+        let mut simulation = Control::new(
+            &self.file_data,
+            true,
+            self.success_addresses.clone(),
+            self.failure_addresses.clone(),
+        );
         simulation.check_program(self.cycles)
     }
 

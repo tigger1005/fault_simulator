@@ -7,8 +7,8 @@ use crate::simulation::{
 mod callback;
 
 use callback::{
-    hook_code_callback, hook_code_decision_activation_callback, mmio_auth_write_callback,
-    mmio_serial_write_callback, hook_custom_addresses_callback,
+    hook_code_callback, hook_code_decision_activation_callback, hook_custom_addresses_callback,
+    mmio_auth_write_callback, mmio_serial_write_callback,
 };
 
 use unicorn_engine::unicorn_const::uc_error;
@@ -84,7 +84,11 @@ impl<'a> Cpu<'a> {
     /// # Returns
     ///
     /// * `Self` - Returns a `Cpu` instance.
-    pub fn new(file_data: &'a ElfFile, success_addresses: Vec<u64>, failure_addresses: Vec<u64>) -> Self {
+    pub fn new(
+        file_data: &'a ElfFile,
+        success_addresses: Vec<u64>,
+        failure_addresses: Vec<u64>,
+    ) -> Self {
         // Setup platform -> ARMv8-m.base
         let emu = Unicorn::new_with_data(
             Arch::ARM,
@@ -193,9 +197,10 @@ impl<'a> Cpu<'a> {
                 )
                 .expect("failed to set decision_activation code hook");
         }
-        
+
         // Set up code hooks for custom success/failure addresses (if any provided)
-        let has_custom_addresses = !self.emu.get_data().success_addresses.is_empty() || !self.emu.get_data().failure_addresses.is_empty();
+        let has_custom_addresses = !self.emu.get_data().success_addresses.is_empty()
+            || !self.emu.get_data().failure_addresses.is_empty();
         if has_custom_addresses {
             // Add code hook for the entire program to check for custom addresses
             let program_data = &self.emu.get_data().file_data.program_data[0];

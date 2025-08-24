@@ -42,7 +42,12 @@ impl<'a> Control<'a> {
     /// # Returns
     ///
     /// * `Self` - Returns a new `Control` instance.
-    pub fn new(program_data: &'a ElfFile, decision_activation_active: bool, success_addresses: Vec<u64>, failure_addresses: Vec<u64>) -> Self {
+    pub fn new(
+        program_data: &'a ElfFile,
+        decision_activation_active: bool,
+        success_addresses: Vec<u64>,
+        failure_addresses: Vec<u64>,
+    ) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(program_data, success_addresses, failure_addresses);
         // Cpu setup
