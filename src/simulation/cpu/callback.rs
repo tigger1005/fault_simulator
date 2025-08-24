@@ -48,6 +48,28 @@ pub fn mmio_auth_write_callback(
     true
 }
 
+/// Dedicated hook for custom success/failure address monitoring
+/// This hook only checks for user-defined success and failure addresses
+pub fn hook_custom_addresses_callback(emu: &mut Unicorn<CpuState>, address: u64, _size: u32) {
+    let emu_data = emu.get_data();
+
+    // Check for success addresses
+    if emu_data.success_addresses.contains(&address) {
+        emu.get_data_mut().state = RunState::Success;
+        debug!("Custom success address reached: 0x{:x}", address);
+        emu.emu_stop().expect("failed to stop");
+        return;
+    }
+
+    // Check for failure addresses
+    if emu_data.failure_addresses.contains(&address) {
+        emu.get_data_mut().state = RunState::Failed;
+        debug!("Custom failure address reached: 0x{:x}", address);
+        emu.emu_stop().expect("failed to stop");
+        return;
+    }
+}
+
 /// Callback for serial mem IO write access
 ///
 /// This IO write displays printed messages

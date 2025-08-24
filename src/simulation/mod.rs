@@ -36,13 +36,20 @@ impl<'a> Control<'a> {
     ///
     /// * `program_data` - A reference to the ELF file containing the program data.
     /// * `decision_activation_active` - A boolean indicating whether decision activation is enabled.
+    /// * `success_addresses` - List of memory addresses that indicate success when executed.
+    /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
     ///
     /// # Returns
     ///
     /// * `Self` - Returns a new `Control` instance.
-    pub fn new(program_data: &'a ElfFile, decision_activation_active: bool) -> Self {
+    pub fn new(
+        program_data: &'a ElfFile,
+        decision_activation_active: bool,
+        success_addresses: Vec<u64>,
+        failure_addresses: Vec<u64>,
+    ) -> Self {
         // Setup cpu emulation
-        let mut emu = Cpu::new(program_data);
+        let mut emu = Cpu::new(program_data, success_addresses, failure_addresses);
         // Cpu setup
         emu.setup_mmio();
         emu.setup_breakpoints(decision_activation_active);

@@ -10,6 +10,13 @@ mod compile;
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
+/// Parse hex address strings to u64 values
+fn parse_hex(s: &str) -> Result<u64, String> {
+    let cleaned = s.strip_prefix("0x").unwrap_or(s);
+    u64::from_str_radix(cleaned, 16)
+        .map_err(|e| format!("'{}' is not a valid hex number: {}", s, e))
+}
+
 /// Command line parameter structure for configuring the fault injection simulator.
 ///
 /// # Fields
@@ -25,6 +32,8 @@ const GIT_VERSION: &str = git_version!();
 /// * `trace` - Enables tracing of failure runs without fault injection.
 /// * `no_check` - Disables program flow checks.
 /// * `run_through` - Continues simulation without stopping at the first successful fault injection.
+/// * `success_addresses` - List of memory addresses that indicate success when accessed.
+/// * `failure_addresses` - List of memory addresses that indicate failure when accessed.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -75,6 +84,16 @@ struct Args {
     /// Don't stop on first successful fault injection
     #[arg(short, long, default_value_t = false)]
     run_through: bool,
+
+    /// List of memory addresses that indicate success when accessed
+    /// Format: --success-addresses 0x8000123 0x8000456
+    #[arg(long, value_parser = parse_hex, num_args = 0..)]
+    success_addresses: Vec<u64>,
+
+    /// List of memory addresses that indicate failure when accessed
+    /// Format: --failure-addresses 0x8000789 0x8000abc
+    #[arg(long, value_parser = parse_hex, num_args = 0..)]
+    failure_addresses: Vec<u64>,
 }
 
 /// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
@@ -112,6 +131,8 @@ fn main() -> Result<(), String> {
         args.deep_analysis,
         args.run_through,
         args.threads,
+        args.success_addresses,
+        args.failure_addresses,
     )?;
 
     // Check for correct program behavior
