@@ -41,7 +41,7 @@ where
             A: de::SeqAccess<'de>,
         {
             let mut addresses = Vec::new();
-            
+
             while let Some(value) = seq.next_element::<serde_json::Value>()? {
                 match value {
                     serde_json::Value::String(s) => {
@@ -58,7 +58,7 @@ where
                     _ => return Err(de::Error::custom("Address must be a string or number")),
                 }
             }
-            
+
             Ok(addresses)
         }
     }
@@ -99,16 +99,19 @@ struct Config {
 
 impl Config {
     // Keep defaults in sync with CLI defaults
-    fn default_threads() -> usize { 15 }
-    fn default_max_instructions() -> usize { 2000 }
+    fn default_threads() -> usize {
+        15
+    }
+    fn default_max_instructions() -> usize {
+        2000
+    }
 
     /// Load configuration from JSON file
     fn from_file(path: &PathBuf) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config file: {}", e))?;
-        
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse JSON config: {}", e))
+
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON config: {}", e))
     }
 
     /// Create config from CLI args (for when no JSON file is provided)
