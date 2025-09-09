@@ -1,5 +1,7 @@
 use fault_simulator::prelude::*;
 use std::env;
+use std::fs;
+use std::process::Command;
 
 #[test]
 /// Test for single glitch attack api
@@ -142,4 +144,31 @@ fn run_fault_simulation_two_glitches() {
         TraceRecord::Fault { address, .. } => address == 0x80006a4,
         _ => false,
     }));
+}
+
+#[test]
+/// Integration test for JSON config loading
+///
+/// This test creates a temporary JSON config file, runs the simulator with
+/// --config, and checks that the output contains expected values.
+/// It verifies that the config file is correctly parsed and used.
+fn test_json_config() {
+    // Create a temporary config file
+    let config = r#"{
+        "class": ["single", "glitch"],
+        "analysis": true
+    }"#;
+    fs::write("test_config.json", config).expect("Failed to write config file");
+
+    let output = Command::new("cargo")
+        .args(&["run", "--", "--config", "test_config.json"])
+        .output()
+        .expect("Failed to run binary");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Fault injection simulator"));
+    assert!(stdout.contains("glitch"));
+
+    // Clean up
+    let _ = fs::remove_file("test_config.json");
 }

@@ -1,4 +1,5 @@
 use clap::Parser;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::io::stdout;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -17,10 +18,152 @@ fn parse_hex(s: &str) -> Result<u64, String> {
         .map_err(|e| format!("'{}' is not a valid hex number: {}", s, e))
 }
 
+/// Custom deserializer for hex addresses that can handle both strings and numbers
+// Wasn't able to find any other crate that could do Vec<u64>.
+fn deserialize_hex<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct HexAddressesVisitor;
+
+    impl<'de> Visitor<'de> for HexAddressesVisitor {
+        type Value = Vec<u64>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an array of hex addresses (strings like \"0x123\" or numbers)")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<u64>, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut addresses = Vec::new();
+            
+            while let Some(value) = seq.next_element::<serde_json::Value>()? {
+                match value {
+                    serde_json::Value::String(s) => {
+                        let addr = parse_hex(&s).map_err(de::Error::custom)?;
+                        addresses.push(addr);
+                    }
+                    serde_json::Value::Number(n) => {
+                        if let Some(addr) = n.as_u64() {
+                            addresses.push(addr);
+                        } else {
+                            return Err(de::Error::custom("Invalid number for address"));
+                        }
+                    }
+                    _ => return Err(de::Error::custom("Address must be a string or number")),
+                }
+            }
+            
+            Ok(addresses)
+        }
+    }
+
+    deserializer.deserialize_seq(HexAddressesVisitor)
+}
+
+/// Configuration structure that can be loaded from JSON
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Config {
+    #[serde(default = "Config::default_threads")]
+    threads: usize,
+    #[serde(default)]
+    no_compilation: bool,
+    #[serde(default)]
+    class: Vec<String>,
+    #[serde(default)]
+    faults: Vec<String>,
+    #[serde(default)]
+    analysis: bool,
+    #[serde(default)]
+    deep_analysis: bool,
+    #[serde(default = "Config::default_max_instructions")]
+    max_instructions: usize,
+    #[serde(default)]
+    elf: Option<PathBuf>,
+    #[serde(default)]
+    trace: bool,
+    #[serde(default)]
+    no_check: bool,
+    #[serde(default)]
+    run_through: bool,
+    #[serde(default, deserialize_with = "deserialize_hex")]
+    success_addresses: Vec<u64>,
+    #[serde(default, deserialize_with = "deserialize_hex")]
+    failure_addresses: Vec<u64>,
+}
+
+impl Config {
+    // Keep defaults in sync with CLI defaults
+    fn default_threads() -> usize { 15 }
+    fn default_max_instructions() -> usize { 2000 }
+
+    /// Load configuration from JSON file
+    fn from_file(path: &PathBuf) -> Result<Self, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
+        
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse JSON config: {}", e))
+    }
+
+    /// Create config from CLI args (for when no JSON file is provided)
+    fn from_args(args: &Args) -> Self {
+        Self {
+            threads: args.threads,
+            no_compilation: args.no_compilation,
+            class: args.class.clone(),
+            faults: args.faults.clone(),
+            analysis: args.analysis,
+            deep_analysis: args.deep_analysis,
+            max_instructions: args.max_instructions,
+            elf: args.elf.clone(),
+            trace: args.trace,
+            no_check: args.no_check,
+            run_through: args.run_through,
+            success_addresses: args.success_addresses.clone(),
+            failure_addresses: args.failure_addresses.clone(),
+        }
+    }
+
+    /// Override config values with CLI args (CLI takes precedence)
+    fn override_with_args(&mut self, args: &Args) {
+        // Always apply CLI values since they include defaults
+        self.threads = args.threads;
+        self.no_compilation = args.no_compilation;
+        if !args.class.is_empty() {
+            self.class = args.class.clone();
+        }
+        if !args.faults.is_empty() {
+            self.faults = args.faults.clone();
+        }
+        self.analysis = args.analysis;
+        self.deep_analysis = args.deep_analysis;
+        self.max_instructions = args.max_instructions;
+        if args.elf.is_some() {
+            self.elf = args.elf.clone();
+        }
+        self.trace = args.trace;
+        self.no_check = args.no_check;
+        self.run_through = args.run_through;
+        if !args.success_addresses.is_empty() {
+            self.success_addresses = args.success_addresses.clone();
+        }
+        if !args.failure_addresses.is_empty() {
+            self.failure_addresses = args.failure_addresses.clone();
+        }
+    }
+}
+
 /// Command line parameter structure for configuring the fault injection simulator.
 ///
 /// # Fields
 ///
+/// * `config` - Load configuration from JSON file.
 /// * `threads` - Number of threads started in parallel.
 /// * `no_compilation` - Suppress re-compilation of the target program.
 /// * `class` - Specifies the attack class to execute. Options include `all`, `single`, `double`, and optional subtypes like `glitch`, `regbf`, `regfld`, `cmdbf`.
@@ -37,6 +180,10 @@ fn parse_hex(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Load configuration from JSON file
+    #[arg(short = 'c', long)]
+    config: Option<PathBuf>,
+
     /// Number of threads started in parallel
     #[arg(short, long, default_value_t = 15)]
     threads: usize,
@@ -106,11 +253,22 @@ fn main() -> Result<(), String> {
 
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
 
+    // Load configuration
+    let config = match &args.config {
+        Some(config_path) => {
+            println!("Loading configuration from: {}", config_path.display());
+            let mut config = Config::from_file(config_path)?;
+            config.override_with_args(&args);
+            config
+        }
+        None => Config::from_args(&args),
+    };
+
     // Check for compilation flag and provided elf file
-    let path = match args.elf.is_some() {
+    let path = match config.elf.is_some() {
         false => {
             // Compilation according cli parameter
-            if !args.no_compilation {
+            if !config.no_compilation {
                 compile::compile();
             }
             std::path::PathBuf::from("content/bin/aarch32/victim.elf")
@@ -118,31 +276,31 @@ fn main() -> Result<(), String> {
         true => {
             println!(
                 "Provided elf file: {}\n",
-                &args.elf.as_ref().unwrap().display()
+                &config.elf.as_ref().unwrap().display()
             );
-            args.elf.unwrap()
+            config.elf.unwrap()
         }
     };
 
     // Load victim data for attack simulation
     let mut attack_sim = FaultAttacks::new(
         path,
-        args.max_instructions,
-        args.deep_analysis,
-        args.run_through,
-        args.threads,
-        args.success_addresses,
-        args.failure_addresses,
+        config.max_instructions,
+        config.deep_analysis,
+        config.run_through,
+        config.threads,
+        config.success_addresses,
+        config.failure_addresses,
     )?;
 
     // Check for correct program behavior
-    if !args.no_check {
+    if !config.no_check {
         println!("Check for correct program behavior:");
         attack_sim.check_for_correct_behavior()?;
     }
 
     // Check if trace is selected
-    if args.trace {
+    if config.trace {
         attack_sim.print_trace()?;
         return Ok(());
     }
@@ -150,8 +308,8 @@ fn main() -> Result<(), String> {
     println!("\nRun fault simulations:");
 
     // Run attack simulation
-    if args.faults.is_empty() {
-        let mut class = args.class.iter();
+    if config.faults.is_empty() {
+        let mut class = config.class.iter();
         match class.next().as_ref().map(|s| s.as_str()) {
             Some("all") | None => {
                 if !attack_sim.single(&mut class)?.0 {
@@ -168,7 +326,7 @@ fn main() -> Result<(), String> {
         }
     } else {
         // Get fault type and numbers
-        let faults: Vec<FaultType> = args
+        let faults: Vec<FaultType> = config
             .faults
             .iter()
             .filter_map(|argument| get_fault_from(argument).ok())
@@ -184,7 +342,7 @@ fn main() -> Result<(), String> {
 
     println!("Overall tests executed {}", attack_sim.count_sum);
 
-    if args.analysis {
+    if config.analysis {
         loop {
             {
                 if attack_sim.fault_data.is_empty() {
