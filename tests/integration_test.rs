@@ -153,15 +153,8 @@ fn run_fault_simulation_two_glitches() {
 /// --config, and checks that the output contains expected values.
 /// It verifies that the config file is correctly parsed and used.
 fn test_json_config() {
-    // Create a temporary config file
-    let config = r#"{
-        "class": ["single", "glitch"],
-        "analysis": true
-    }"#;
-    fs::write("test_config.json", config).expect("Failed to write config file");
-
     let output = Command::new("cargo")
-        .args(&["run", "--", "--config", "test_config.json"])
+        .args(&["run", "--", "--config", "tests/test_config.json"])
         .output()
         .expect("Failed to run binary");
     assert!(output.status.success());
