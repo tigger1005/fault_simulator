@@ -312,7 +312,7 @@ impl FaultAttacks {
                 let fault = get_fault_from(&fault).unwrap();
 
                 // Run simulation with fault
-                let mut fault_data = self.fault_simulation(&[fault.clone()])?;
+                let mut fault_data = self.fault_simulation(std::slice::from_ref(&fault))?;
 
                 if !fault_data.is_empty() {
                     // Push intermediate data to fault data

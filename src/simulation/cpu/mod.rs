@@ -12,7 +12,7 @@ use callback::{
 };
 
 use unicorn_engine::unicorn_const::uc_error;
-use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
+use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot, SECOND_SCALE};
 use unicorn_engine::{Context, RegisterARM, Unicorn};
 
 use log::debug;
@@ -226,29 +226,29 @@ impl<'a> Cpu<'a> {
 
     /// Setup memory mapping, stack, io mapping
     pub fn setup_mmio(&mut self) {
-        const MINIMUM_MEMORY_SIZE: usize = 0x1000;
+        const MINIMUM_MEMORY_SIZE: u64 = 0x1000;
 
         let segments = &self.emu.get_data().file_data.program_data;
 
         // Iterate over all program parts and write them to memory
         for segment in segments {
-            let mut permission: Permission = Permission::NONE;
+            let mut permission = Prot::NONE;
 
             // Convert p_flags to permission
             if segment.0.p_flags & PF_X != 0 {
-                permission |= Permission::EXEC;
+                permission |= Prot::EXEC;
             }
             if segment.0.p_flags & PF_W != 0 {
-                permission |= Permission::WRITE;
+                permission |= Prot::WRITE;
             }
             if segment.0.p_flags & PF_R != 0 {
-                permission |= Permission::READ;
+                permission |= Prot::READ;
             }
             // Map segment to memory
             self.emu
                 .mem_map(
                     segment.0.p_paddr,
-                    (segment.0.p_memsz as usize + MINIMUM_MEMORY_SIZE) & 0xfffff000, // Calculate length of part with a minimum granularity of 4KB
+                    (segment.0.p_memsz + MINIMUM_MEMORY_SIZE) & 0xfffff000, // Calculate length of part with a minimum granularity of 4KB
                     permission,
                 )
                 .expect("failed to map code page");
@@ -256,7 +256,7 @@ impl<'a> Cpu<'a> {
 
         // Auth success / failed trigger
         self.emu
-            .mem_map(AUTH_BASE, MINIMUM_MEMORY_SIZE, Permission::WRITE)
+            .mem_map(AUTH_BASE, MINIMUM_MEMORY_SIZE, Prot::WRITE)
             .expect("failed to map mmio replacement");
 
         // IO address space
