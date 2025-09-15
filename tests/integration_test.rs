@@ -148,6 +148,51 @@ fn run_fault_simulation_two_glitches() {
 }
 
 #[test]
+/// Test for success_addresses and failure_addresses functionality
+///
+/// This test runs fault simulation on victim_3.elf with custom success and failure addresses
+/// Success address: 0x08000490, Failure addresses: 0x08000690, 0x08000014
+fn test_success_and_failure_addresses() {
+    env::set_var("RAYON_NUM_THREADS", "1");
+
+    // Define custom success and failure addresses for victim_3.elf
+    let success_addresses = vec![0x08000490];
+    let failure_addresses = vec![0x08000690, 0x08000014];
+
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+        2000,
+        false,
+        false,
+        15,
+        success_addresses,
+        failure_addresses,
+    )
+    .unwrap();
+
+    // Test single glitch attack with custom addresses
+    let vec = vec!["glitch".to_string()];
+    let single_result = attack.single(&mut vec.iter()).unwrap();
+
+    // Verify that the attack runs and produces results
+    println!(
+        "Single attack result: success={}, attacks={}",
+        single_result.0, single_result.1
+    );
+    assert!(
+        single_result.1 > 0,
+        "Expected some attack iterations with custom addresses"
+    );
+
+    // Test fault simulation with custom addresses
+    let fault_result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
+    println!(
+        "Fault simulation found {} successful attacks",
+        fault_result.len()
+    );
+}
+
+#[test]
 /// Integration test for JSON config loading
 ///
 /// This test creates a temporary JSON config file, runs the simulator with
