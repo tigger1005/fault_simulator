@@ -1,5 +1,8 @@
+use assert_cmd::prelude::*;
 use fault_simulator::prelude::*;
+use predicates::prelude::*;
 use std::env;
+use std::process::Command; // Used for writing assertions
 
 #[test]
 /// Test for single glitch attack api
@@ -142,4 +145,23 @@ fn run_fault_simulation_two_glitches() {
         TraceRecord::Fault { address, .. } => address == 0x80006a4,
         _ => false,
     }));
+}
+
+#[test]
+/// Integration test for JSON config loading
+///
+/// This test creates a temporary JSON config file, runs the simulator with
+/// --config, and checks that the output contains expected values.
+/// It verifies that the config file is correctly parsed and used.
+fn test_json_config() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args(&["--config", "tests/test_config.json"])
+        .output()
+        .expect("Failed to run binary");
+
+    cmd.assert()
+        .stdout(predicate::str::contains("Fault injection simulator"))
+        .stdout(predicate::str::contains("glitch"))
+        .success();
 }

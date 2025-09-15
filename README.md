@@ -95,6 +95,8 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
   - `rayon`
   - `itertools`
   - `clap`
+  - `serde`
+  - `serder_json`
 
 **Compiler Toolchain**
 - `gcc-arm-none-eabi` compiler toolchain
@@ -107,8 +109,12 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 
 ## Usage
 
+You can configure the simulator using either command-line arguments or a JSON config file.  
+CLI arguments always override values from the config file.
+
 ### Command-Line Options
 | Flag/Option                    | Description |
+| `-c, --config <CONFIG>`             | Load configuration from JSON file |
 |--------------------------------|-------------|
 | `-t, --threads <THREADS>`      | Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage |
 | `-n, --no-compilation`         | Suppress re-compilation of target program |
@@ -128,19 +134,41 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 
 ### Examples
 
-1. **Single glitch attack with trace analysis:**
+1. **Single glitch attack with trace analysis (CLI):**
    ```bash
    cargo run -- --class single glitch --analysis
    ```  
 
-2. **Double attack (glitch + register flood) on custom ELF:**
+2. **Single glitch attack with trace analysis (JSON config):**
+   Create a file (e.g., `example.json`):
+   ```json
+   {
+     "class": ["single", "glitch"],
+     "analysis": true
+   }
+   ```
+   Run with:
+   ```bash
+   cargo run -- --config example.json
+   ```
+
+3. **Mixing CLI and JSON:**
+   ```bash
+   cargo run -- --config example.json --analysis false
+   ```
+
+4. **Double attack (glitch + register flood) on custom ELF:**
    ```bash
    cargo run -- --class double glitch regfld --elf tests/bin/victim.elf -t 4
    ```
-3. **Running a fault sequence with register bit-flip and glitch:**
+
+5. **Running a fault sequence with register bit-flip and glitch:**
    ```bash
    cargo run -- --faults regbf_r1_0100 glitch_1
    ```
+
+**Hex Addresses:**  
+For address fields, you can use either numbers or hex strings (e.g., `"0x08000496"`) in your JSON config.
 
 ## Ghidra Visualization
 
