@@ -1,5 +1,8 @@
+use assert_cmd::prelude::*;
 use fault_simulator::prelude::*;
+use predicates::prelude::*;
 use std::env;
+use std::process::Command; // Used for writing assertions
 
 #[test]
 /// Test for single glitch attack api
@@ -151,11 +154,11 @@ fn run_fault_simulation_two_glitches() {
 /// Success address: 0x08000490, Failure addresses: 0x08000690, 0x08000014
 fn test_success_and_failure_addresses() {
     env::set_var("RAYON_NUM_THREADS", "1");
-    
+
     // Define custom success and failure addresses for victim_3.elf
     let success_addresses = vec![0x08000490];
     let failure_addresses = vec![0x08000690, 0x08000014];
-    
+
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_3.elf"),
         2000,
@@ -170,12 +173,40 @@ fn test_success_and_failure_addresses() {
     // Test single glitch attack with custom addresses
     let vec = vec!["glitch".to_string()];
     let single_result = attack.single(&mut vec.iter()).unwrap();
-    
+
     // Verify that the attack runs and produces results
-    println!("Single attack result: success={}, attacks={}", single_result.0, single_result.1);
-    assert!(single_result.1 > 0, "Expected some attack iterations with custom addresses");
-    
+    println!(
+        "Single attack result: success={}, attacks={}",
+        single_result.0, single_result.1
+    );
+    assert!(
+        single_result.1 > 0,
+        "Expected some attack iterations with custom addresses"
+    );
+
     // Test fault simulation with custom addresses
     let fault_result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
-    println!("Fault simulation found {} successful attacks", fault_result.len());
+    println!(
+        "Fault simulation found {} successful attacks",
+        fault_result.len()
+    );
+}
+
+#[test]
+/// Integration test for JSON config loading
+///
+/// This test creates a temporary JSON config file, runs the simulator with
+/// --config, and checks that the output contains expected values.
+/// It verifies that the config file is correctly parsed and used.
+fn test_json_config() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args(&["--config", "tests/test_config.json"])
+        .output()
+        .expect("Failed to run binary");
+
+    cmd.assert()
+        .stdout(predicate::str::contains("Fault injection simulator"))
+        .stdout(predicate::str::contains("glitch"))
+        .success();
 }

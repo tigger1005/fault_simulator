@@ -66,7 +66,6 @@ pub fn hook_custom_addresses_callback(emu: &mut Unicorn<CpuState>, address: u64,
         emu.get_data_mut().state = RunState::Failed;
         debug!("Custom failure address reached: 0x{:x}", address);
         emu.emu_stop().expect("failed to stop");
-        return;
     }
 }
 
