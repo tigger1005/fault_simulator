@@ -1,7 +1,8 @@
+use assert_cmd::prelude::*;
 use fault_simulator::prelude::*;
+use predicates::prelude::*;
 use std::env;
-use std::fs;
-use std::process::Command;
+use std::process::Command; // Used for writing assertions
 
 #[test]
 /// Test for single glitch attack api
@@ -153,22 +154,14 @@ fn run_fault_simulation_two_glitches() {
 /// --config, and checks that the output contains expected values.
 /// It verifies that the config file is correctly parsed and used.
 fn test_json_config() {
-    // Create a temporary config file
-    let config = r#"{
-        "class": ["single", "glitch"],
-        "analysis": true
-    }"#;
-    fs::write("test_config.json", config).expect("Failed to write config file");
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    let output = Command::new("cargo")
-        .args(&["run", "--", "--config", "test_config.json"])
+    cmd.args(&["--config", "tests/test_config.json"])
         .output()
         .expect("Failed to run binary");
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Fault injection simulator"));
-    assert!(stdout.contains("glitch"));
 
-    // Clean up
-    let _ = fs::remove_file("test_config.json");
+    cmd.assert()
+        .stdout(predicate::str::contains("Fault injection simulator"))
+        .stdout(predicate::str::contains("glitch"))
+        .success();
 }
