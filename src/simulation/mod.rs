@@ -38,6 +38,7 @@ impl<'a> Control<'a> {
     /// * `decision_activation_active` - A boolean indicating whether decision activation is enabled.
     /// * `success_addresses` - List of memory addresses that indicate success when executed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
+    /// * `initial_registers` - HashMap of RegisterARM to initial values for CPU registers.
     ///
     /// # Returns
     ///
@@ -47,9 +48,15 @@ impl<'a> Control<'a> {
         decision_activation_active: bool,
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
+        initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
     ) -> Self {
         // Setup cpu emulation
-        let mut emu = Cpu::new(program_data, success_addresses, failure_addresses);
+        let mut emu = Cpu::new(
+            program_data,
+            success_addresses,
+            failure_addresses,
+            initial_registers,
+        );
         // Cpu setup
         emu.setup_mmio();
         emu.setup_breakpoints(decision_activation_active);

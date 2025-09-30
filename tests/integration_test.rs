@@ -17,8 +17,9 @@ fn run_single_glitch() {
         false,
         false,
         15,
-        vec![], // success_addresses
-        vec![], // failure_addresses
+        vec![],                           // success_addresses
+        vec![],                           // failure_addresses
+        std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -31,8 +32,9 @@ fn run_single_glitch() {
         false,
         false,
         15,
-        vec![], // success_addresses
-        vec![], // failure_addresses
+        vec![],                           // success_addresses
+        vec![],                           // failure_addresses
+        std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -52,8 +54,9 @@ fn run_double_glitch() {
         false,
         false,
         15,
-        vec![], // success_addresses
-        vec![], // failure_addresses
+        vec![],                           // success_addresses
+        vec![],                           // failure_addresses
+        std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
     // Result is (false: bool, number_of_attacks: usize)
@@ -65,8 +68,9 @@ fn run_double_glitch() {
         false,
         false,
         15,
-        vec![], // success_addresses
-        vec![], // failure_addresses
+        vec![],                           // success_addresses
+        vec![],                           // failure_addresses
+        std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -87,8 +91,9 @@ fn run_fault_simulation_one_glitch() {
         false,
         false,
         15,
-        vec![], // success_addresses
-        vec![], // failure_addresses
+        vec![],                           // success_addresses
+        vec![],                           // failure_addresses
+        std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
     // Result is Vec<Vec<FaultData>>
@@ -124,8 +129,9 @@ fn run_fault_simulation_two_glitches() {
         false,
         false,
         15,
-        vec![], // success_addresses
-        vec![], // failure_addresses
+        vec![],                           // success_addresses
+        vec![],                           // failure_addresses
+        std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
 
@@ -167,6 +173,7 @@ fn test_success_and_failure_addresses() {
         15,
         success_addresses,
         failure_addresses,
+        std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
 
@@ -208,5 +215,70 @@ fn test_json_config() {
     cmd.assert()
         .stdout(predicate::str::contains("Fault injection simulator"))
         .stdout(predicate::str::contains("glitch"))
+        .success();
+}
+
+#[test]
+/// Test for initial register context functionality
+///
+/// This test verifies that custom initial register values can be applied
+/// and the fault simulation runs without errors using meaningful ARM register values
+fn test_initial_register_context() {
+    use std::collections::HashMap;
+    use unicorn_engine::RegisterARM;
+
+    // Create initial register context with meaningful ARM values
+    let mut initial_registers = HashMap::new();
+    initial_registers.insert(RegisterARM::R7, 0x2000FFF8); // Frame pointer
+    initial_registers.insert(RegisterARM::SP, 0x2000FFF8); // Stack pointer
+    initial_registers.insert(RegisterARM::LR, 0x08000005); // Link register
+    initial_registers.insert(RegisterARM::PC, 0x8000620); // Program counter
+
+    let mut attack = FaultAttacks::new(
+        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+        2000,
+        false,
+        false,
+        15,
+        vec![], // success_addresses
+        vec![], // failure_addresses
+        initial_registers,
+    )
+    .unwrap();
+
+    // Test that fault simulation works with custom registers
+    let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
+
+    // Should complete without errors (specific results may vary)
+    println!(
+        "Fault simulation with custom registers: {} attacks found",
+        result.len()
+    );
+}
+
+#[test]
+/// Test JSON config with initial registers
+///
+/// This test verifies that initial register configuration is loaded from JSON
+/// and displayed in the output
+fn test_json_config_initial_registers() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args(&[
+        "--config",
+        "tests/test_config.json",
+        "--no-check",
+        "--max-instructions",
+        "100",
+    ]);
+
+    cmd.assert()
+        .stdout(predicate::str::contains(
+            "Using custom initial register context:",
+        ))
+        .stdout(predicate::str::contains("R7: 0x2000FFF8"))
+        .stdout(predicate::str::contains("SP: 0x2000FFF8"))
+        .stdout(predicate::str::contains("LR: 0x08000005"))
+        .stdout(predicate::str::contains("PC: 0x08000620"))
         .success();
 }

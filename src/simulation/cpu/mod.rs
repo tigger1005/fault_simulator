@@ -16,7 +16,7 @@ use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot, SECOND_SCALE};
 use unicorn_engine::{Context, RegisterARM, Unicorn};
 
 use log::debug;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 // Constant variable definitions
 const AUTH_BASE: u64 = 0xAA01000;
@@ -57,6 +57,7 @@ pub struct Cpu<'a> {
     emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
     cpu_context: Context,
+    initial_registers: HashMap<RegisterARM, u64>,
 }
 
 struct CpuState<'a> {
@@ -80,6 +81,7 @@ impl<'a> Cpu<'a> {
     /// * `file_data` - The ELF file data.
     /// * `success_addresses` - List of memory addresses that indicate success when executed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
+    /// * `initial_registers` - HashMap of RegisterARM to initial values.
     ///
     /// # Returns
     ///
@@ -88,6 +90,7 @@ impl<'a> Cpu<'a> {
         file_data: &'a ElfFile,
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
+        initial_registers: HashMap<RegisterARM, u64>,
     ) -> Self {
         // Setup platform -> ARMv8-m.base
         let emu = Unicorn::new_with_data(
@@ -116,14 +119,15 @@ impl<'a> Cpu<'a> {
             emu,
             program_counter: 0,
             cpu_context,
+            initial_registers,
         }
     }
 
-    /// Initialize all required register to zero
+    /// Initialize all required register to zero or custom values
     ///
     /// Additionally the SP is set to start of stack
     pub fn init_register(&mut self) {
-        // Clear registers
+        // Clear all registers first
         ARM_REG
             .iter()
             .for_each(|reg| self.emu.reg_write(*reg, 0x00).unwrap());
@@ -141,8 +145,20 @@ impl<'a> Cpu<'a> {
             .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
             .expect("failed to set register");
 
-        // set initial program start address
+        // Set initial program start address (default from ELF)
         self.program_counter = self.emu.get_data().file_data.header.e_entry;
+
+        // Apply custom register values (these can override the defaults above)
+        for (&register, &value) in &self.initial_registers {
+            self.emu
+                .reg_write(register, value)
+                .unwrap_or_else(|_| panic!("Failed to set register {:?}", register));
+
+            // If PC is being set via initial_registers, update our internal program_counter too
+            if register == RegisterARM::PC {
+                self.program_counter = value;
+            }
+        }
     }
 
     /// Load source code from elf file into simulation

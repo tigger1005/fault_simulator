@@ -44,6 +44,7 @@ pub struct FaultAttacks {
     work_load_counter: std::sync::Arc<std::sync::Mutex<usize>>,
     success_addresses: Vec<u64>,
     failure_addresses: Vec<u64>,
+    initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
 }
 
 impl FaultAttacks {
@@ -58,6 +59,7 @@ impl FaultAttacks {
     /// * `threads` - Number of threads to use (must be > 0).
     /// * `success_addresses` - List of memory addresses that indicate success when accessed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when accessed.
+    /// * `initial_registers` - HashMap of RegisterARM to initial values for CPU registers.
     ///
     /// # Returns
     ///
@@ -70,6 +72,7 @@ impl FaultAttacks {
         threads: usize,
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
+        initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
     ) -> Result<Self, String> {
         // Load victim data
         let file_data: ElfFile = ElfFile::new(path)?;
@@ -102,11 +105,17 @@ impl FaultAttacks {
             let workload_counter = Arc::clone(&work_load_counter);
             let success_addrs = success_addresses.clone();
             let failure_addrs = failure_addresses.clone();
+            let init_regs = initial_registers.clone();
             let handle = thread::spawn(move || {
                 // Wait for workload
                 // Create a new simulation instance
-                let mut simulation =
-                    Control::new(&file, false, success_addrs.clone(), failure_addrs.clone());
+                let mut simulation = Control::new(
+                    &file,
+                    false,
+                    success_addrs.clone(),
+                    failure_addrs.clone(),
+                    init_regs.clone(),
+                );
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
                     let WorkloadMessage {
@@ -124,6 +133,7 @@ impl FaultAttacks {
                                 false,
                                 success_addrs.clone(),
                                 failure_addrs.clone(),
+                                init_regs.clone(),
                             )
                             .run_with_faults(cycles, run_type, deep_analysis, &records)
                             .unwrap()
@@ -171,6 +181,7 @@ impl FaultAttacks {
             work_load_counter,
             success_addresses,
             failure_addresses,
+            initial_registers,
         })
     }
 
@@ -288,6 +299,7 @@ impl FaultAttacks {
             true,
             self.success_addresses.clone(),
             self.failure_addresses.clone(),
+            self.initial_registers.clone(),
         );
         simulation.check_program(self.cycles)
     }
