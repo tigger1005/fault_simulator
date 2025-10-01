@@ -167,8 +167,31 @@ CLI arguments always override values from the config file.
    cargo run -- --faults regbf_r1_0100 glitch_1
    ```
 
-**Hex Addresses:**  
-For address fields, you can use either numbers or hex strings (e.g., `"0x08000496"`) in your JSON config.
+6. **Running with custom initial register context:**
+   Create a config file (`custom_context.json`):
+   ```json
+   {
+     "elf": "tests/bin/victim_3.elf",
+     "class": ["single", "glitch"],
+     "analysis": true,
+     "initial_registers": {
+       "R0": "0x12345678",
+       "R7": "0x2000FFF8",
+       "SP": "0x2000FFF8",
+       "LR": "0x08000005",
+       "PC": "0x08000620"
+     }
+   }
+   ```
+   Run with:
+   ```bash
+   cargo run -- --config custom_context.json
+   ```
+
+**Supported registers:** R0-R12, SP, LR, PC, CPSR  
+**Value formats:** Hex strings (`"0x12345678"`) or decimal numbers (`42`)  
+**Case insensitive:** `"r0"`, `"R0"`, `"sp"`, `"SP"` all work
+
 
 ## Ghidra Visualization
 

@@ -1,8 +1,10 @@
 use clap::Parser;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
+use std::collections::HashMap;
 use std::io::stdout;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use unicorn_engine::RegisterARM;
 
 use fault_simulator::prelude::*;
 
@@ -66,8 +68,93 @@ where
     deserializer.deserialize_seq(HexAddressesVisitor)
 }
 
+/// Convert register name string to RegisterARM enum
+fn get_register_from_name(name: &str) -> Option<RegisterARM> {
+    match name.to_uppercase().as_str() {
+        "R0" => Some(RegisterARM::R0),
+        "R1" => Some(RegisterARM::R1),
+        "R2" => Some(RegisterARM::R2),
+        "R3" => Some(RegisterARM::R3),
+        "R4" => Some(RegisterARM::R4),
+        "R5" => Some(RegisterARM::R5),
+        "R6" => Some(RegisterARM::R6),
+        "R7" => Some(RegisterARM::R7),
+        "R8" => Some(RegisterARM::R8),
+        "R9" => Some(RegisterARM::R9),
+        "R10" => Some(RegisterARM::R10),
+        "R11" => Some(RegisterARM::R11),
+        "R12" => Some(RegisterARM::R12),
+        "SP" => Some(RegisterARM::SP),
+        "LR" => Some(RegisterARM::LR),
+        "PC" => Some(RegisterARM::PC),
+        "CPSR" => Some(RegisterARM::CPSR),
+        _ => None,
+    }
+}
+
+/// Custom deserializer for register context that validates register names and handles hex values
+fn deserialize_register_context<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<RegisterARM, u64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct RegisterContextVisitor;
+
+    impl<'de> Visitor<'de> for RegisterContextVisitor {
+        type Value = HashMap<RegisterARM, u64>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a map of register names to hex values")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<HashMap<RegisterARM, u64>, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            let mut registers = HashMap::new();
+
+            while let Some((key, value)) = map.next_entry::<String, serde_json::Value>()? {
+                // Validate register name during deserialization
+                let register = get_register_from_name(&key).ok_or_else(|| {
+                    de::Error::custom(format!("Invalid register name: '{}'", key))
+                })?;
+
+                let reg_value = match value {
+                    serde_json::Value::String(s) => parse_hex(&s).map_err(de::Error::custom)?,
+                    serde_json::Value::Number(n) => {
+                        if let Some(val) = n.as_u64() {
+                            val
+                        } else {
+                            return Err(de::Error::custom(format!(
+                                "Invalid number for register {}: must be a positive integer",
+                                key
+                            )));
+                        }
+                    }
+                    _ => {
+                        return Err(de::Error::custom(format!(
+                            "Register {} value must be a string or number",
+                            key
+                        )))
+                    }
+                };
+
+                registers.insert(register, reg_value);
+            }
+
+            Ok(registers)
+        }
+    }
+
+    deserializer.deserialize_map(RegisterContextVisitor)
+}
+
 /// Configuration structure that can be loaded from JSON
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct Config {
     #[serde(default = "Config::default_threads")]
     threads: usize,
@@ -95,6 +182,8 @@ struct Config {
     success_addresses: Vec<u64>,
     #[serde(default, deserialize_with = "deserialize_hex")]
     failure_addresses: Vec<u64>,
+    #[serde(default, deserialize_with = "deserialize_register_context")]
+    initial_registers: HashMap<RegisterARM, u64>,
 }
 
 impl Config {
@@ -130,6 +219,7 @@ impl Config {
             run_through: args.run_through,
             success_addresses: args.success_addresses.clone(),
             failure_addresses: args.failure_addresses.clone(),
+            initial_registers: HashMap::new(),
         }
     }
 
@@ -159,6 +249,7 @@ impl Config {
         if !args.failure_addresses.is_empty() {
             self.failure_addresses = args.failure_addresses.clone();
         }
+        // Note: initial_registers from JSON config are preserved
     }
 }
 
@@ -285,6 +376,15 @@ fn main() -> Result<(), String> {
         }
     };
 
+    // Print initial register context if provided
+    if !config.initial_registers.is_empty() {
+        println!("Using custom initial register context:");
+        for (reg, value) in &config.initial_registers {
+            println!("  {:?}: 0x{:08X}", reg, value);
+        }
+        println!();
+    }
+
     // Load victim data for attack simulation
     let mut attack_sim = FaultAttacks::new(
         path,
@@ -294,6 +394,7 @@ fn main() -> Result<(), String> {
         config.threads,
         config.success_addresses,
         config.failure_addresses,
+        config.initial_registers,
     )?;
 
     // Check for correct program behavior
