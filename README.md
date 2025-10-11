@@ -95,6 +95,8 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
   - `rayon`
   - `itertools`
   - `clap`
+  - `serde`
+  - `serder_json`
 
 **Compiler Toolchain**
 - `gcc-arm-none-eabi` compiler toolchain
@@ -103,12 +105,16 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 - `make` toolchain
 
 **Ghidra Trace Visualization**
-- Ghidra 11.3 with PyGhidra mode.
+- Ghidra 11.3 or newer with PyGhidra mode.
 
 ## Usage
 
+You can configure the simulator using either command-line arguments or a JSON config file.  
+CLI arguments always override values from the config file.
+
 ### Command-Line Options
 | Flag/Option                    | Description |
+| `-c, --config <CONFIG>`             | Load configuration from JSON file |
 |--------------------------------|-------------|
 | `-t, --threads <THREADS>`      | Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage |
 | `-n, --no-compilation`         | Suppress re-compilation of target program |
@@ -121,24 +127,71 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 | `-e, --elf <FILE>`             | Use external elf file w/o compilation step |
 | `--trace`                      | Trace and analyse program w/o fault injection |
 | `-r, --run-through`            | Don't stop on first successful fault injection |
+| `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456 |
+| `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc |
 | `-h, --help`                   | Print help |
 | `-V, --version`                | Print version |
 
 ### Examples
 
-1. **Single glitch attack with trace analysis:**
+1. **Single glitch attack with trace analysis (CLI):**
    ```bash
    cargo run -- --class single glitch --analysis
    ```  
 
-2. **Double attack (glitch + register flood) on custom ELF:**
+2. **Single glitch attack with trace analysis (JSON config):**
+   Create a file (e.g., `example.json`):
+   ```json
+   {
+     "class": ["single", "glitch"],
+     "analysis": true
+   }
+   ```
+   Run with:
+   ```bash
+   cargo run -- --config example.json
+   ```
+
+3. **Mixing CLI and JSON:**
+   ```bash
+   cargo run -- --config example.json --analysis false
+   ```
+
+4. **Double attack (glitch + register flood) on custom ELF:**
    ```bash
    cargo run -- --class double glitch regfld --elf tests/bin/victim.elf -t 4
    ```
-3. **Running a fault sequence with register bit-flip and glitch:**
+
+5. **Running a fault sequence with register bit-flip and glitch:**
    ```bash
    cargo run -- --faults regbf_r1_0100 glitch_1
    ```
+
+6. **Running with custom initial register context:**
+   Create a config file (`custom_context.json`):
+   ```json
+   {
+     "elf": "tests/bin/victim_3.elf",
+     "class": ["single", "glitch"],
+     "analysis": true,
+     "initial_registers": {
+       "R0": "0x12345678",
+       "R7": "0x2000FFF8",
+       "SP": "0x2000FFF8",
+       "LR": "0x08000005",
+       "PC": "0x08000620"
+     }
+   }
+   ```
+   Run with:
+   ```bash
+   cargo run -- --config custom_context.json
+   ```
+
+**Supported registers:** R0-R12, SP, LR, PC, CPSR  
+**Value formats:** Hex strings (`"0x12345678"`) or decimal numbers (`42`)  
+**Case insensitive:** `"r0"`, `"R0"`, `"sp"`, `"SP"` all work
+
 
 ## Ghidra Visualization
 
@@ -146,7 +199,7 @@ The Ghidra script you created enhances the visualization of the trace output gen
 
 **Usage:**
 
-1.  Ensure Ghidra 11.3 is installed and running in PyGhidra mode as described in the [Ghidra Installation Guide](https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_11.3_build/GhidraDocs/InstallationGuide.md#pyghidra-mode).
+1.  Ensure Ghidra 11.3 or newer is installed and running in PyGhidra mode as described in the [Ghidra Installation Guide](https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_11.3_build/GhidraDocs/InstallationGuide.md#pyghidra-mode).
 2. Start the script in Ghidra.
 3. Paste the trace output from the simulation.
 4. Observe the executed instructions highlighted in green and the faulted instruction in red.

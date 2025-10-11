@@ -7,16 +7,16 @@ use crate::simulation::{
 mod callback;
 
 use callback::{
-    hook_code_callback, hook_code_decision_activation_callback, mmio_auth_write_callback,
-    mmio_serial_write_callback,
+    hook_code_callback, hook_code_decision_activation_callback, hook_custom_addresses_callback,
+    mmio_auth_write_callback, mmio_serial_write_callback,
 };
 
 use unicorn_engine::unicorn_const::uc_error;
-use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Permission, SECOND_SCALE};
+use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot, SECOND_SCALE};
 use unicorn_engine::{Context, RegisterARM, Unicorn};
 
 use log::debug;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 // Constant variable definitions
 const AUTH_BASE: u64 = 0xAA01000;
@@ -57,6 +57,7 @@ pub struct Cpu<'a> {
     emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
     cpu_context: Context,
+    initial_registers: HashMap<RegisterARM, u64>,
 }
 
 struct CpuState<'a> {
@@ -68,6 +69,8 @@ struct CpuState<'a> {
     trace_data: Vec<TraceRecord>,
     fault_data: Vec<FaultData>,
     file_data: &'a ElfFile,
+    success_addresses: Vec<u64>,
+    failure_addresses: Vec<u64>,
 }
 
 impl<'a> Cpu<'a> {
@@ -76,11 +79,19 @@ impl<'a> Cpu<'a> {
     /// # Arguments
     ///
     /// * `file_data` - The ELF file data.
+    /// * `success_addresses` - List of memory addresses that indicate success when executed.
+    /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
+    /// * `initial_registers` - HashMap of RegisterARM to initial values.
     ///
     /// # Returns
     ///
     /// * `Self` - Returns a `Cpu` instance.
-    pub fn new(file_data: &'a ElfFile) -> Self {
+    pub fn new(
+        file_data: &'a ElfFile,
+        success_addresses: Vec<u64>,
+        failure_addresses: Vec<u64>,
+        initial_registers: HashMap<RegisterARM, u64>,
+    ) -> Self {
         // Setup platform -> ARMv8-m.base
         let emu = Unicorn::new_with_data(
             Arch::ARM,
@@ -94,6 +105,8 @@ impl<'a> Cpu<'a> {
                 trace_data: Vec::new(),
                 fault_data: Vec::new(),
                 file_data,
+                success_addresses,
+                failure_addresses,
             },
         )
         .expect("failed to initialize Unicorn instance");
@@ -106,14 +119,15 @@ impl<'a> Cpu<'a> {
             emu,
             program_counter: 0,
             cpu_context,
+            initial_registers,
         }
     }
 
-    /// Initialize all required register to zero
+    /// Initialize all required register to zero or custom values
     ///
     /// Additionally the SP is set to start of stack
     pub fn init_register(&mut self) {
-        // Clear registers
+        // Clear all registers first
         ARM_REG
             .iter()
             .for_each(|reg| self.emu.reg_write(*reg, 0x00).unwrap());
@@ -131,8 +145,20 @@ impl<'a> Cpu<'a> {
             .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
             .expect("failed to set register");
 
-        // set initial program start address
+        // Set initial program start address (default from ELF)
         self.program_counter = self.emu.get_data().file_data.header.e_entry;
+
+        // Apply custom register values (these can override the defaults above)
+        for (&register, &value) in &self.initial_registers {
+            self.emu
+                .reg_write(register, value)
+                .unwrap_or_else(|_| panic!("Failed to set register {:?}", register));
+
+            // If PC is being set via initial_registers, update our internal program_counter too
+            if register == RegisterARM::PC {
+                self.program_counter = value;
+            }
+        }
     }
 
     /// Load source code from elf file into simulation
@@ -187,41 +213,58 @@ impl<'a> Cpu<'a> {
                 )
                 .expect("failed to set decision_activation code hook");
         }
-        self.emu
-            .add_mem_hook(
-                HookType::MEM_WRITE,
-                AUTH_BASE,
-                AUTH_BASE + 4,
-                mmio_auth_write_callback,
-            )
-            .expect("failed to set memory hook");
+
+        // Set up code hooks for custom success/failure addresses (if any provided)
+        let has_custom_addresses = !self.emu.get_data().success_addresses.is_empty()
+            || !self.emu.get_data().failure_addresses.is_empty();
+        if has_custom_addresses {
+            // Add code hook for the entire program to check for custom addresses
+            let program_data = &self.emu.get_data().file_data.program_data[0];
+            self.emu
+                .add_code_hook(
+                    program_data.0.p_paddr,
+                    program_data.0.p_paddr + program_data.0.p_memsz,
+                    hook_custom_addresses_callback,
+                )
+                .expect("failed to set custom address code hook");
+        } else {
+            // Only set up the MMIO hook when NOT using custom addresses
+            self.emu
+                .add_mem_hook(
+                    HookType::MEM_WRITE,
+                    AUTH_BASE,
+                    AUTH_BASE + 4,
+                    mmio_auth_write_callback,
+                )
+                .expect("failed to set memory hook");
+        }
     }
 
     /// Setup memory mapping, stack, io mapping
     pub fn setup_mmio(&mut self) {
-        const MINIMUM_MEMORY_SIZE: usize = 0x1000;
+        const MINIMUM_MEMORY_SIZE: u64 = 0x1000;
 
         let segments = &self.emu.get_data().file_data.program_data;
 
         // Iterate over all program parts and write them to memory
         for segment in segments {
-            let mut permission: Permission = Permission::NONE;
+            let mut permission = Prot::NONE;
 
             // Convert p_flags to permission
             if segment.0.p_flags & PF_X != 0 {
-                permission |= Permission::EXEC;
+                permission |= Prot::EXEC;
             }
             if segment.0.p_flags & PF_W != 0 {
-                permission |= Permission::WRITE;
+                permission |= Prot::WRITE;
             }
             if segment.0.p_flags & PF_R != 0 {
-                permission |= Permission::READ;
+                permission |= Prot::READ;
             }
             // Map segment to memory
             self.emu
                 .mem_map(
                     segment.0.p_paddr,
-                    (segment.0.p_memsz as usize + MINIMUM_MEMORY_SIZE) & 0xfffff000, // Calculate length of part with a minimum granularity of 4KB
+                    (segment.0.p_memsz + MINIMUM_MEMORY_SIZE) & 0xfffff000, // Calculate length of part with a minimum granularity of 4KB
                     permission,
                 )
                 .expect("failed to map code page");
@@ -229,7 +272,7 @@ impl<'a> Cpu<'a> {
 
         // Auth success / failed trigger
         self.emu
-            .mem_map(AUTH_BASE, MINIMUM_MEMORY_SIZE, Permission::WRITE)
+            .mem_map(AUTH_BASE, MINIMUM_MEMORY_SIZE, Prot::WRITE)
             .expect("failed to map mmio replacement");
 
         // IO address space
