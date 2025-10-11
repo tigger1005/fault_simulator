@@ -42,22 +42,33 @@ pub struct FaultAttacks {
 }
 
 impl FaultAttacks {
-    /// Creates a new `FaultAttacks` instance from the given path.
+    /// Creates a new `FaultAttacks` instance from the given ELF file path.
+    ///
+    /// This function initializes the fault attack simulation environment by loading the ELF file,
+    /// setting up worker threads for parallel execution, and configuring simulation parameters.
     ///
     /// # Arguments
     ///
-    /// * `path` - Path to the ELF file.
-    /// * `cycles` - Number of cycles to run the program.
-    /// * `deep_analysis` - Whether to perform deep analysis.
-    /// * `run_through` - Whether to run through all faults.
-    /// * `threads` - Number of threads to use (must be > 0).
-    /// * `success_addresses` - List of memory addresses that indicate success when accessed.
-    /// * `failure_addresses` - List of memory addresses that indicate failure when accessed.
-    /// * `initial_registers` - HashMap of RegisterARM to initial values for CPU registers.
+    /// * `path` - Path to the ELF file containing the target program.
+    /// * `cycles` - Maximum number of CPU cycles/instructions to execute during simulation.
+    /// * `deep_analysis` - Enable deep analysis for repeated code patterns (e.g., loops).
+    /// * `run_through` - Continue simulation without stopping at the first successful fault injection.
+    /// * `threads` - Number of worker threads to use for parallel execution (must be > 0).
+    /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
+    /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
+    /// * `initial_registers` - Initial CPU register values to set before simulation starts.
     ///
     /// # Returns
     ///
-    /// * `Ok(Self)` if successful, otherwise `Err(String)` with an error message.
+    /// * `Ok(Self)` - Successfully initialized FaultAttacks instance.
+    /// * `Err(String)` - Error message if initialization fails (invalid file, thread count, etc.).
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    /// - The ELF file cannot be loaded or parsed
+    /// - The thread count is zero
+    /// - Worker thread initialization fails
     pub fn new(
         path: std::path::PathBuf,
         cycles: usize,
@@ -136,127 +147,29 @@ impl FaultAttacks {
             .print_fault_records(&self.fault_data, &debug_context);
     }
 
-    /// Get trace data from the fault data.
+    /// Executes single fault injection attacks across specified fault groups.
     ///
-    /// # Arguments
-    /// * `run_type` - The type of run to perform.
-    /// * `deep_analysis` - Whether to perform a deep analysis.
-    /// * `fault_data` - Fault records to process.
-    ///
-    /// # Returns
-    /// * `Ok(Vec<TraceRecord>)` with trace records, or `Err(String)` on failure.
-    pub fn get_trace_data(
-        &self,
-        run_type: RunType,
-        deep_analysis: bool,
-        fault_data: Vec<FaultRecord>,
-    ) -> Result<Vec<TraceRecord>, String> {
-        let (trace_response_sender, trace_response_receiver) = unbounded();
-        self.workload_sender
-            .as_ref()
-            .unwrap()
-            .send(WorkloadMessage {
-                run_type,
-                deep_analysis,
-                fault_records: fault_data,
-                trace_sender: Some(trace_response_sender),
-                fault_sender: None,
-            })
-            .unwrap();
-        let trace_record = trace_response_receiver
-            .recv()
-            .expect("Unable to receive trace data");
-        Ok(trace_record)
-    }
-
-    /// Prints the trace for a specific fault.
+    /// This method iterates through all fault types in the provided groups and tests
+    /// each fault individually. It stops at the first successful attack unless
+    /// `run_through` mode is enabled.
     ///
     /// # Arguments
     ///
-    /// * `attack_number` - Index of the attack to trace.
+    /// * `groups` - Iterator over fault group names (e.g., "glitch", "regbf", "regfld").
     ///
     /// # Returns
     ///
-    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
-    pub fn print_trace_for_fault(&self, attack_number: isize) -> Result<(), String> {
-        if !self.fault_data.is_empty()
-            && attack_number > 0
-            && attack_number as usize <= self.fault_data.len()
-        {
-            let fault_records = FaultData::get_simulation_fault_records(
-                self.fault_data.get(attack_number as usize - 1).unwrap(),
-            );
-
-            // Run full trace
-            let trace_records = Some(self.get_trace_data(
-                RunType::RecordFullTrace,
-                true,
-                fault_records.to_vec(),
-            )?);
-            // Print trace
-            println!("\nAssembler trace of attack number {}", attack_number + 1);
-
-            let debug_context = self.file_data.get_debug_context();
-
-            self.cs
-                .disassembly_trace_records(&trace_records, &debug_context);
-        }
-        Ok(())
-    }
-
-    /// Set initial trace data for the `FaultAttacks` instance.
+    /// * `Ok((success, count))` where:
+    ///   - `success`: `true` if at least one fault injection succeeded
+    ///   - `count`: Total number of attack attempts executed
+    /// * `Err(String)` - Error message if simulation fails
     ///
-    fn set_initial_trace(&mut self) -> Result<(), String> {
-        // Run full trace
-        self.initial_trace =
-            self.get_trace_data(RunType::RecordTrace, self.deep_analysis, [].to_vec())?;
-        Ok(())
-    }
-
-    /// Prints the trace for the program without faults.
+    /// # Behavior
     ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if successful, otherwise `Err(String)`.
-    pub fn print_trace(&self) -> Result<(), String> {
-        // Run full trace
-        let trace_records =
-            Some(self.get_trace_data(RunType::RecordFullTrace, true, [].to_vec())?);
-
-        let debug_context = self.file_data.get_debug_context();
-        // Print trace
-        self.cs
-            .disassembly_trace_records(&trace_records, &debug_context);
-
-        Ok(())
-    }
-
-    /// Checks for correct behavior of the program (no faults injected).
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if successful, otherwise `Err(String)`.
-    pub fn check_for_correct_behavior(&self) -> Result<(), String> {
-        // Get trace data from negative run
-        let mut simulation = Control::new(
-            &self.file_data,
-            true,
-            self.success_addresses.clone(),
-            self.failure_addresses.clone(),
-            self.initial_registers.clone(),
-        );
-        simulation.check_program(self.cycles)
-    }
-
-    /// Runs single glitch attacks.
-    ///
-    /// # Arguments
-    ///
-    /// * `groups` - Iterator over fault group names.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok((bool, usize))` where bool indicates if any attack succeeded, usize is the number of attacks. Returns `Err(String)` on error.
+    /// - Sets initial program trace before starting attacks
+    /// - Tests each fault type individually
+    /// - Accumulates successful attacks in `self.fault_data`
+    /// - Respects `run_through` flag for early termination
     pub fn single(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
@@ -286,15 +199,27 @@ impl FaultAttacks {
         Ok((any_success, self.count_sum))
     }
 
-    /// Runs double glitch attacks (all pairs).
+    /// Executes double fault injection attacks using all pairwise combinations.
+    ///
+    /// This method tests every possible pair of faults from the specified groups,
+    /// including combinations of the same fault type. It's useful for finding
+    /// vulnerabilities that require multiple coordinated fault injections.
     ///
     /// # Arguments
     ///
-    /// * `groups` - Iterator over fault group names.
+    /// * `groups` - Iterator over fault group names to generate pairs from.
     ///
     /// # Returns
     ///
-    /// * `Ok((bool, usize))` where bool indicates if any attack succeeded, usize is the number of attacks. Returns `Err(String)` on error.
+    /// * `Ok((success, count))` where:
+    ///   - `success`: `true` if at least one double fault injection succeeded
+    ///   - `count`: Total number of attack pairs tested
+    /// * `Err(String)` - Error message if simulation fails
+    ///
+    /// # Note
+    ///
+    /// The number of attacks grows quadratically with the fault list size.
+    /// For a list of N faults, this will test N² combinations.
     pub fn double(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
@@ -325,15 +250,34 @@ impl FaultAttacks {
         Ok((any_success, self.count_sum))
     }
 
-    /// Runs the fault simulation for the given faults.
+    /// Executes fault simulation for a specific sequence of fault injections.
+    ///
+    /// This is the core simulation engine that handles both single and multiple
+    /// fault injections. It recursively builds fault combinations and distributes
+    /// simulation work across worker threads.
     ///
     /// # Arguments
     ///
-    /// * `faults` - Slice of faults to inject.
+    /// * `faults` - Ordered sequence of faults to inject during execution.
     ///
     /// # Returns
     ///
-    /// * `Ok(Vec<Vec<FaultData>>)` with successful attacks, or `Err(String)` on error.
+    /// * `Ok(Vec<Vec<FaultData>>)` - Vector of successful attack results, where each
+    ///   inner vector contains the fault data for one successful attack scenario.
+    /// * `Err(String)` - Error message if simulation setup or execution fails.
+    ///
+    /// # Process
+    ///
+    /// 1. Records initial program trace if not already available
+    /// 2. Filters potential injection points based on first fault type
+    /// 3. Recursively builds fault injection combinations
+    /// 4. Distributes simulation work to worker threads
+    /// 5. Collects and returns successful attack results
+    ///
+    /// # Performance
+    ///
+    /// Uses parallel execution across multiple worker threads for efficiency.
+    /// Progress is tracked via shared counters and channels.
     pub fn fault_simulation(
         &mut self,
         faults: &[FaultType],
@@ -420,16 +364,28 @@ impl FaultAttacks {
         }
     }
 
-    /// Inner recursive function for fault simulation.
+    /// Recursively generates and executes fault injection combinations.
+    ///
+    /// This internal function handles the recursive fault combination logic.
+    /// It either executes a final simulation (when no faults remain) or
+    /// continues building fault combinations by adding the next fault type.
     ///
     /// # Arguments
     ///
-    /// * `faults` - Remaining faults to inject (slice).
-    /// * `simulation_fault_records` - Current simulation fault records.
+    /// * `fault_response_sender` - Channel for collecting successful attack results.
+    /// * `remaining_faults` - Faults still to be added to the current combination.
+    /// * `simulation_fault_records` - Current fault injection sequence being built.
     ///
     /// # Returns
     ///
-    /// * `Ok(usize)` with the number of successful attacks, or `Err(String)` on error.
+    /// * `Ok(usize)` - Number of simulation runs spawned from this recursion branch.
+    /// * `Err(String)` - Error message if fault record creation or transmission fails.
+    ///
+    /// # Algorithm
+    ///
+    /// - Base case: If no remaining faults, submit simulation job to worker threads
+    /// - Recursive case: Record trace with current faults, filter injection points,
+    ///   then recurse for each valid injection point with remaining faults
     fn fault_simulation_inner(
         &self,
         fault_response_sender: Sender<Vec<FaultData>>,
@@ -501,6 +457,139 @@ impl FaultAttacks {
         }
 
         Ok(n)
+    }
+
+    /// Retrieves execution trace data for analysis of fault injection results.
+    ///
+    /// This function submits a trace recording request to worker threads and
+    /// returns the collected execution trace for the specified fault sequence.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_type` - Type of trace recording (normal trace, full trace, or execution only).
+    /// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
+    /// * `fault_data` - Sequence of fault injections to apply during trace recording.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<TraceRecord>)` - Collected execution trace records.
+    /// * `Err(String)` - Error message if trace recording fails or times out.
+    ///
+    /// # Usage
+    ///
+    /// Used for debugging successful attacks and understanding program behavior
+    /// under fault injection conditions.
+    pub fn get_trace_data(
+        &self,
+        run_type: RunType,
+        deep_analysis: bool,
+        fault_data: Vec<FaultRecord>,
+    ) -> Result<Vec<TraceRecord>, String> {
+        let (trace_response_sender, trace_response_receiver) = unbounded();
+        self.workload_sender
+            .as_ref()
+            .unwrap()
+            .send(WorkloadMessage {
+                run_type,
+                deep_analysis,
+                fault_records: fault_data,
+                trace_sender: Some(trace_response_sender),
+                fault_sender: None,
+            })
+            .unwrap();
+        let trace_record = trace_response_receiver
+            .recv()
+            .expect("Unable to receive trace data");
+        Ok(trace_record)
+    }
+
+    /// Displays disassembled execution trace for a specific successful attack.
+    ///
+    /// This function retrieves and prints the complete execution trace for the
+    /// specified attack number, including disassembled instructions and fault
+    /// injection points.
+    ///
+    /// # Arguments
+    ///
+    /// * `attack_number` - 1-based index of the attack to analyze (must be > 0).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Trace successfully printed.
+    /// * `Err(String)` - Error if attack number is invalid or trace retrieval fails.
+    ///
+    /// # Note
+    ///
+    /// Requires that fault simulation has been run and successful attacks exist
+    /// in `self.fault_data`.
+    pub fn print_trace_for_fault(&self, attack_number: isize) -> Result<(), String> {
+        if !self.fault_data.is_empty()
+            && attack_number > 0
+            && attack_number as usize <= self.fault_data.len()
+        {
+            let fault_records = FaultData::get_simulation_fault_records(
+                self.fault_data.get(attack_number as usize - 1).unwrap(),
+            );
+
+            // Run full trace
+            let trace_records = Some(self.get_trace_data(
+                RunType::RecordFullTrace,
+                true,
+                fault_records.to_vec(),
+            )?);
+            // Print trace
+            println!("\nAssembler trace of attack number {}", attack_number + 1);
+
+            let debug_context = self.file_data.get_debug_context();
+
+            self.cs
+                .disassembly_trace_records(&trace_records, &debug_context);
+        }
+        Ok(())
+    }
+
+    /// Set initial trace data for the `FaultAttacks` instance.
+    ///
+    fn set_initial_trace(&mut self) -> Result<(), String> {
+        // Run full trace
+        self.initial_trace =
+            self.get_trace_data(RunType::RecordTrace, self.deep_analysis, [].to_vec())?;
+        Ok(())
+    }
+
+    /// Prints the trace for the program without faults.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if successful, otherwise `Err(String)`.
+    pub fn print_trace(&self) -> Result<(), String> {
+        // Run full trace
+        let trace_records =
+            Some(self.get_trace_data(RunType::RecordFullTrace, true, [].to_vec())?);
+
+        let debug_context = self.file_data.get_debug_context();
+        // Print trace
+        self.cs
+            .disassembly_trace_records(&trace_records, &debug_context);
+
+        Ok(())
+    }
+
+    /// Checks for correct behavior of the program (no faults injected).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if successful, otherwise `Err(String)`.
+    pub fn check_for_correct_behavior(&self) -> Result<(), String> {
+        // Get trace data from negative run
+        let mut simulation = Control::new(
+            &self.file_data,
+            true,
+            self.success_addresses.clone(),
+            self.failure_addresses.clone(),
+            self.initial_registers.clone(),
+        );
+        simulation.check_program(self.cycles)
     }
 }
 
