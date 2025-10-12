@@ -10,33 +10,45 @@ use std::process::Command; // Used for writing assertions
 /// This test runs a single glitch atttacks on two different binaries (victim_.elf, victim_4.elf)
 /// and checks if faults are found with the correct number of attack iterations
 fn run_single_glitch() {
-    // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_.elf"),
+    // Load victim data
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
+    // Create user thread for simulation
+    let mut user_thread = UserThread::new(
         2000,
         false,
         false,
-        15,
-        vec![],                           // success_addresses
-        vec![],                           // failure_addresses
-        std::collections::HashMap::new(), // initial_registers
+        vec![],
+        vec![],
+        std::collections::HashMap::new(),
     )
     .unwrap();
+    // Start worker threads
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    // Do selected attacks
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
+
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
     assert_eq!((true, 35), attack.single(&mut vec.iter()).unwrap());
+
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_4.elf"),
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
+    // Create user thread for simulation
+    let mut user_thread = UserThread::new(
         2000,
         false,
         false,
-        15,
-        vec![],                           // success_addresses
-        vec![],                           // failure_addresses
-        std::collections::HashMap::new(), // initial_registers
+        vec![],
+        vec![],
+        std::collections::HashMap::new(),
     )
     .unwrap();
+    // Start worker threads
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    // Do selected attack
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
     // Result is (success: bool, number_of_attacks: usize)
     assert_eq!((false, 376), attack.single(&mut vec.iter()).unwrap());
 }
@@ -44,35 +56,31 @@ fn run_single_glitch() {
 #[test]
 /// Test for double glitch attack api
 ///
-/// This test runs a double glitch atttacks on two different binaries (victim_3.elf, victim_4.elf)
+/// This test runs a double glitch attacks on two different binaries (victim_3.elf, victim_4.elf)
 /// and checks if faults are found with the correct number of attack iterations
 fn run_double_glitch() {
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let mut user_thread = UserThread::new(
         2000,
         false,
         false,
-        15,
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
+
     // Result is (false: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
     assert_eq!((false, 22808), attack.double(&mut vec.iter()).unwrap());
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_3.elf"),
-        2000,
-        false,
-        false,
-        15,
-        vec![],                           // success_addresses
-        vec![],                           // failure_addresses
-        std::collections::HashMap::new(), // initial_registers
-    )
-    .unwrap();
+
+    // Test second scenario with regbf
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
+
     // Result is (success: bool, number_of_attacks: usize)
     let vec = vec!["regbf".to_string()];
     assert_eq!((true, 6916), attack.double(&mut vec.iter()).unwrap());
@@ -82,20 +90,23 @@ fn run_double_glitch() {
 /// Test for fault simulation api
 ///
 /// This test runs a fault simulation on two different binaries (victim_.elf, victim_3.elf)
-/// and checks if the correct faults are found, identfied by their addresses
+/// and checks if the correct faults are found, identified by their addresses
 fn run_fault_simulation_one_glitch() {
     // Load victim data for attack simulation
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_.elf"),
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
+    let mut user_thread = UserThread::new(
         2000,
         false,
         false,
-        15,
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
+
     // Result is Vec<Vec<FaultData>>
     let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
 
@@ -120,20 +131,23 @@ fn run_fault_simulation_one_glitch() {
 /// Test for fault simulation api
 ///
 /// This test runs a fault simulation on victim_3.elf
-/// and checks if the correct faults are found, identfied by their addresses
+/// and checks if the correct faults are found, identified by their addresses
 fn run_fault_simulation_two_glitches() {
     env::set_var("RAYON_NUM_THREADS", "1");
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let mut user_thread = UserThread::new(
         2000,
         false,
         false,
-        15,
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
     let result = attack
         .fault_simulation(&[Glitch::new(1), Glitch::new(10)])
@@ -165,17 +179,19 @@ fn test_success_and_failure_addresses() {
     let success_addresses = vec![0x08000490];
     let failure_addresses = vec![0x08000690, 0x08000014];
 
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let mut user_thread = UserThread::new(
         2000,
         false,
         false,
-        15,
         success_addresses,
         failure_addresses,
         std::collections::HashMap::new(), // initial_registers
     )
     .unwrap();
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
     // Test single glitch attack with custom addresses
     let vec = vec!["glitch".to_string()];
@@ -234,17 +250,19 @@ fn test_initial_register_context() {
     initial_registers.insert(RegisterARM::LR, 0x08000005); // Link register
     initial_registers.insert(RegisterARM::PC, 0x8000620); // Program counter
 
-    let mut attack = FaultAttacks::new(
-        std::path::PathBuf::from("tests/bin/victim_3.elf"),
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let mut user_thread = UserThread::new(
         2000,
         false,
         false,
-        15,
         vec![], // success_addresses
         vec![], // failure_addresses
         initial_registers,
     )
     .unwrap();
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
     // Test that fault simulation works with custom registers
     let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();

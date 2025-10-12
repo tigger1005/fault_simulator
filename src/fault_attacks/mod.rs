@@ -1,7 +1,6 @@
 pub mod faults;
-pub mod user_thread;
 
-use user_thread::{start_worker_threads, WorkloadMessage};
+use crate::user_thread::{UserThread, WorkloadMessage};
 
 use super::simulation::{
     fault_data::FaultData,
@@ -12,134 +11,77 @@ use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use faults::*;
 use itertools::iproduct;
 // use std::time::{SystemTime, UNIX_EPOCH};
-use std::{
-    slice::Iter,
-    sync::{Arc, Mutex},
-};
+use std::slice::Iter;
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
-
-//use crossbeam_channel::{unbounded, Receiver, Sender};
-use std::thread;
+use crossbeam_channel::{unbounded, Sender};
 
 /// Struct representing fault attacks.
-pub struct FaultAttacks {
+pub struct FaultAttacks<'a> {
     cs: Disassembly,
     pub file_data: ElfFile,
     pub fault_data: Vec<Vec<FaultData>>,
     pub initial_trace: Vec<TraceRecord>,
     pub count_sum: usize,
-    deep_analysis: bool,
-    run_through: bool,
-    cycles: usize,
-    /// Channel for sending workloads to worker threads.
-    workload_sender: Option<Sender<WorkloadMessage>>,
-    handles: Vec<thread::JoinHandle<()>>,
-    work_load_counter: std::sync::Arc<std::sync::Mutex<usize>>,
-    success_addresses: Vec<u64>,
-    failure_addresses: Vec<u64>,
-    initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    user_thread: &'a UserThread,
 }
 
-impl FaultAttacks {
-    /// Creates a new `FaultAttacks` instance from the given ELF file path.
+impl<'a> FaultAttacks<'a> {
+    /// Creates a new `FaultAttacks` instance from existing ELF file and UserThread.
     ///
-    /// This function initializes the fault attack simulation environment by loading the ELF file,
-    /// setting up worker threads for parallel execution, and configuring simulation parameters.
+    /// This function initializes the fault attack simulation environment using
+    /// pre-configured ELF file data and user thread instances. The worker threads
+    /// should already be started on the UserThread before calling this function.
     ///
     /// # Arguments
     ///
-    /// * `path` - Path to the ELF file containing the target program.
-    /// * `cycles` - Maximum number of CPU cycles/instructions to execute during simulation.
-    /// * `deep_analysis` - Enable deep analysis for repeated code patterns (e.g., loops).
-    /// * `run_through` - Continue simulation without stopping at the first successful fault injection.
-    /// * `threads` - Number of worker threads to use for parallel execution (must be > 0).
-    /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
-    /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
-    /// * `initial_registers` - Initial CPU register values to set before simulation starts.
+    /// * `file_data` - Reference to loaded ELF file containing the target program.
+    /// * `user_thread` - Reference to configured UserThread with worker threads started.
     ///
     /// # Returns
     ///
     /// * `Ok(Self)` - Successfully initialized FaultAttacks instance.
-    /// * `Err(String)` - Error message if initialization fails (invalid file, thread count, etc.).
+    /// * `Err(String)` - Error message if initialization fails.
     ///
-    /// # Errors
+    /// # Note
     ///
-    /// This function will return an error if:
-    /// - The ELF file cannot be loaded or parsed
-    /// - The thread count is zero
-    /// - Worker thread initialization fails
-    pub fn new(
-        path: std::path::PathBuf,
-        cycles: usize,
-        deep_analysis: bool,
-        run_through: bool,
-        threads: usize,
-        success_addresses: Vec<u64>,
-        failure_addresses: Vec<u64>,
-        initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-    ) -> Result<Self, String> {
-        // Load victim data
-        let file_data: ElfFile = ElfFile::new(path)?;
-
-        // Create a channel for sending lines to threads
-        let (workload_sender, workload_receiver): (
-            Sender<WorkloadMessage>,
-            Receiver<WorkloadMessage>,
-        ) = unbounded();
-        // Create a counter for the workload done
-        let work_load_counter = Arc::new(Mutex::new(0));
-
-        // Create a new thread to handle the workload
-        // Shared receiver for threads
-        let workload_receiver = workload_receiver.clone();
-
-        if threads == 0 {
-            return Err("Number of threads must be greater than 0".to_string());
-        }
-
-        // Generate worker threads
-        let handles = start_worker_threads(
-            threads,
-            cycles,
-            &file_data,
-            &workload_receiver,
-            &work_load_counter,
-            success_addresses.clone(),
-            failure_addresses.clone(),
-            initial_registers.clone(),
-        )
-        .unwrap();
-
+    /// This constructor clones the ELF file data and stores a reference to the UserThread.
+    /// The UserThread must outlive the FaultAttacks instance due to the lifetime constraint.
+    pub fn new(file_data: &ElfFile, user_thread: &'a UserThread) -> Result<Self, String> {
         // Return the FaultAttacks instance
         Ok(Self {
             cs: Disassembly::new(),
-            file_data,
+            file_data: file_data.clone(),
             fault_data: Vec::new(),
             initial_trace: Vec::new(),
             count_sum: 0,
-            deep_analysis,
-            run_through,
-            cycles,
-            workload_sender: Some(workload_sender),
-            handles,
-            work_load_counter,
-            success_addresses,
-            failure_addresses,
-            initial_registers,
+            user_thread,
         })
     }
 
-    /// Sets the fault data for the `FaultAttacks` instance.
+    /// Sets the fault data collection for the `FaultAttacks` instance.
+    ///
+    /// This method replaces the current fault data with the provided collection
+    /// of successful attack results. Each outer vector represents a different
+    /// successful attack scenario, while the inner vector contains the fault
+    /// data records for that specific attack.
     ///
     /// # Arguments
     ///
-    /// * `fault_data` - Fault data as a vector of vectors of `FaultData`.
+    /// * `fault_data` - Collection of successful fault injection results to store.
     pub fn set_fault_data(&mut self, fault_data: Vec<Vec<FaultData>>) {
         self.fault_data = fault_data;
     }
 
-    /// Prints the fault data using the disassembly context.
+    /// Prints all stored fault data using disassembly context for human-readable output.
+    ///
+    /// This method formats and displays the fault injection results with
+    /// disassembled instructions and debug information from the ELF file.
+    /// Useful for analyzing successful attacks and understanding their impact.
+    ///
+    /// # Note
+    ///
+    /// Requires that fault simulation has been run and fault data exists.
+    /// Output includes memory addresses, instruction disassembly, and fault details.
     pub fn print_fault_data(&self) {
         let debug_context = self.file_data.get_debug_context();
 
@@ -189,7 +131,7 @@ impl FaultAttacks {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
-                    if !self.run_through {
+                    if !self.user_thread.run_through {
                         return Ok((true, self.count_sum));
                     }
                     any_success = true;
@@ -240,7 +182,7 @@ impl FaultAttacks {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
-                    if !self.run_through {
+                    if !self.user_thread.run_through {
                         return Ok((true, self.count_sum));
                     }
                     any_success = true;
@@ -303,7 +245,7 @@ impl FaultAttacks {
         first_fault.filter(&mut records, &self.cs);
 
         // Clear workload counter
-        let mut counter = self.work_load_counter.lock().unwrap();
+        let mut counter = self.user_thread.work_load_counter.lock().unwrap();
         *counter = 0;
         drop(counter);
 
@@ -348,7 +290,7 @@ impl FaultAttacks {
 
         // Wait that the workload counter is the same as the n_result
         while {
-            let counter = self.work_load_counter.lock().unwrap();
+            let counter = self.user_thread.work_load_counter.lock().unwrap();
             *counter != n
         } {
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -397,7 +339,8 @@ impl FaultAttacks {
         // Check if there are no remaining faults left
         if remaining_faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
-            self.workload_sender
+            self.user_thread
+                .workload_sender
                 .as_ref()
                 .unwrap()
                 .send(WorkloadMessage {
@@ -414,12 +357,13 @@ impl FaultAttacks {
             // Setup the trace response channel
             let (trace_response_sender, trace_response_receiver) = unbounded();
             // Run simulation to record normal fault program flow as a base for fault injection
-            self.workload_sender
+            self.user_thread
+                .workload_sender
                 .as_ref()
                 .unwrap()
                 .send(WorkloadMessage {
                     run_type: RunType::RecordTrace,
-                    deep_analysis: self.deep_analysis,
+                    deep_analysis: self.user_thread.deep_analysis,
                     fault_records: simulation_fault_records.to_vec(),
                     trace_sender: Some(trace_response_sender),
                     fault_sender: None,
@@ -486,7 +430,8 @@ impl FaultAttacks {
         fault_data: Vec<FaultRecord>,
     ) -> Result<Vec<TraceRecord>, String> {
         let (trace_response_sender, trace_response_receiver) = unbounded();
-        self.workload_sender
+        self.user_thread
+            .workload_sender
             .as_ref()
             .unwrap()
             .send(WorkloadMessage {
@@ -548,20 +493,39 @@ impl FaultAttacks {
         Ok(())
     }
 
-    /// Set initial trace data for the `FaultAttacks` instance.
+    /// Records the initial program execution trace without any fault injections.
     ///
-    fn set_initial_trace(&mut self) -> Result<(), String> {
-        // Run full trace
-        self.initial_trace =
-            self.get_trace_data(RunType::RecordTrace, self.deep_analysis, [].to_vec())?;
-        Ok(())
-    }
-
-    /// Prints the trace for the program without faults.
+    /// This internal method captures the baseline execution flow of the target
+    /// program, which serves as the foundation for identifying valid fault
+    /// injection points in subsequent attack simulations.
     ///
     /// # Returns
     ///
-    /// * `Ok(())` if successful, otherwise `Err(String)`.
+    /// * `Ok(())` - Initial trace successfully recorded.
+    /// * `Err(String)` - Error message if trace recording fails.
+    ///
+    /// # Side Effects
+    ///
+    /// Sets `self.initial_trace` with the recorded execution trace.
+    fn set_initial_trace(&mut self) -> Result<(), String> {
+        // Run full trace
+        self.initial_trace = self.get_trace_data(
+            RunType::RecordTrace,
+            self.user_thread.deep_analysis,
+            [].to_vec(),
+        )?;
+        Ok(())
+    }
+
+    /// Prints the complete execution trace of the program without any fault injections.
+    ///
+    /// This method displays the normal program flow with full disassembly,
+    /// useful for understanding the baseline behavior before fault injection.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Trace successfully printed.
+    /// * `Err(String)` - Error message if trace recording or printing fails.
     pub fn print_trace(&self) -> Result<(), String> {
         // Run full trace
         let trace_records =
@@ -575,38 +539,32 @@ impl FaultAttacks {
         Ok(())
     }
 
-    /// Checks for correct behavior of the program (no faults injected).
+    /// Validates correct program behavior by running without fault injections.
+    ///
+    /// This method executes the target program in a clean environment to verify
+    /// it behaves as expected. It checks against configured success/failure
+    /// addresses to ensure the baseline execution is correct before attempting
+    /// fault injection attacks.
     ///
     /// # Returns
     ///
-    /// * `Ok(())` if successful, otherwise `Err(String)`.
+    /// * `Ok(())` - Program executed correctly according to success/failure criteria.
+    /// * `Err(String)` - Error message if program fails or behaves unexpectedly.
+    ///
+    /// # Purpose
+    ///
+    /// Used to validate that the target program works correctly before fault
+    /// injection, ensuring that any detected vulnerabilities are due to faults
+    /// rather than inherent program issues.
     pub fn check_for_correct_behavior(&self) -> Result<(), String> {
         // Get trace data from negative run
         let mut simulation = Control::new(
             &self.file_data,
             true,
-            self.success_addresses.clone(),
-            self.failure_addresses.clone(),
-            self.initial_registers.clone(),
+            self.user_thread.success_addresses.clone(),
+            self.user_thread.failure_addresses.clone(),
+            self.user_thread.initial_registers.clone(),
         );
-        simulation.check_program(self.cycles)
-    }
-}
-
-/// Implements the `Drop` trait for `FaultAttacks`.
-/// This trait is used to clean up the `FaultAttacks` instance when it goes out of scope.
-/// It ensures that all threads are properly joined and that the sender channels are closed.
-impl Drop for FaultAttacks {
-    /// Cleans up the `FaultAttacks` instance by resetting the fault data and joining threads.
-    fn drop(&mut self) {
-        // Drop the main workload channel
-        self.workload_sender = None;
-
-        // Wait for all threads to finish processing
-        for handle in self.handles.drain(..) {
-            if let Err(e) = handle.join() {
-                eprintln!("A thread panicked: {:?}", e);
-            }
-        }
+        simulation.check_program(self.user_thread.cycles)
     }
 }

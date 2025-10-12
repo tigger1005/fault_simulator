@@ -385,17 +385,22 @@ fn main() -> Result<(), String> {
         println!();
     }
 
-    // Load victim data for attack simulation
-    let mut attack_sim = FaultAttacks::new(
-        path,
+    // Load victim data
+    let file_data: ElfFile = ElfFile::new(path)?;
+    // Create user thread for simulation
+    let mut user_thread = UserThread::new(
         config.max_instructions,
         config.deep_analysis,
         config.run_through,
-        config.threads,
         config.success_addresses,
         config.failure_addresses,
         config.initial_registers,
     )?;
+    // Start worker threads
+    user_thread.start_worker_threads(&file_data, config.threads)?;
+
+    // Load victim data for attack simulation
+    let mut attack_sim = FaultAttacks::new(&file_data, &user_thread)?;
 
     // Check for correct program behavior
     if !config.no_check {

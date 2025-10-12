@@ -1,17 +1,35 @@
 use std::sync::{Arc, Mutex};
-use std::thread::{/*sleep, */spawn, JoinHandle};
+use std::thread::{/*sleep, */ spawn, JoinHandle};
 
 //use crate::disassembly::Disassembly;
 use crate::elf_file::ElfFile;
 //use crate::prelude::FaultType;
 use crate::simulation::fault_data::FaultData;
-use crossbeam_channel::{/*nunbounded, */Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use crate::simulation::{
     record::{FaultRecord, TraceRecord},
     Control, Data, RunType,
 };
 
+/// Represents a simulation workload message sent to worker threads.
+///
+/// This structure encapsulates all the information needed for a worker thread
+/// to execute a specific type of simulation run, along with the channels
+/// needed to return results to the coordinator.
+///
+/// # Fields
+///
+/// * `run_type` - Type of simulation to execute (trace recording or fault injection).
+/// * `deep_analysis` - Enable detailed analysis for loop detection and pattern analysis.
+/// * `fault_records` - Sequence of fault injections to apply during simulation.
+/// * `trace_sender` - Optional channel for returning execution trace data.
+/// * `fault_sender` - Optional channel for returning successful fault injection results.
+///
+/// # Usage
+///
+/// Sent via the workload channel to coordinate simulation work across multiple
+/// worker threads. The appropriate response channel is used based on `run_type`.
 pub struct WorkloadMessage {
     pub run_type: RunType,
     pub deep_analysis: bool,
@@ -20,91 +38,275 @@ pub struct WorkloadMessage {
     pub fault_sender: Option<Sender<Vec<FaultData>>>,
 }
 
-pub fn start_worker_threads(
-    number_of_threads: usize,
-    cycles: usize,
-    file_data: &ElfFile,
-    workload_receiver: &Receiver<WorkloadMessage>,
-    work_load_counter: &Arc<Mutex<usize>>,
-    success_addresses: Vec<u64>,
-    failure_addresses: Vec<u64>,
-    initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-) -> Result<Vec<JoinHandle<()>>, ()> {
-    // Create a vector to hold the thread handles
-    let mut handles: Vec<JoinHandle<()>> = vec![];
+/// Manages worker threads for parallel fault injection simulation.
+///
+/// This struct coordinates the execution of fault injection simulations across
+/// multiple worker threads. It maintains simulation parameters, communication
+/// channels, and synchronization primitives for distributed simulation work.
+///
+/// # Lifecycle
+///
+/// 1. Create with `new()` to establish communication channels
+/// 2. Call `start_worker_threads()` to spawn worker thread pool
+/// 3. Use workload channels to distribute simulation tasks
+/// 4. Worker threads automatically clean up when dropped
+pub struct UserThread {
+    /// Maximum number of CPU cycles/instructions to execute per simulation.
+    pub cycles: usize,
+    /// Enable detailed analysis of loops and repeated code patterns.
+    pub deep_analysis: bool,
+    /// Continue simulation after finding successful attacks (don't stop early).
+    pub run_through: bool,
+    /// Memory addresses that indicate successful attack when accessed.
+    pub success_addresses: Vec<u64>,
+    /// Memory addresses that indicate attack failure when accessed.
+    pub failure_addresses: Vec<u64>,
+    /// Initial CPU register values to set before each simulation.
+    pub initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    /// Channel for sending workload messages to worker threads.
+    pub workload_sender: Option<Sender<WorkloadMessage>>,
+    /// Channel for receiving workload messages (shared by all worker threads).
+    workload_receiver: Receiver<WorkloadMessage>,
+    /// Shared counter for tracking completed simulation jobs across threads.
+    pub work_load_counter: Arc<Mutex<usize>>,
+    /// Handles for spawned worker threads (None until threads are started).
+    pub handles: Option<Vec<JoinHandle<()>>>,
+}
 
-    for _ in 0..number_of_threads {
-        // Copy data to be moved into threads
-        let file = file_data.clone();
-        let receiver = workload_receiver.clone();
-        let workload_counter = Arc::clone(work_load_counter);
-        let success_addrs = success_addresses.clone();
-        let failure_addrs = failure_addresses.clone();
-        let init_regs = initial_registers.clone();
-        let handle = spawn(move || {
-            // Wait for workload
-            // Create a new simulation instance
-            let mut simulation = Control::new(
-                &file,
-                false,
-                success_addrs.clone(),
-                failure_addrs.clone(),
-                init_regs.clone(),
-            );
-            // Loop until the workload receiver is closed
-            while let Ok(msg) = receiver.recv() {
-                let WorkloadMessage {
-                    run_type,
-                    deep_analysis,
-                    fault_records: records,
-                    trace_sender,
-                    fault_sender,
-                } = msg;
+impl UserThread {
+    /// Creates a new UserThread instance with specified simulation parameters.
+    ///
+    /// This constructor initializes the communication channels and synchronization
+    /// primitives needed for coordinating fault injection simulations across
+    /// multiple worker threads. No worker threads are spawned at this stage.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
+    /// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
+    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
+    /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
+    /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
+    /// * `initial_registers` - Initial CPU register values to set before each simulation.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(UserThread)` - Successfully initialized UserThread with communication channels.
+    /// * `Err(String)` - Error message if initialization fails (currently never fails).
+    ///
+    /// # Next Steps
+    ///
+    /// After creation, call `start_worker_threads()` to spawn the worker thread pool
+    /// and begin accepting simulation workloads.
+    ///
+    /// # Communication Setup
+    ///
+    /// Creates unbounded channels for:
+    /// - Distributing `WorkloadMessage` to worker threads
+    /// - Shared workload counter for synchronizing completion
+    pub fn new(
+        cycles: usize,
+        deep_analysis: bool,
+        run_through: bool,
+        success_addresses: Vec<u64>,
+        failure_addresses: Vec<u64>,
+        initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    ) -> Result<Self, String> {
+        // Create a channel for sending lines to threads
+        let (workload_sender, workload_receiver): (
+            Sender<WorkloadMessage>,
+            Receiver<WorkloadMessage>,
+        ) = unbounded();
 
-                // Todo: Do error handling
-                match run_type {
-                    RunType::RecordFullTrace | RunType::RecordTrace => {
-                        match Control::new(
-                            &file,
-                            false,
-                            success_addrs.clone(),
-                            failure_addrs.clone(),
-                            init_regs.clone(),
-                        )
-                        .run_with_faults(cycles, run_type, deep_analysis, &records)
-                        .unwrap()
-                        {
-                            Data::Trace(trace) => trace_sender
-                                .unwrap()
-                                .send(trace)
-                                .expect("Unable to send trace data"),
-                            _ => trace_sender
-                                .unwrap()
-                                .send(vec![])
-                                .expect("Unable to send trace data"),
-                        }
-                    }
-                    RunType::Run => {
-                        if let Data::Fault(fault) = simulation
+        // Create a counter for the workload done
+        let work_load_counter = Arc::new(Mutex::new(0));
+
+        Ok(UserThread {
+            cycles,
+            deep_analysis,
+            run_through,
+            success_addresses,
+            failure_addresses,
+            initial_registers,
+            workload_sender: Some(workload_sender),
+            workload_receiver,
+            work_load_counter,
+            handles: None,
+        })
+    }
+
+    /// Starts the specified number of worker threads for parallel fault simulation.
+    ///
+    /// This method spawns a pool of worker threads that listen for simulation workloads
+    /// and execute fault injection simulations in parallel. Each thread maintains its
+    /// own simulation context and processes workload messages from the shared channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `file_data` - Reference to the ELF file data that workers will simulate.
+    /// * `number_of_threads` - Number of worker threads to spawn (must be > 0).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Worker threads successfully started.
+    /// * `Err(String)` - Error if thread count is zero.
+    ///
+    /// # Worker Thread Behavior
+    ///
+    /// Each spawned worker thread:
+    /// 1. Creates its own `Control` simulation instance with shared configuration
+    /// 2. Listens for `WorkloadMessage` on the shared workload channel
+    /// 3. Processes different message types:
+    ///    - `RecordTrace`/`RecordFullTrace`: Records execution trace and sends via trace_sender
+    /// 4. For `Run` type: Executes fault simulation and increments workload counter
+    /// 5. Continues until the workload channel is closed
+    ///
+    /// # Thread Configuration
+    ///
+    /// Worker threads inherit:
+    /// - ELF file data (cloned)
+    /// - Success/failure address criteria
+    /// - Initial register context
+    /// - Cycle limit for simulation execution
+    ///
+    /// # Error Conditions
+    ///
+    /// Returns error if `number_of_threads` is 0. Thread spawning failures would panic.
+    ///
+    /// # Synchronization
+    ///
+    /// Uses shared `work_load_counter` (Arc<Mutex<usize>>) to track completed simulations
+    /// for coordination between worker threads and the main coordination logic.
+    pub fn start_worker_threads(
+        &mut self,
+        file_data: &ElfFile,
+        number_of_threads: usize,
+    ) -> Result<(), String> {
+        // Check that number of threads is greater than 0
+        if number_of_threads == 0 {
+            return Err("Number of threads must be greater than 0".to_string());
+        }
+
+        // Create a vector to hold the thread handles
+        self.handles = Some(vec![]);
+
+        for _ in 0..number_of_threads {
+            // Copy data to be moved into threads
+            let file = file_data.clone();
+            let receiver = self.workload_receiver.clone();
+            let workload_counter = Arc::clone(&self.work_load_counter);
+            let success_addrs = self.success_addresses.clone();
+            let failure_addrs = self.failure_addresses.clone();
+            let init_regs = self.initial_registers.clone();
+            let cycles = self.cycles;
+            let handle = spawn(move || {
+                // Wait for workload
+                // Create a new simulation instance
+                let mut simulation = Control::new(
+                    &file,
+                    false,
+                    success_addrs.clone(),
+                    failure_addrs.clone(),
+                    init_regs.clone(),
+                );
+                // Loop until the workload receiver is closed
+                while let Ok(msg) = receiver.recv() {
+                    let WorkloadMessage {
+                        run_type,
+                        deep_analysis,
+                        fault_records: records,
+                        trace_sender,
+                        fault_sender,
+                    } = msg;
+
+                    // Todo: Do error handling
+                    match run_type {
+                        RunType::RecordFullTrace | RunType::RecordTrace => {
+                            match Control::new(
+                                &file,
+                                false,
+                                success_addrs.clone(),
+                                failure_addrs.clone(),
+                                init_regs.clone(),
+                            )
                             .run_with_faults(cycles, run_type, deep_analysis, &records)
                             .unwrap()
-                        {
-                            if !fault.is_empty() {
-                                fault_sender
+                            {
+                                Data::Trace(trace) => trace_sender
                                     .unwrap()
-                                    .send(fault)
-                                    .expect("Unable to send fault data");
+                                    .send(trace)
+                                    .expect("Unable to send trace data"),
+                                _ => trace_sender
+                                    .unwrap()
+                                    .send(vec![])
+                                    .expect("Unable to send trace data"),
                             }
                         }
-                        let mut counter = workload_counter.lock().unwrap();
-                        *counter += 1;
+                        RunType::Run => {
+                            if let Data::Fault(fault) = simulation
+                                .run_with_faults(cycles, run_type, deep_analysis, &records)
+                                .unwrap()
+                            {
+                                if !fault.is_empty() {
+                                    fault_sender
+                                        .unwrap()
+                                        .send(fault)
+                                        .expect("Unable to send fault data");
+                                }
+                            }
+                            let mut counter = workload_counter.lock().unwrap();
+                            *counter += 1;
+                        }
                     }
                 }
-            }
-        });
-        handles.push(handle);
+            });
+            self.handles.as_mut().unwrap().push(handle);
+        }
+        Ok(())
     }
-    Ok(handles)
+}
+
+/// Gracefully shuts down the UserThread by closing channels and joining worker threads.
+///
+/// This cleanup implementation ensures proper resource management when the UserThread
+/// goes out of scope or is explicitly dropped.
+///
+/// # Cleanup Process
+///
+/// 1. **Channel Closure**: Sets `workload_sender` to `None`, which drops the sender
+///    and signals all worker threads to exit their message loop
+/// 2. **Thread Joining**: Waits for each worker thread to complete its current work
+///    and terminate gracefully
+/// 3. **Error Handling**: Prints panic information if any worker thread panicked,
+///    but continues cleanup for remaining threads
+///
+/// # Thread Safety
+///
+/// Worker threads detect channel closure via `receiver.recv()` returning `Err`,
+/// which causes them to exit their processing loop and terminate naturally.
+///
+/// # Panic Handling
+///
+/// If any worker thread panicked during execution, the panic information is
+/// printed to stderr for debugging, but the cleanup process continues to ensure
+/// all threads are properly joined.
+///
+/// # Note
+///
+/// This ensures no thread handles are leaked and all system resources are
+/// properly released when the UserThread is no longer needed.
+impl Drop for UserThread {
+    fn drop(&mut self) {
+        // Drop the main workload channel
+        self.workload_sender = None;
+
+        // Wait for all threads to finish processing
+        for handle in self.handles.as_mut().unwrap().drain(..) {
+            if let Err(e) = handle.join() {
+                eprintln!("A thread panicked: {:?}", e);
+            }
+        }
+    }
 }
 
 // pub fn start_fault_simulation_threads(
