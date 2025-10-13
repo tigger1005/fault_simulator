@@ -14,7 +14,7 @@ fn run_single_glitch() {
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Create user thread for simulation
-    let mut user_thread = UserThread::new(
+    let mut user_thread = UserThread::with_params(
         2000,
         false,
         false,
@@ -36,7 +36,7 @@ fn run_single_glitch() {
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Create user thread for simulation
-    let mut user_thread = UserThread::new(
+    let mut user_thread = UserThread::with_params(
         2000,
         false,
         false,
@@ -62,7 +62,7 @@ fn run_double_glitch() {
     // Load victim data for attack simulation
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::new(
+    let mut user_thread = UserThread::with_params(
         2000,
         false,
         false,
@@ -95,7 +95,7 @@ fn run_fault_simulation_one_glitch() {
     // Load victim data for attack simulation
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
-    let mut user_thread = UserThread::new(
+    let mut user_thread = UserThread::with_params(
         2000,
         false,
         false,
@@ -137,7 +137,7 @@ fn run_fault_simulation_two_glitches() {
 
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::new(
+    let mut user_thread = UserThread::with_params(
         2000,
         false,
         false,
@@ -181,7 +181,7 @@ fn test_success_and_failure_addresses() {
 
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::new(
+    let mut user_thread = UserThread::with_params(
         2000,
         false,
         false,
@@ -252,7 +252,7 @@ fn test_initial_register_context() {
 
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::new(
+    let mut user_thread = UserThread::with_params(
         2000,
         false,
         false,

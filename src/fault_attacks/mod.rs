@@ -1,6 +1,6 @@
 pub mod faults;
 
-use crate::user_thread::{UserThread, WorkloadMessage};
+use crate::user_thread::UserThread;
 
 use super::simulation::{
     fault_data::FaultData,
@@ -14,7 +14,6 @@ use itertools::iproduct;
 use std::slice::Iter;
 
 use crossbeam_channel::{unbounded, Sender};
-
 /// Struct representing fault attacks.
 pub struct FaultAttacks<'a> {
     cs: Disassembly,
@@ -111,7 +110,7 @@ impl<'a> FaultAttacks<'a> {
     /// - Sets initial program trace before starting attacks
     /// - Tests each fault type individually
     /// - Accumulates successful attacks in `self.fault_data`
-    /// - Respects `run_through` flag for early termination
+    /// - Respects `config.run_through` flag for early termination
     pub fn single(&mut self, groups: &mut Iter<String>) -> Result<(bool, usize), String> {
         let lists = get_fault_lists(groups); // Get all faults of all lists
         let mut any_success = false; // Track if any fault was successful
@@ -131,7 +130,7 @@ impl<'a> FaultAttacks<'a> {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
-                    if !self.user_thread.run_through {
+                    if !self.user_thread.config.run_through {
                         return Ok((true, self.count_sum));
                     }
                     any_success = true;
@@ -182,7 +181,7 @@ impl<'a> FaultAttacks<'a> {
                     // Push intermediate data to fault data
                     self.fault_data.append(&mut fault_data);
                     // check for run through flag
-                    if !self.user_thread.run_through {
+                    if !self.user_thread.config.run_through {
                         return Ok((true, self.count_sum));
                     }
                     any_success = true;
@@ -245,9 +244,7 @@ impl<'a> FaultAttacks<'a> {
         first_fault.filter(&mut records, &self.cs);
 
         // Clear workload counter
-        let mut counter = self.user_thread.work_load_counter.lock().unwrap();
-        *counter = 0;
-        drop(counter);
+        self.user_thread.reset_workload_counter();
 
         // Create a channel for collecting results from threads
         let (fault_response_sender, fault_response_receiver) = unbounded();
@@ -283,16 +280,8 @@ impl<'a> FaultAttacks<'a> {
         let n = n_result?;
         self.count_sum += n;
 
-        // Wait till the workload messegage is empty
-        // while !self.workload_sender..is_empty() {
-        //     std::thread::sleep(std::time::Duration::from_millis(10));
-        // }
-
         // Wait that the workload counter is the same as the n_result
-        while {
-            let counter = self.user_thread.work_load_counter.lock().unwrap();
-            *counter != n
-        } {
+        while self.user_thread.get_workload_counter() != n {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
@@ -339,36 +328,26 @@ impl<'a> FaultAttacks<'a> {
         // Check if there are no remaining faults left
         if remaining_faults.is_empty() {
             // Run fault simulation. This is the end of the recursion
-            self.user_thread
-                .workload_sender
-                .as_ref()
-                .unwrap()
-                .send(WorkloadMessage {
-                    run_type: RunType::Run,
-                    deep_analysis: false,
-                    fault_records: simulation_fault_records.to_vec(),
-                    trace_sender: None,
-                    fault_sender: Some(fault_response_sender),
-                })
-                .expect("Not able to send fault record to thread");
+            self.user_thread.send_workload(
+                RunType::Run,
+                false,
+                simulation_fault_records.to_vec(),
+                None,
+                Some(fault_response_sender),
+            )?;
             n += 1;
         } else {
             // Collect trace records with simulation fault records to get new running length (time)
             // Setup the trace response channel
             let (trace_response_sender, trace_response_receiver) = unbounded();
             // Run simulation to record normal fault program flow as a base for fault injection
-            self.user_thread
-                .workload_sender
-                .as_ref()
-                .unwrap()
-                .send(WorkloadMessage {
-                    run_type: RunType::RecordTrace,
-                    deep_analysis: self.user_thread.deep_analysis,
-                    fault_records: simulation_fault_records.to_vec(),
-                    trace_sender: Some(trace_response_sender),
-                    fault_sender: None,
-                })
-                .unwrap();
+            self.user_thread.send_workload(
+                RunType::RecordTrace,
+                self.user_thread.config.deep_analysis,
+                simulation_fault_records.to_vec(),
+                Some(trace_response_sender),
+                None,
+            )?;
 
             let mut records = trace_response_receiver
                 .recv()
@@ -430,18 +409,13 @@ impl<'a> FaultAttacks<'a> {
         fault_data: Vec<FaultRecord>,
     ) -> Result<Vec<TraceRecord>, String> {
         let (trace_response_sender, trace_response_receiver) = unbounded();
-        self.user_thread
-            .workload_sender
-            .as_ref()
-            .unwrap()
-            .send(WorkloadMessage {
-                run_type,
-                deep_analysis,
-                fault_records: fault_data,
-                trace_sender: Some(trace_response_sender),
-                fault_sender: None,
-            })
-            .unwrap();
+        self.user_thread.send_workload(
+            run_type,
+            deep_analysis,
+            fault_data,
+            Some(trace_response_sender),
+            None,
+        )?;
         let trace_record = trace_response_receiver
             .recv()
             .expect("Unable to receive trace data");
@@ -511,7 +485,7 @@ impl<'a> FaultAttacks<'a> {
         // Run full trace
         self.initial_trace = self.get_trace_data(
             RunType::RecordTrace,
-            self.user_thread.deep_analysis,
+            self.user_thread.config.deep_analysis,
             [].to_vec(),
         )?;
         Ok(())
@@ -561,10 +535,10 @@ impl<'a> FaultAttacks<'a> {
         let mut simulation = Control::new(
             &self.file_data,
             true,
-            self.user_thread.success_addresses.clone(),
-            self.user_thread.failure_addresses.clone(),
-            self.user_thread.initial_registers.clone(),
+            self.user_thread.config.success_addresses.clone(),
+            self.user_thread.config.failure_addresses.clone(),
+            self.user_thread.config.initial_registers.clone(),
         );
-        simulation.check_program(self.user_thread.cycles)
+        simulation.check_program(self.user_thread.config.cycles)
     }
 }

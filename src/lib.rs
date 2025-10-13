@@ -8,5 +8,5 @@ pub mod prelude {
     pub use crate::elf_file::*;
     pub use crate::fault_attacks::{faults::*, FaultAttacks};
     pub use crate::simulation::record::TraceRecord;
-    pub use crate::user_thread::{UserThread, WorkloadMessage};
+    pub use crate::user_thread::{SimulationConfig, UserThread, WorkloadMessage};
 }

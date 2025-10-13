@@ -387,15 +387,17 @@ fn main() -> Result<(), String> {
 
     // Load victim data
     let file_data: ElfFile = ElfFile::new(path)?;
-    // Create user thread for simulation
-    let mut user_thread = UserThread::new(
+    // Create simulation configuration
+    let sim_config = SimulationConfig::new(
         config.max_instructions,
         config.deep_analysis,
         config.run_through,
         config.success_addresses,
         config.failure_addresses,
         config.initial_registers,
-    )?;
+    );
+    // Create user thread for simulation
+    let mut user_thread = UserThread::new(sim_config)?;
     // Start worker threads
     user_thread.start_worker_threads(&file_data, config.threads)?;
 

@@ -12,6 +12,65 @@ use crate::simulation::{
     Control, Data, RunType,
 };
 
+/// Configuration for fault injection simulation parameters.
+///
+/// This structure encapsulates all the simulation-specific parameters
+/// that control how fault injection attacks are executed and evaluated.
+///
+/// # Fields
+///
+/// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
+/// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
+/// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
+/// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
+/// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
+/// * `initial_registers` - Initial CPU register values to set before each simulation.
+#[derive(Debug, Clone)]
+pub struct SimulationConfig {
+    /// Maximum number of CPU cycles/instructions to execute per simulation.
+    pub cycles: usize,
+    /// Enable detailed analysis of loops and repeated code patterns.
+    pub deep_analysis: bool,
+    /// Continue simulation after finding successful attacks (don't stop early).
+    pub run_through: bool,
+    /// Memory addresses that indicate successful attack when accessed.
+    pub success_addresses: Vec<u64>,
+    /// Memory addresses that indicate attack failure when accessed.
+    pub failure_addresses: Vec<u64>,
+    /// Initial CPU register values to set before each simulation.
+    pub initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+}
+
+impl SimulationConfig {
+    /// Creates a new SimulationConfig with the specified parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
+    /// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
+    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
+    /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
+    /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
+    /// * `initial_registers` - Initial CPU register values to set before each simulation.
+    pub fn new(
+        cycles: usize,
+        deep_analysis: bool,
+        run_through: bool,
+        success_addresses: Vec<u64>,
+        failure_addresses: Vec<u64>,
+        initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    ) -> Self {
+        Self {
+            cycles,
+            deep_analysis,
+            run_through,
+            success_addresses,
+            failure_addresses,
+            initial_registers,
+        }
+    }
+}
+
 /// Represents a simulation workload message sent to worker threads.
 ///
 /// This structure encapsulates all the information needed for a worker thread
@@ -51,26 +110,16 @@ pub struct WorkloadMessage {
 /// 3. Use workload channels to distribute simulation tasks
 /// 4. Worker threads automatically clean up when dropped
 pub struct UserThread {
-    /// Maximum number of CPU cycles/instructions to execute per simulation.
-    pub cycles: usize,
-    /// Enable detailed analysis of loops and repeated code patterns.
-    pub deep_analysis: bool,
-    /// Continue simulation after finding successful attacks (don't stop early).
-    pub run_through: bool,
-    /// Memory addresses that indicate successful attack when accessed.
-    pub success_addresses: Vec<u64>,
-    /// Memory addresses that indicate attack failure when accessed.
-    pub failure_addresses: Vec<u64>,
-    /// Initial CPU register values to set before each simulation.
-    pub initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    /// Simulation configuration parameters.
+    pub config: SimulationConfig,
     /// Channel for sending workload messages to worker threads.
-    pub workload_sender: Option<Sender<WorkloadMessage>>,
+    workload_sender: Option<Sender<WorkloadMessage>>,
     /// Channel for receiving workload messages (shared by all worker threads).
     workload_receiver: Receiver<WorkloadMessage>,
     /// Shared counter for tracking completed simulation jobs across threads.
-    pub work_load_counter: Arc<Mutex<usize>>,
+    work_load_counter: Arc<Mutex<usize>>,
     /// Handles for spawned worker threads (None until threads are started).
-    pub handles: Option<Vec<JoinHandle<()>>>,
+    handles: Option<Vec<JoinHandle<()>>>,
 }
 
 impl UserThread {
@@ -82,12 +131,7 @@ impl UserThread {
     ///
     /// # Arguments
     ///
-    /// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
-    /// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
-    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
-    /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
-    /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
-    /// * `initial_registers` - Initial CPU register values to set before each simulation.
+    /// * `config` - Simulation configuration containing all simulation parameters.
     ///
     /// # Returns
     ///
@@ -104,14 +148,7 @@ impl UserThread {
     /// Creates unbounded channels for:
     /// - Distributing `WorkloadMessage` to worker threads
     /// - Shared workload counter for synchronizing completion
-    pub fn new(
-        cycles: usize,
-        deep_analysis: bool,
-        run_through: bool,
-        success_addresses: Vec<u64>,
-        failure_addresses: Vec<u64>,
-        initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-    ) -> Result<Self, String> {
+    pub fn new(config: SimulationConfig) -> Result<Self, String> {
         // Create a channel for sending lines to threads
         let (workload_sender, workload_receiver): (
             Sender<WorkloadMessage>,
@@ -122,17 +159,49 @@ impl UserThread {
         let work_load_counter = Arc::new(Mutex::new(0));
 
         Ok(UserThread {
+            config,
+            workload_sender: Some(workload_sender),
+            workload_receiver,
+            work_load_counter,
+            handles: None,
+        })
+    }
+
+    /// Creates a new UserThread instance with individual simulation parameters.
+    ///
+    /// This is a convenience constructor that creates a SimulationConfig internally.
+    /// For more control, use `new()` with a pre-configured SimulationConfig.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
+    /// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
+    /// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
+    /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
+    /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
+    /// * `initial_registers` - Initial CPU register values to set before each simulation.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(UserThread)` - Successfully initialized UserThread with communication channels.
+    /// * `Err(String)` - Error message if initialization fails (currently never fails).
+    pub fn with_params(
+        cycles: usize,
+        deep_analysis: bool,
+        run_through: bool,
+        success_addresses: Vec<u64>,
+        failure_addresses: Vec<u64>,
+        initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    ) -> Result<Self, String> {
+        let config = SimulationConfig::new(
             cycles,
             deep_analysis,
             run_through,
             success_addresses,
             failure_addresses,
             initial_registers,
-            workload_sender: Some(workload_sender),
-            workload_receiver,
-            work_load_counter,
-            handles: None,
-        })
+        );
+        Self::new(config)
     }
 
     /// Starts the specified number of worker threads for parallel fault simulation.
@@ -195,10 +264,10 @@ impl UserThread {
             let file = file_data.clone();
             let receiver = self.workload_receiver.clone();
             let workload_counter = Arc::clone(&self.work_load_counter);
-            let success_addrs = self.success_addresses.clone();
-            let failure_addrs = self.failure_addresses.clone();
-            let init_regs = self.initial_registers.clone();
-            let cycles = self.cycles;
+            let success_addrs = self.config.success_addresses.clone();
+            let failure_addrs = self.config.failure_addresses.clone();
+            let init_regs = self.config.initial_registers.clone();
+            let cycles = self.config.cycles;
             let handle = spawn(move || {
                 // Wait for workload
                 // Create a new simulation instance
@@ -263,6 +332,89 @@ impl UserThread {
             self.handles.as_mut().unwrap().push(handle);
         }
         Ok(())
+    }
+
+    /// Sends a workload message to worker threads for processing.
+    ///
+    /// This method creates a `WorkloadMessage` from the provided parameters and sends it
+    /// to the worker thread pool via the workload channel. Worker threads will process
+    /// the message based on the specified run type and configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `run_type` - Type of simulation to execute (trace recording or fault injection).
+    /// * `deep_analysis` - Enable detailed analysis for loop detection and pattern analysis.
+    /// * `fault_records` - Sequence of fault injections to apply during simulation.
+    /// * `trace_sender` - Optional channel for returning execution trace data.
+    /// * `fault_sender` - Optional channel for returning successful fault injection results.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - Workload message successfully sent to worker threads.
+    /// * `Err(String)` - Error message if sending fails or channel is closed.
+    ///
+    /// # Usage
+    ///
+    /// - For trace recording: provide `trace_sender`, set `fault_sender` to `None`
+    /// - For fault simulation: provide `fault_sender`, set `trace_sender` to `None`
+    /// - Worker threads will use the appropriate response channel based on `run_type`
+    ///
+    /// # Thread Communication
+    ///
+    /// This is the primary method for coordinating work between the main thread
+    /// and the worker thread pool. The message is queued and processed asynchronously.
+    pub fn send_workload(
+        &self,
+        run_type: RunType,
+        deep_analysis: bool,
+        fault_records: Vec<FaultRecord>,
+        trace_sender: Option<Sender<Vec<TraceRecord>>>,
+        fault_sender: Option<Sender<Vec<FaultData>>>,
+    ) -> Result<(), String> {
+        if let Some(sender) = &self.workload_sender {
+            let msg = WorkloadMessage {
+                run_type,
+                deep_analysis,
+                fault_records,
+                trace_sender,
+                fault_sender,
+            };
+            sender
+                .send(msg)
+                .map_err(|e| format!("Failed to send workload: {}", e))
+        } else {
+            Err("Workload sender channel is closed".to_string())
+        }
+    }
+
+    /// Gets the current value of the workload counter.
+    ///
+    /// This method provides thread-safe access to the shared workload counter
+    /// that tracks completed simulation jobs across all worker threads.
+    ///
+    /// # Returns
+    ///
+    /// * `usize` - Current value of the workload counter.
+    ///
+    /// # Thread Safety
+    ///
+    /// Uses mutex locking to ensure atomic read access to the shared counter.
+    pub fn get_workload_counter(&self) -> usize {
+        let counter = self.work_load_counter.lock().unwrap();
+        *counter
+    }
+
+    /// Resets the workload counter to zero.
+    ///
+    /// This method provides thread-safe access to reset the shared workload counter
+    /// before starting a new batch of simulation jobs.
+    ///
+    /// # Thread Safety
+    ///
+    /// Uses mutex locking to ensure atomic write access to the shared counter.
+    pub fn reset_workload_counter(&self) {
+        let mut counter = self.work_load_counter.lock().unwrap();
+        *counter = 0;
     }
 }
 
