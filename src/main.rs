@@ -27,6 +27,7 @@ const GIT_VERSION: &str = git_version!();
 /// * `no_check` - Disables program flow checks.
 /// * `run_through` - Continues simulation without stopping at the first successful fault injection.
 /// * `success_addresses` - List of memory addresses that indicate success when accessed.
+///
 /// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
 ///
 fn main() -> Result<(), String> {

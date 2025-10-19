@@ -223,7 +223,7 @@ impl<'a> FaultAttacks<'a> {
             faults,
             self.initial_trace.clone(),
             &self.cs,
-            &self.user_thread,
+            self.user_thread,
         )?;
         self.count_sum += count;
         Ok(result)
