@@ -5,7 +5,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     // Load victim data for attack simulation
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,

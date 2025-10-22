@@ -14,7 +14,7 @@ fn run_single_glitch() {
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
     // Create user thread for simulation
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,
@@ -29,14 +29,14 @@ fn run_single_glitch() {
     let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
     // Result is (success: bool, number_of_attacks: usize)
-    let vec = vec!["glitch".to_string()];
+    let vec = ["glitch".to_string()];
     assert_eq!((true, 35), attack.single(&mut vec.iter()).unwrap());
 
     // Load victim data for attack simulation
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_4.elf")).unwrap();
     // Create user thread for simulation
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,
@@ -62,7 +62,7 @@ fn run_double_glitch() {
     // Load victim data for attack simulation
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,
@@ -75,14 +75,14 @@ fn run_double_glitch() {
     let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
     // Result is (false: bool, number_of_attacks: usize)
-    let vec = vec!["glitch".to_string()];
+    let vec = ["glitch".to_string()];
     assert_eq!((false, 22808), attack.double(&mut vec.iter()).unwrap());
 
     // Test second scenario with regbf
     let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
     // Result is (success: bool, number_of_attacks: usize)
-    let vec = vec!["regbf".to_string()];
+    let vec = ["regbf".to_string()];
     assert_eq!((true, 6916), attack.double(&mut vec.iter()).unwrap());
 }
 
@@ -95,7 +95,7 @@ fn run_fault_simulation_one_glitch() {
     // Load victim data for attack simulation
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,
@@ -137,7 +137,7 @@ fn run_fault_simulation_two_glitches() {
 
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,
@@ -181,7 +181,7 @@ fn test_success_and_failure_addresses() {
 
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,
@@ -194,7 +194,7 @@ fn test_success_and_failure_addresses() {
     let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
     // Test single glitch attack with custom addresses
-    let vec = vec!["glitch".to_string()];
+    let vec = ["glitch".to_string()];
     let single_result = attack.single(&mut vec.iter()).unwrap();
 
     // Verify that the attack runs and produces results
@@ -224,7 +224,7 @@ fn test_success_and_failure_addresses() {
 fn test_json_config() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(&["--config", "tests/test_config.json"])
+    cmd.args(["--config", "tests/test_config.json"])
         .output()
         .expect("Failed to run binary");
 
@@ -252,7 +252,7 @@ fn test_initial_register_context() {
 
     let file_data: ElfFile =
         ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
-    let mut user_thread = UserThread::with_params(
+    let mut user_thread = SimulationThread::with_params(
         2000,
         false,
         false,
@@ -282,7 +282,7 @@ fn test_initial_register_context() {
 fn test_json_config_initial_registers() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(&[
+    cmd.args([
         "--config",
         "tests/test_config.json",
         "--no-check",

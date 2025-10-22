@@ -1,6 +1,6 @@
 pub mod faults;
 
-use crate::user_thread::UserThread;
+use crate::simulation_thread::SimulationThread;
 
 use super::simulation::{
     fault_data::FaultData,
@@ -21,20 +21,20 @@ pub struct FaultAttacks<'a> {
     pub fault_data: Vec<Vec<FaultData>>,
     pub initial_trace: Vec<TraceRecord>,
     pub count_sum: usize,
-    user_thread: &'a UserThread,
+    user_thread: &'a SimulationThread,
 }
 
 impl<'a> FaultAttacks<'a> {
-    /// Creates a new `FaultAttacks` instance from existing ELF file and UserThread.
+    /// Creates a new `FaultAttacks` instance from existing ELF file and SimulationThread.
     ///
     /// This function initializes the fault attack simulation environment using
     /// pre-configured ELF file data and user thread instances. The worker threads
-    /// should already be started on the UserThread before calling this function.
+    /// should already be started on the SimulationThread before calling this function.
     ///
     /// # Arguments
     ///
     /// * `file_data` - Reference to loaded ELF file containing the target program.
-    /// * `user_thread` - Reference to configured UserThread with worker threads started.
+    /// * `user_thread` - Reference to configured SimulationThread with worker threads started.
     ///
     /// # Returns
     ///
@@ -43,9 +43,9 @@ impl<'a> FaultAttacks<'a> {
     ///
     /// # Note
     ///
-    /// This constructor clones the ELF file data and stores a reference to the UserThread.
-    /// The UserThread must outlive the FaultAttacks instance due to the lifetime constraint.
-    pub fn new(file_data: &ElfFile, user_thread: &'a UserThread) -> Result<Self, String> {
+    /// This constructor clones the ELF file data and stores a reference to the SimulationThread.
+    /// The SimulationThread must outlive the FaultAttacks instance due to the lifetime constraint.
+    pub fn new(file_data: &ElfFile, user_thread: &'a SimulationThread) -> Result<Self, String> {
         // Return the FaultAttacks instance
         Ok(Self {
             cs: Disassembly::new(),
@@ -424,7 +424,7 @@ pub fn fault_simulation(
     faults: &[FaultType],
     mut records: Vec<TraceRecord>,
     cs: &Disassembly,
-    user_thread: &UserThread,
+    user_thread: &SimulationThread,
 ) -> Result<(Vec<Vec<FaultData>>, usize), String> {
     println!("Running simulation for faults: {faults:?}");
 
@@ -516,7 +516,7 @@ fn fault_simulation_inner(
     remaining_faults: &[FaultType],
     simulation_fault_records: &[FaultRecord],
     cs: &Disassembly,
-    user_thread: &UserThread,
+    user_thread: &SimulationThread,
 ) -> Result<usize, String> {
     let mut n = 0;
 
@@ -599,7 +599,7 @@ fn get_trace_data(
     run_type: RunType,
     deep_analysis: bool,
     fault_data: Vec<FaultRecord>,
-    user_thread: &UserThread,
+    user_thread: &SimulationThread,
 ) -> Result<Vec<TraceRecord>, String> {
     let (trace_response_sender, trace_response_receiver) = unbounded();
     user_thread.send_workload(

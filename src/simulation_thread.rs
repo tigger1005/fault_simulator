@@ -109,7 +109,7 @@ pub struct WorkloadMessage {
 /// 2. Call `start_worker_threads()` to spawn worker thread pool
 /// 3. Use workload channels to distribute simulation tasks
 /// 4. Worker threads automatically clean up when dropped
-pub struct UserThread {
+pub struct SimulationThread {
     /// Simulation configuration parameters.
     pub config: SimulationConfig,
     /// Channel for sending workload messages to worker threads.
@@ -122,8 +122,8 @@ pub struct UserThread {
     handles: Option<Vec<JoinHandle<()>>>,
 }
 
-impl UserThread {
-    /// Creates a new UserThread instance with specified simulation parameters.
+impl SimulationThread {
+    /// Creates a new SimulationThread instance with specified simulation parameters.
     ///
     /// This constructor initializes the communication channels and synchronization
     /// primitives needed for coordinating fault injection simulations across
@@ -135,7 +135,7 @@ impl UserThread {
     ///
     /// # Returns
     ///
-    /// * `Ok(UserThread)` - Successfully initialized UserThread with communication channels.
+    /// * `Ok(SimulationThread)` - Successfully initialized SimulationThread with communication channels.
     /// * `Err(String)` - Error message if initialization fails (currently never fails).
     ///
     /// # Next Steps
@@ -158,7 +158,7 @@ impl UserThread {
         // Create a counter for the workload done
         let work_load_counter = Arc::new(Mutex::new(0));
 
-        Ok(UserThread {
+        Ok(SimulationThread {
             config,
             workload_sender: Some(workload_sender),
             workload_receiver,
@@ -167,7 +167,7 @@ impl UserThread {
         })
     }
 
-    /// Creates a new UserThread instance with individual simulation parameters.
+    /// Creates a new SimulationThread instance with individual simulation parameters.
     ///
     /// This is a convenience constructor that creates a SimulationConfig internally.
     /// For more control, use `new()` with a pre-configured SimulationConfig.
@@ -183,7 +183,7 @@ impl UserThread {
     ///
     /// # Returns
     ///
-    /// * `Ok(UserThread)` - Successfully initialized UserThread with communication channels.
+    /// * `Ok(SimulationThread)` - Successfully initialized SimulationThread with communication channels.
     /// * `Err(String)` - Error message if initialization fails (currently never fails).
     pub fn with_params(
         cycles: usize,
@@ -418,36 +418,22 @@ impl UserThread {
     }
 }
 
-/// Gracefully shuts down the UserThread by closing channels and joining worker threads.
+/// Gracefully shuts down the SimulationThread by closing channels and joining worker threads.
 ///
-/// This cleanup implementation ensures proper resource management when the UserThread
-/// goes out of scope or is explicitly dropped.
+/// This cleanup implementation ensures proper resource management when the SimulationThread
+/// is dropped, preventing any resource leaks from unjoined worker threads.
 ///
-/// # Cleanup Process
+/// # Process
 ///
-/// 1. **Channel Closure**: Sets `workload_sender` to `None`, which drops the sender
-///    and signals all worker threads to exit their message loop
-/// 2. **Thread Joining**: Waits for each worker thread to complete its current work
-///    and terminate gracefully
-/// 3. **Error Handling**: Prints panic information if any worker thread panicked,
-///    but continues cleanup for remaining threads
-///
-/// # Thread Safety
-///
-/// Worker threads detect channel closure via `receiver.recv()` returning `Err`,
-/// which causes them to exit their processing loop and terminate naturally.
-///
-/// # Panic Handling
-///
-/// If any worker thread panicked during execution, the panic information is
-/// printed to stderr for debugging, but the cleanup process continues to ensure
-/// all threads are properly joined.
+/// 1. Drops the workload sender channel, signaling workers to terminate
+/// 2. Joins all worker threads to ensure clean shutdown
+/// 3. Handles any thread panic situations gracefully
 ///
 /// # Note
 ///
 /// This ensures no thread handles are leaked and all system resources are
-/// properly released when the UserThread is no longer needed.
-impl Drop for UserThread {
+/// properly released when the SimulationThread is no longer needed.
+impl Drop for SimulationThread {
     fn drop(&mut self) {
         // Drop the main workload channel
         self.workload_sender = None;

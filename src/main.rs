@@ -88,7 +88,7 @@ fn main() -> Result<(), String> {
         config.initial_registers,
     );
     // Create user thread for simulation
-    let mut user_thread = UserThread::new(sim_config)?;
+    let mut user_thread = SimulationThread::new(sim_config)?;
     // Start worker threads
     user_thread.start_worker_threads(&file_data, config.threads)?;
 
