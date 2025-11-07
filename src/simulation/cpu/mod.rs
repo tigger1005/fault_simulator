@@ -132,18 +132,12 @@ impl<'a> Cpu<'a> {
             .iter()
             .for_each(|reg| self.emu.reg_write(*reg, 0x00).unwrap());
 
-        // Setup stack pointer
-        let stack = self
-            .emu
-            .get_data()
-            .file_data
-            .section_map
-            .get(".stack")
-            .expect("Failed to get stack section");
-
+        // Setup stack pointer (if .stack section exists)
+        if let Some(stack) = self.emu.get_data().file_data.section_map.get(".stack") {
         self.emu
             .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
             .expect("failed to set register");
+        }
 
         // Set initial program start address (default from ELF)
         self.program_counter = self.emu.get_data().file_data.header.e_entry;
@@ -178,17 +172,11 @@ impl<'a> Cpu<'a> {
     pub fn deactivate_printf_function(&mut self) {
         self.emu.get_data_mut().deactivate_print = true;
 
-        let serial_puts = self
-            .emu
-            .get_data()
-            .file_data
-            .symbol_map
-            .get("serial_puts")
-            .expect("No serial_puts symbol found");
-
+        if let Some(serial_puts) = self.emu.get_data().file_data.symbol_map.get("serial_puts") {
         self.emu
             .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
             .unwrap();
+    }
     }
 
     /// Setup all breakpoints
