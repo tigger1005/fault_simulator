@@ -164,3 +164,15 @@ pub fn write_decision_element(emu: &mut Unicorn<CpuState>, success: bool) {
     emu.mem_write(decision_data_address, &data)
         .expect("failed to write to decision data element");
 }
+
+/// Minimal callback to print unmapped memory access addresses
+pub fn capture_unmapped_address(
+    _emu: &mut Unicorn<CpuState>,
+    _mem_type: MemType,
+    address: u64,
+    _size: usize,
+    _value: i64,
+) -> bool {
+    eprintln!("Unmapped memory access at: 0x{:08X}", address);
+    false // Let the error propagate
+}

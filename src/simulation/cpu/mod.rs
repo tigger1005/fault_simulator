@@ -7,8 +7,8 @@ use crate::simulation::{
 mod callback;
 
 use callback::{
-    hook_code_callback, hook_code_decision_activation_callback, hook_custom_addresses_callback,
-    mmio_auth_write_callback, mmio_serial_write_callback,
+    capture_unmapped_address, hook_code_callback, hook_code_decision_activation_callback,
+    hook_custom_addresses_callback, mmio_auth_write_callback, mmio_serial_write_callback,
 };
 
 use unicorn_engine::unicorn_const::uc_error;
@@ -267,6 +267,11 @@ impl<'a> Cpu<'a> {
         self.emu
             .mmio_map_wo(0x11000000, MINIMUM_MEMORY_SIZE, mmio_serial_write_callback)
             .expect("failed to map serial IO");
+
+        // Minimal hook to capture exact unmapped addresses
+        self.emu
+            .add_mem_hook(HookType::MEM_UNMAPPED, 0, u64::MAX, capture_unmapped_address)
+            .expect("failed to set unmapped memory capture hook");
     }
 
     /// Execute code on pc set in internal structure till cycles

@@ -8,6 +8,7 @@ use fault_data::FaultData;
 use log::info;
 use record::FaultRecord;
 pub use record::TraceRecord;
+use unicorn_engine::uc_error;
 
 #[derive(PartialEq, Debug, Clone, Copy)]
 /// Enum representing the type of run for the simulation.
@@ -167,7 +168,15 @@ impl<'a> Control<'a> {
                 // Switch on tracing from the beginning and record also register values
                 self.emu.start_tracing(true);
             }
-            _ => (),
+            RunType::Run => {
+                // Enable basic tracing for error reporting (but don't start recording yet)
+                self.emu.set_trace_hook();
+            }
+        }
+
+        // Enable tracing for error reporting purposes (capture last 10-20 instructions)
+        if run_type == RunType::Run {
+            self.emu.start_tracing(false); // Start basic tracing without registers
         }
 
         // Preload instruction backup if fault is inserted with index = 0
@@ -176,8 +185,9 @@ impl<'a> Control<'a> {
         for fault in faults {
             if fault.index != 0 {
                 // One single step
-                if self.emu.run_steps(1, false).is_err() {
-                    return Ok(Data::None);
+                if let Err(e) = self.emu.run_steps(1, false) {
+                    let error_msg = self.report_unicorn_error(e, "fault injection step 1");
+                    return Err(error_msg);
                 }
                 // Restore instruction if required
                 if restore_required {
@@ -185,8 +195,11 @@ impl<'a> Control<'a> {
                     restore_required = false;
                 }
                 // Execute remaining steps
-                if fault.index != 1 && self.emu.run_steps(fault.index - 1, false).is_err() {
-                    return Ok(Data::None);
+                if fault.index != 1 {
+                    if let Err(e) = self.emu.run_steps(fault.index - 1, false) {
+                        let error_msg = self.report_unicorn_error(e, "fault injection steps");
+                        return Err(error_msg);
+                    }
                 }
                 // Read instruction for later restore
                 (address, instruction) = self.emu.asm_cmd_read();
@@ -210,13 +223,15 @@ impl<'a> Control<'a> {
 
         // Run to completion
         if restore_required {
-            if self.emu.run_steps(1, false).is_err() {
-                return Ok(Data::None);
+            if let Err(e) = self.emu.run_steps(1, false) {
+                let error_msg = self.report_unicorn_error(e, "instruction restore step");
+                return Err(error_msg);
             }
             self.emu.asm_cmd_write(address, &instruction).unwrap();
         }
-        if self.emu.run_steps(cycles, false).is_err() {
-            return Ok(Data::None);
+        if let Err(e) = self.emu.run_steps(cycles, false) {
+            let error_msg = self.report_unicorn_error(e, "final execution cycles");
+            return Err(error_msg);
         }
 
         // Cleanup and return data to caller
@@ -239,5 +254,12 @@ impl<'a> Control<'a> {
                 }
             }
         }
+    }
+
+    /// Helper method to report unicorn emulator errors
+    fn report_unicorn_error(&mut self, error: uc_error, context: &str) -> String {
+        let pc = self.emu.get_program_counter();
+        eprintln!("Unicorn error during {}: {:?} at PC 0x{:08X}", context, error, pc);
+        format!("Simulation failed during {}: {:?} at PC 0x{:08X}", context, error, pc)
     }
 }
