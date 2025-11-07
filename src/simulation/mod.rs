@@ -231,6 +231,18 @@ impl<'a> Control<'a> {
         }
         if let Err(e) = self.emu.run_steps(cycles, false) {
             let error_msg = self.report_unicorn_error(e, "final execution cycles");
+
+            // Still collect trace data even if execution failed
+            match run_type {
+                RunType::RecordTrace | RunType::RecordFullTrace => {
+                    self.emu.clear_fault_data();
+                    if !deep_analysis_trace {
+                        self.emu.reduce_trace();
+                    }
+                    println!("Execution failed, but returning collected trace data up to error point");
+                    return Ok(Data::Trace(self.emu.get_trace_data().clone()));
+                }
+                RunType::Run => {
             return Err(error_msg);
         }
 
