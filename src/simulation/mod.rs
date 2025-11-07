@@ -244,6 +244,8 @@ impl<'a> Control<'a> {
                 }
                 RunType::Run => {
             return Err(error_msg);
+                }
+            }
         }
 
         // Cleanup and return data to caller
