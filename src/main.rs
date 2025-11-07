@@ -227,29 +227,45 @@ impl Config {
     fn override_with_args(&mut self, args: &Args) {
         // Always apply CLI values since they include defaults
         self.threads = args.threads;
-        self.no_compilation = args.no_compilation;
+        self.max_instructions = args.max_instructions;
+        
+        // Only override boolean flags if they're true (explicitly set by user)
+        if args.no_compilation {
+            self.no_compilation = true;
+        }
+        if args.analysis {
+            self.analysis = true;
+        }
+        if args.deep_analysis {
+            self.deep_analysis = true;
+        }
+        if args.trace {
+            self.trace = true;
+        }
+        if args.no_check {
+            self.no_check = true;
+        }
+        if args.run_through {
+            self.run_through = true;
+        }
+        
+        // Override vectors/options only if provided
         if !args.class.is_empty() {
             self.class = args.class.clone();
         }
         if !args.faults.is_empty() {
             self.faults = args.faults.clone();
         }
-        self.analysis = args.analysis;
-        self.deep_analysis = args.deep_analysis;
-        self.max_instructions = args.max_instructions;
         if args.elf.is_some() {
             self.elf = args.elf.clone();
         }
-        self.trace = args.trace;
-        self.no_check = args.no_check;
-        self.run_through = args.run_through;
         if !args.success_addresses.is_empty() {
             self.success_addresses = args.success_addresses.clone();
         }
         if !args.failure_addresses.is_empty() {
             self.failure_addresses = args.failure_addresses.clone();
         }
-        // Note: initial_registers from JSON config are preserved
+        // Note: initial_registers and code_patches from JSON config are preserved
     }
 }
 
