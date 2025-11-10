@@ -184,11 +184,17 @@ pub fn capture_memory_errors(
             MemType::FETCH_PROT => "FETCH_PROT",
             _ => {
                 // Print unknown memory error types with debug info
-                eprintln!("Unicorn Error: {:?} at PC 0x{:08X} (accessing 0x{:08X})", mem_type, pc, address);
+                eprintln!(
+                    "Unicorn Error: {:?} at PC 0x{:08X} (accessing 0x{:08X})",
+                    mem_type, pc, address
+                );
                 return false;
             }
         };
-        eprintln!("Unicorn Error: {} at PC 0x{:08X} (accessing 0x{:08X})", access_type, pc, address);
+        eprintln!(
+            "Unicorn Error: {} at PC 0x{:08X} (accessing 0x{:08X})",
+            access_type, pc, address
+        );
     }
     false // Let the error propagate
 }

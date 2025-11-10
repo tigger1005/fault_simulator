@@ -113,41 +113,48 @@ impl ElfFile {
         if patches.is_empty() {
             return Ok(());
         }
-        
+
         println!("Applying {} code patches to ELF data...", patches.len());
-        
+
         for patch in patches {
-            println!("  Patching address 0x{:08X} with {} bytes", patch.address, patch.data.len());
-            
+            println!(
+                "  Patching address 0x{:08X} with {} bytes",
+                patch.address,
+                patch.data.len()
+            );
+
             // Find which program segment contains this address
             let mut found = false;
             for (header, data) in &mut self.program_data {
                 let segment_start = header.p_paddr;
                 let segment_end = segment_start + header.p_filesz;
-                
+
                 if patch.address >= segment_start && patch.address < segment_end {
                     let offset = (patch.address - segment_start) as usize;
-                    
+
                     // Check if patch fits within segment
                     if offset + patch.data.len() > data.len() {
                         return Err(format!(
-                            "Code patch at 0x{:08X} extends beyond segment boundary", 
+                            "Code patch at 0x{:08X} extends beyond segment boundary",
                             patch.address
                         ));
                     }
-                    
+
                     // Apply the patch
                     data[offset..offset + patch.data.len()].copy_from_slice(&patch.data);
                     found = true;
                     break;
                 }
             }
-            
+
             if !found {
-                return Err(format!("Address 0x{:08X} not found in any loadable segment", patch.address));
+                return Err(format!(
+                    "Address 0x{:08X} not found in any loadable segment",
+                    patch.address
+                ));
             }
         }
-        
+
         Ok(())
     }
 }

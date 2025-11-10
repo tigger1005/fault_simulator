@@ -238,7 +238,7 @@ impl<'a> Control<'a> {
         }
         if let Err(e) = self.emu.run_steps(cycles, false) {
             let error_msg = self.report_unicorn_error(e, "Unicorn Error");
-            
+
             // Still collect trace data even if execution failed
             match run_type {
                 RunType::RecordTrace | RunType::RecordFullTrace => {
@@ -246,7 +246,9 @@ impl<'a> Control<'a> {
                     if !deep_analysis_trace {
                         self.emu.reduce_trace();
                     }
-                    println!("Execution failed, but returning collected trace data up to error point");
+                    println!(
+                        "Execution failed, but returning collected trace data up to error point"
+                    );
                     return Ok(Data::Trace(self.emu.get_trace_data().clone()));
                 }
                 RunType::Run => {
@@ -281,13 +283,17 @@ impl<'a> Control<'a> {
     fn report_unicorn_error(&mut self, error: uc_error, context: &str) -> String {
         let pc = self.emu.get_program_counter();
         let print_errors = self.emu.get_print_errors();
-        
+
         // Only print if print_errors is enabled
         if print_errors {
             match error {
                 // All memory-related errors are already printed by the callback
-                uc_error::READ_UNMAPPED | uc_error::WRITE_UNMAPPED | uc_error::FETCH_UNMAPPED 
-                | uc_error::READ_PROT | uc_error::WRITE_PROT | uc_error::FETCH_PROT => {
+                uc_error::READ_UNMAPPED
+                | uc_error::WRITE_UNMAPPED
+                | uc_error::FETCH_UNMAPPED
+                | uc_error::READ_PROT
+                | uc_error::WRITE_PROT
+                | uc_error::FETCH_PROT => {
                     // Already printed by callback with address
                 }
                 // Print non-memory errors (EXCEPTION, INSN_INVALID, etc.)

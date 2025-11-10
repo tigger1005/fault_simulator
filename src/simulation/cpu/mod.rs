@@ -295,32 +295,46 @@ impl<'a> Cpu<'a> {
     pub fn setup_memory_regions(&mut self, memory_regions: &[crate::MemoryRegion]) {
         for region in memory_regions {
             // Map the memory region
-            match self.emu
-                .mem_map(region.address, region.size, unicorn_engine::unicorn_const::Prot::READ | unicorn_engine::unicorn_const::Prot::WRITE) {
+            match self.emu.mem_map(
+                region.address,
+                region.size,
+                unicorn_engine::unicorn_const::Prot::READ
+                    | unicorn_engine::unicorn_const::Prot::WRITE,
+            ) {
                 Ok(_) => {
-                    println!("Successfully mapped memory region: 0x{:08X} - 0x{:08X} ({} bytes)", 
-                             region.address, region.address + region.size, region.size);
-                },
+                    println!(
+                        "Successfully mapped memory region: 0x{:08X} - 0x{:08X} ({} bytes)",
+                        region.address,
+                        region.address + region.size,
+                        region.size
+                    );
+                }
                 Err(e) => {
-                    println!("Warning: Failed to map memory region at 0x{:08X} (size: 0x{:X}): {:?}", 
-                             region.address, region.size, e);
+                    println!(
+                        "Warning: Failed to map memory region at 0x{:08X} (size: 0x{:X}): {:?}",
+                        region.address, region.size, e
+                    );
                     println!("This might be because the region is already mapped by the ELF file.");
                     continue;
                 }
             }
-            
+
             // If data is provided, write it to the memory region
             if let Some(ref data) = region.data {
                 // Ensure we don't write more data than the region size
                 let write_size = std::cmp::min(data.len(), region.size as usize);
                 match self.emu.mem_write(region.address, &data[..write_size]) {
                     Ok(_) => {
-                        println!("Wrote {} bytes of data to memory region at 0x{:08X}", 
-                                 write_size, region.address);
-                    },
+                        println!(
+                            "Wrote {} bytes of data to memory region at 0x{:08X}",
+                            write_size, region.address
+                        );
+                    }
                     Err(e) => {
-                        println!("Warning: Failed to write data to memory region at 0x{:08X}: {:?}", 
-                                 region.address, e);
+                        println!(
+                            "Warning: Failed to write data to memory region at 0x{:08X}: {:?}",
+                            region.address, e
+                        );
                     }
                 }
             }

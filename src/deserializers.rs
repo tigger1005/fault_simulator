@@ -1,7 +1,7 @@
+use fault_simulator::prelude::*;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use unicorn_engine::RegisterARM;
-use fault_simulator::prelude::*;
 
 /// Parse hex address strings to u64 values
 pub fn parse_hex(s: &str) -> Result<u64, String> {
@@ -143,9 +143,7 @@ where
 }
 
 /// Custom deserializer for code patches
-pub fn deserialize_code_patches<'de, D>(
-    deserializer: D,
-) -> Result<Vec<CodePatch>, D::Error>
+pub fn deserialize_code_patches<'de, D>(deserializer: D) -> Result<Vec<CodePatch>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -160,13 +158,13 @@ where
     }
 
     let patches: Vec<CodePatchHelper> = Deserialize::deserialize(deserializer)?;
-    
+
     patches
         .into_iter()
         .map(|patch| {
             let address = parse_hex(&patch.address).map_err(de::Error::custom)?;
             let hex_val = parse_hex(&patch.data).map_err(de::Error::custom)?;
-            
+
             // Convert u64 to bytes (little-endian, remove leading zeros)
             let mut bytes = Vec::new();
             let mut val = hex_val;
@@ -178,16 +176,17 @@ where
                     val >>= 8;
                 }
             }
-            
-            Ok(CodePatch { address, data: bytes })
+
+            Ok(CodePatch {
+                address,
+                data: bytes,
+            })
         })
         .collect()
 }
 
 /// Custom deserializer for memory regions
-pub fn deserialize_memory_regions<'de, D>(
-    deserializer: D,
-) -> Result<Vec<MemoryRegion>, D::Error>
+pub fn deserialize_memory_regions<'de, D>(deserializer: D) -> Result<Vec<MemoryRegion>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -204,21 +203,25 @@ where
     }
 
     let regions: Vec<MemoryRegionHelper> = Deserialize::deserialize(deserializer)?;
-    
+
     regions
         .into_iter()
         .map(|region| {
             let address = parse_hex(&region.address).map_err(de::Error::custom)?;
             let size = parse_hex(&region.size).map_err(de::Error::custom)?;
-            
+
             // If a file is specified, load its contents
             let data = if let Some(file_path) = region.file {
                 Some(fs::read(file_path).map_err(de::Error::custom)?)
             } else {
                 None
             };
-            
-            Ok(MemoryRegion { address, size, data })
+
+            Ok(MemoryRegion {
+                address,
+                size,
+                data,
+            })
         })
         .collect()
 }

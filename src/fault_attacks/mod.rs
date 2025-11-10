@@ -82,7 +82,7 @@ impl FaultAttacks {
     ) -> Result<Self, String> {
         // Load victim data
         let mut file_data: ElfFile = ElfFile::new(path)?;
-        
+
         // Apply patches immediately after loading
         if !code_patches.is_empty() {
             file_data.apply_patches(&code_patches)?;
@@ -153,8 +153,8 @@ impl FaultAttacks {
                             );
                             trace_sim.set_print_errors(print_errs);
                             match trace_sim
-                            .run_with_faults(cycles, run_type, deep_analysis, &records)
-                            .unwrap()
+                                .run_with_faults(cycles, run_type, deep_analysis, &records)
+                                .unwrap()
                             {
                                 Data::Trace(trace) => trace_sender
                                     .unwrap()
@@ -167,10 +167,17 @@ impl FaultAttacks {
                             }
                         }
                         RunType::Run => {
-                            match simulation.run_with_faults(cycles, run_type, deep_analysis, &records) {
+                            match simulation.run_with_faults(
+                                cycles,
+                                run_type,
+                                deep_analysis,
+                                &records,
+                            ) {
                                 Ok(Data::Fault(fault)) => {
                                     if !fault.is_empty() {
-                                        fault_sender.send(fault).expect("Unable to send fault data");
+                                        fault_sender
+                                            .send(fault)
+                                            .expect("Unable to send fault data");
                                     }
                                 }
                                 Err(_e) => {

@@ -99,7 +99,7 @@ impl Config {
         // Always apply CLI values since they include defaults
         self.threads = args.threads;
         self.max_instructions = args.max_instructions;
-        
+
         // Only override boolean flags if they're true (explicitly set by user)
         if args.no_compilation {
             self.no_compilation = true;
@@ -119,7 +119,7 @@ impl Config {
         if args.run_through {
             self.run_through = true;
         }
-        
+
         // Override vectors/options only if provided
         if !args.class.is_empty() {
             self.class = args.class.clone();
