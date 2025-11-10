@@ -6,7 +6,7 @@ use crate::simulation::{
 
 mod callback;
 
-use super::callback::{
+use callback::{
     capture_memory_errors, hook_code_callback, hook_code_decision_activation_callback,
     hook_custom_addresses_callback, mmio_auth_write_callback, mmio_serial_write_callback,
 };
@@ -281,7 +281,7 @@ impl<'a> Cpu<'a> {
             .expect("failed to map serial IO");
 
         // Hook to capture memory errors (unmapped and protection violations only)
-        cpu.emu
+        self.emu
             .add_mem_hook(
                 HookType::MEM_UNMAPPED | HookType::MEM_PROT,
                 0,
