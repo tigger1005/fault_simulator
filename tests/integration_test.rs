@@ -20,6 +20,9 @@ fn run_single_glitch() {
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
+        vec![],                           // code_patches
+        vec![],                           // memory_regions
+        false,                            // print_unicorn_errors
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -35,6 +38,9 @@ fn run_single_glitch() {
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
+        vec![],                           // code_patches
+        vec![],                           // memory_regions
+        false,                            // print_unicorn_errors
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -57,11 +63,15 @@ fn run_double_glitch() {
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
+        vec![],                           // code_patches
+        vec![],                           // memory_regions
+        false,                            // print_unicorn_errors
     )
     .unwrap();
     // Result is (false: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
-    assert_eq!((false, 22808), attack.double(&mut vec.iter()).unwrap());
+    // This was changed from 22808 to 27720 since we now have more unicorn hooks
+    assert_eq!((false, 27720), attack.double(&mut vec.iter()).unwrap());
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_3.elf"),
         2000,
@@ -71,6 +81,9 @@ fn run_double_glitch() {
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
+        vec![],                           // code_patches
+        vec![],                           // memory_regions
+        false,                            // print_unicorn_errors
     )
     .unwrap();
     // Result is (success: bool, number_of_attacks: usize)
@@ -94,6 +107,9 @@ fn run_fault_simulation_one_glitch() {
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
+        vec![],                           // code_patches
+        vec![],                           // memory_regions
+        false,                            // print_unicorn_errors
     )
     .unwrap();
     // Result is Vec<Vec<FaultData>>
@@ -132,6 +148,9 @@ fn run_fault_simulation_two_glitches() {
         vec![],                           // success_addresses
         vec![],                           // failure_addresses
         std::collections::HashMap::new(), // initial_registers
+        vec![],                           // code_patches
+        vec![],                           // memory_regions
+        false,                            // print_unicorn_errors
     )
     .unwrap();
 
@@ -174,6 +193,9 @@ fn test_success_and_failure_addresses() {
         success_addresses,
         failure_addresses,
         std::collections::HashMap::new(), // initial_registers
+        vec![],                           // code_patches
+        vec![],                           // memory_regions
+        false,                            // print_unicorn_errors
     )
     .unwrap();
 
@@ -243,6 +265,9 @@ fn test_initial_register_context() {
         vec![], // success_addresses
         vec![], // failure_addresses
         initial_registers,
+        vec![], // code_patches
+        vec![], // memory_regions
+        false,  // print_unicorn_errors
     )
     .unwrap();
 
