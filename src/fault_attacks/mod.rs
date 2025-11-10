@@ -45,6 +45,8 @@ pub struct FaultAttacks {
     success_addresses: Vec<u64>,
     failure_addresses: Vec<u64>,
     initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    memory_regions: Vec<crate::MemoryRegion>,
+    print_unicorn_errors: bool,
 }
 
 impl FaultAttacks {
@@ -60,6 +62,7 @@ impl FaultAttacks {
     /// * `success_addresses` - List of memory addresses that indicate success when accessed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when accessed.
     /// * `initial_registers` - HashMap of RegisterARM to initial values for CPU registers.
+    /// * `print_unicorn_errors` - Whether to print unicorn errors during simulation.
     ///
     /// # Returns
     ///
@@ -73,9 +76,17 @@ impl FaultAttacks {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+        code_patches: Vec<crate::CodePatch>,
+        memory_regions: Vec<crate::MemoryRegion>,
+        print_unicorn_errors: bool,
     ) -> Result<Self, String> {
         // Load victim data
-        let file_data: ElfFile = ElfFile::new(path)?;
+        let mut file_data: ElfFile = ElfFile::new(path)?;
+        
+        // Apply patches immediately after loading
+        if !code_patches.is_empty() {
+            file_data.apply_patches(&code_patches)?;
+        }
 
         // Create a channel for sending lines to threads
         let (workload_sender, workload_receiver): (
@@ -106,6 +117,8 @@ impl FaultAttacks {
             let success_addrs = success_addresses.clone();
             let failure_addrs = failure_addresses.clone();
             let init_regs = initial_registers.clone();
+            let mem_regions = memory_regions.clone();
+            let print_errs = print_unicorn_errors;
             let handle = thread::spawn(move || {
                 // Wait for workload
                 // Create a new simulation instance
@@ -115,7 +128,9 @@ impl FaultAttacks {
                     success_addrs.clone(),
                     failure_addrs.clone(),
                     init_regs.clone(),
+                    &mem_regions,
                 );
+                simulation.set_print_errors(print_errs);
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
                     let WorkloadMessage {
@@ -128,13 +143,16 @@ impl FaultAttacks {
                     // Todo: Do error handling
                     match run_type {
                         RunType::RecordFullTrace | RunType::RecordTrace => {
-                            match Control::new(
+                            let mut trace_sim = Control::new(
                                 &file,
                                 false,
                                 success_addrs.clone(),
                                 failure_addrs.clone(),
                                 init_regs.clone(),
-                            )
+                                &mem_regions,
+                            );
+                            trace_sim.set_print_errors(print_errs);
+                            match trace_sim
                             .run_with_faults(cycles, run_type, deep_analysis, &records)
                             .unwrap()
                             {
@@ -149,13 +167,16 @@ impl FaultAttacks {
                             }
                         }
                         RunType::Run => {
-                            if let Data::Fault(fault) = simulation
-                                .run_with_faults(cycles, run_type, deep_analysis, &records)
-                                .unwrap()
-                            {
-                                if !fault.is_empty() {
-                                    fault_sender.send(fault).expect("Unable to send fault data");
+                            match simulation.run_with_faults(cycles, run_type, deep_analysis, &records) {
+                                Ok(Data::Fault(fault)) => {
+                                    if !fault.is_empty() {
+                                        fault_sender.send(fault).expect("Unable to send fault data");
+                                    }
                                 }
+                                Err(_e) => {
+                                    // Silently ignore errors - they're expected during fault injection
+                                }
+                                _ => {}
                             }
                             let mut counter = workload_counter.lock().unwrap();
                             *counter += 1;
@@ -182,6 +203,8 @@ impl FaultAttacks {
             success_addresses,
             failure_addresses,
             initial_registers,
+            memory_regions,
+            print_unicorn_errors,
         })
     }
 
@@ -300,7 +323,9 @@ impl FaultAttacks {
             self.success_addresses.clone(),
             self.failure_addresses.clone(),
             self.initial_registers.clone(),
+            &self.memory_regions,
         );
+        simulation.set_print_errors(self.print_unicorn_errors);
         simulation.check_program(self.cycles)
     }
 

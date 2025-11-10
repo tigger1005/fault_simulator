@@ -165,14 +165,30 @@ pub fn write_decision_element(emu: &mut Unicorn<CpuState>, success: bool) {
         .expect("failed to write to decision data element");
 }
 
-/// Minimal callback to print unmapped memory access addresses
-pub fn capture_unmapped_address(
-    _emu: &mut Unicorn<CpuState>,
-    _mem_type: MemType,
+/// Callback for all memory errors to see the exact address being accessed
+pub fn capture_memory_errors(
+    emu: &mut Unicorn<CpuState>,
+    mem_type: MemType,
     address: u64,
     _size: usize,
     _value: i64,
 ) -> bool {
-    eprintln!("Unmapped memory access at: 0x{:08X}", address);
+    if emu.get_data().print_unicorn_errors {
+        let pc = emu.pc_read().unwrap_or(0);
+        let access_type = match mem_type {
+            MemType::READ_UNMAPPED => "READ_UNMAPPED",
+            MemType::WRITE_UNMAPPED => "WRITE_UNMAPPED",
+            MemType::FETCH_UNMAPPED => "FETCH_UNMAPPED",
+            MemType::READ_PROT => "READ_PROT",
+            MemType::WRITE_PROT => "WRITE_PROT",
+            MemType::FETCH_PROT => "FETCH_PROT",
+            _ => {
+                // Print unknown memory error types with debug info
+                eprintln!("Unicorn Error: {:?} at PC 0x{:08X} (accessing 0x{:08X})", mem_type, pc, address);
+                return false;
+            }
+        };
+        eprintln!("Unicorn Error: {} at PC 0x{:08X} (accessing 0x{:08X})", access_type, pc, address);
+    }
     false // Let the error propagate
 }

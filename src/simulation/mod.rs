@@ -50,6 +50,7 @@ impl<'a> Control<'a> {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+        memory_regions: &[crate::MemoryRegion],
     ) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(
@@ -60,11 +61,17 @@ impl<'a> Control<'a> {
         );
         // Cpu setup
         emu.setup_mmio();
+        emu.setup_memory_regions(memory_regions);
         emu.setup_breakpoints(decision_activation_active);
         // Write code to memory area
         emu.load_code();
 
         Self { emu }
+    }
+
+    /// Enable or disable error printing
+    pub fn set_print_errors(&mut self, print_errors: bool) {
+        self.emu.set_print_errors(print_errors);
     }
 
     /// Setup system state to a successful or failed state
@@ -197,7 +204,7 @@ impl<'a> Control<'a> {
                 // Execute remaining steps
                 if fault.index != 1 {
                     if let Err(e) = self.emu.run_steps(fault.index - 1, false) {
-                        let error_msg = self.report_unicorn_error(e, "fault injection steps");
+                        let error_msg = self.report_unicorn_error(e, "Unicorn Error");
                         return Err(error_msg);
                     }
                 }
@@ -224,14 +231,14 @@ impl<'a> Control<'a> {
         // Run to completion
         if restore_required {
             if let Err(e) = self.emu.run_steps(1, false) {
-                let error_msg = self.report_unicorn_error(e, "instruction restore step");
+                let error_msg = self.report_unicorn_error(e, "Unicorn Error");
                 return Err(error_msg);
             }
             self.emu.asm_cmd_write(address, &instruction).unwrap();
         }
         if let Err(e) = self.emu.run_steps(cycles, false) {
-            let error_msg = self.report_unicorn_error(e, "final execution cycles");
-
+            let error_msg = self.report_unicorn_error(e, "Unicorn Error");
+            
             // Still collect trace data even if execution failed
             match run_type {
                 RunType::RecordTrace | RunType::RecordFullTrace => {
@@ -243,7 +250,7 @@ impl<'a> Control<'a> {
                     return Ok(Data::Trace(self.emu.get_trace_data().clone()));
                 }
                 RunType::Run => {
-            return Err(error_msg);
+                    return Err(error_msg);
                 }
             }
         }
@@ -273,7 +280,22 @@ impl<'a> Control<'a> {
     /// Helper method to report unicorn emulator errors
     fn report_unicorn_error(&mut self, error: uc_error, context: &str) -> String {
         let pc = self.emu.get_program_counter();
-        eprintln!("Unicorn error during {}: {:?} at PC 0x{:08X}", context, error, pc);
-        format!("Simulation failed during {}: {:?} at PC 0x{:08X}", context, error, pc)
+        let print_errors = self.emu.get_print_errors();
+        
+        // Only print if print_errors is enabled
+        if print_errors {
+            match error {
+                // All memory-related errors are already printed by the callback
+                uc_error::READ_UNMAPPED | uc_error::WRITE_UNMAPPED | uc_error::FETCH_UNMAPPED 
+                | uc_error::READ_PROT | uc_error::WRITE_PROT | uc_error::FETCH_PROT => {
+                    // Already printed by callback with address
+                }
+                // Print non-memory errors (EXCEPTION, INSN_INVALID, etc.)
+                _ => {
+                    eprintln!("Unicorn Error: {:?} at PC 0x{:08X}", error, pc);
+                }
+            }
+        }
+        format!("{}: {:?} at PC 0x{:08X}", context, error, pc)
     }
 }

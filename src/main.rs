@@ -40,12 +40,18 @@ struct Config {
     no_check: bool,
     #[serde(default)]
     run_through: bool,
+    #[serde(default)]
+    print_unicorn_errors: bool,
     #[serde(default, deserialize_with = "deserialize_hex")]
     success_addresses: Vec<u64>,
     #[serde(default, deserialize_with = "deserialize_hex")]
     failure_addresses: Vec<u64>,
     #[serde(default, deserialize_with = "deserialize_register_context")]
     initial_registers: HashMap<RegisterARM, u64>,
+    #[serde(default, deserialize_with = "deserialize_code_patches")]
+    code_patches: Vec<CodePatch>,
+    #[serde(default, deserialize_with = "deserialize_memory_regions")]
+    memory_regions: Vec<MemoryRegion>,
 }
 
 impl Config {
@@ -82,6 +88,9 @@ impl Config {
             success_addresses: args.success_addresses.clone(),
             failure_addresses: args.failure_addresses.clone(),
             initial_registers: HashMap::new(),
+            code_patches: Vec::new(),
+            memory_regions: Vec::new(),
+            print_unicorn_errors: false,
         }
     }
 
@@ -273,6 +282,9 @@ fn main() -> Result<(), String> {
         config.success_addresses,
         config.failure_addresses,
         config.initial_registers,
+        config.code_patches,
+        config.memory_regions,
+        config.print_unicorn_errors,
     )?;
 
     // Check for correct program behavior

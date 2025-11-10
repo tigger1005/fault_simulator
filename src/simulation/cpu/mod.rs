@@ -6,8 +6,8 @@ use crate::simulation::{
 
 mod callback;
 
-use callback::{
-    capture_unmapped_address, hook_code_callback, hook_code_decision_activation_callback,
+use super::callback::{
+    capture_memory_errors, hook_code_callback, hook_code_decision_activation_callback,
     hook_custom_addresses_callback, mmio_auth_write_callback, mmio_serial_write_callback,
 };
 
@@ -66,6 +66,7 @@ struct CpuState<'a> {
     with_register_data: bool,
     negative_run: bool,
     deactivate_print: bool,
+    print_unicorn_errors: bool,
     trace_data: Vec<TraceRecord>,
     fault_data: Vec<FaultData>,
     file_data: &'a ElfFile,
@@ -102,6 +103,7 @@ impl<'a> Cpu<'a> {
                 with_register_data: false,
                 negative_run: false,
                 deactivate_print: false,
+                print_unicorn_errors: true,
                 trace_data: Vec::new(),
                 fault_data: Vec::new(),
                 file_data,
@@ -134,9 +136,9 @@ impl<'a> Cpu<'a> {
 
         // Setup stack pointer (if .stack section exists)
         if let Some(stack) = self.emu.get_data().file_data.section_map.get(".stack") {
-        self.emu
-            .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
-            .expect("failed to set register");
+            self.emu
+                .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
+                .expect("failed to set register");
         }
 
         // Set initial program start address (default from ELF)
@@ -173,10 +175,20 @@ impl<'a> Cpu<'a> {
         self.emu.get_data_mut().deactivate_print = true;
 
         if let Some(serial_puts) = self.emu.get_data().file_data.symbol_map.get("serial_puts") {
-        self.emu
-            .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
-            .unwrap();
+            self.emu
+                .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
+                .unwrap();
+        }
     }
+
+    /// Enable or disable error printing
+    pub fn set_print_errors(&mut self, print_unicorn_errors: bool) {
+        self.emu.get_data_mut().print_unicorn_errors = print_unicorn_errors;
+    }
+
+    /// Get the current print_unicorn_errors setting
+    pub fn get_print_errors(&self) -> bool {
+        self.emu.get_data().print_unicorn_errors
     }
 
     /// Setup all breakpoints
@@ -268,10 +280,51 @@ impl<'a> Cpu<'a> {
             .mmio_map_wo(0x11000000, MINIMUM_MEMORY_SIZE, mmio_serial_write_callback)
             .expect("failed to map serial IO");
 
-        // Minimal hook to capture exact unmapped addresses
-        self.emu
-            .add_mem_hook(HookType::MEM_UNMAPPED, 0, u64::MAX, capture_unmapped_address)
-            .expect("failed to set unmapped memory capture hook");
+        // Hook to capture memory errors (unmapped and protection violations only)
+        cpu.emu
+            .add_mem_hook(
+                HookType::MEM_UNMAPPED | HookType::MEM_PROT,
+                0,
+                u64::MAX,
+                capture_memory_errors,
+            )
+            .expect("failed to add unmapped mem hook");
+    }
+
+    /// Setup custom memory regions from configuration
+    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::MemoryRegion]) {
+        for region in memory_regions {
+            // Map the memory region
+            match self.emu
+                .mem_map(region.address, region.size, unicorn_engine::unicorn_const::Prot::READ | unicorn_engine::unicorn_const::Prot::WRITE) {
+                Ok(_) => {
+                    println!("Successfully mapped memory region: 0x{:08X} - 0x{:08X} ({} bytes)", 
+                             region.address, region.address + region.size, region.size);
+                },
+                Err(e) => {
+                    println!("Warning: Failed to map memory region at 0x{:08X} (size: 0x{:X}): {:?}", 
+                             region.address, region.size, e);
+                    println!("This might be because the region is already mapped by the ELF file.");
+                    continue;
+                }
+            }
+            
+            // If data is provided, write it to the memory region
+            if let Some(ref data) = region.data {
+                // Ensure we don't write more data than the region size
+                let write_size = std::cmp::min(data.len(), region.size as usize);
+                match self.emu.mem_write(region.address, &data[..write_size]) {
+                    Ok(_) => {
+                        println!("Wrote {} bytes of data to memory region at 0x{:08X}", 
+                                 write_size, region.address);
+                    },
+                    Err(e) => {
+                        println!("Warning: Failed to write data to memory region at 0x{:08X}: {:?}", 
+                                 region.address, e);
+                    }
+                }
+            }
+        }
     }
 
     /// Execute code on pc set in internal structure till cycles
