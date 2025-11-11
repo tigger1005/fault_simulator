@@ -117,9 +117,27 @@ impl ElfFile {
         println!("Applying {} code patches to ELF data...", patches.len());
 
         for patch in patches {
+            // Resolve address from symbol if needed, otherwise use direct address
+            let address = if let Some(sym_name) = &patch.symbol {
+                let symbol = self
+                    .symbol_map
+                    .get(sym_name)
+                    .ok_or_else(|| format!("Symbol '{}' not found in ELF file", sym_name))?;
+                
+                println!(
+                    "  Resolving symbol '{}' to address 0x{:08X}",
+                    sym_name, symbol.st_value
+                );
+                symbol.st_value
+            } else if let Some(addr) = patch.address {
+                addr
+            } else {
+                return Err("Code patch must specify either 'address' or 'symbol'".to_string());
+            };
+
             println!(
                 "  Patching address 0x{:08X} with {} bytes",
-                patch.address,
+                address,
                 patch.data.len()
             );
 
@@ -129,14 +147,14 @@ impl ElfFile {
                 let segment_start = header.p_paddr;
                 let segment_end = segment_start + header.p_filesz;
 
-                if patch.address >= segment_start && patch.address < segment_end {
-                    let offset = (patch.address - segment_start) as usize;
+                if address >= segment_start && address < segment_end {
+                    let offset = (address - segment_start) as usize;
 
                     // Check if patch fits within segment
                     if offset + patch.data.len() > data.len() {
                         return Err(format!(
                             "Code patch at 0x{:08X} extends beyond segment boundary",
-                            patch.address
+                            address
                         ));
                     }
 
@@ -150,7 +168,7 @@ impl ElfFile {
             if !found {
                 return Err(format!(
                     "Address 0x{:08X} not found in any loadable segment",
-                    patch.address
+                    address
                 ));
             }
         }

@@ -151,7 +151,8 @@ where
 
     #[derive(Deserialize)]
     struct CodePatchHelper {
-        address: String,
+        address: Option<String>,
+        symbol: Option<String>,
         data: String,
         #[serde(default)]
         description: Option<String>, // Allow description field but ignore it
@@ -162,7 +163,28 @@ where
     patches
         .into_iter()
         .map(|patch| {
-            let address = parse_hex(&patch.address).map_err(de::Error::custom)?;
+            // Validate that exactly one of address or symbol is provided
+            match (&patch.address, &patch.symbol) {
+                (None, None) => {
+                    return Err(de::Error::custom(
+                        "Code patch must specify either 'address' or 'symbol'",
+                    ));
+                }
+                (Some(_), Some(_)) => {
+                    return Err(de::Error::custom(
+                        "Code patch cannot specify both 'address' and 'symbol'",
+                    ));
+                }
+                _ => {}
+            }
+
+            // Parse address if provided
+            let address = if let Some(addr_str) = patch.address {
+                Some(parse_hex(&addr_str).map_err(de::Error::custom)?)
+            } else {
+                None
+            };
+
             let hex_val = parse_hex(&patch.data).map_err(de::Error::custom)?;
 
             // Convert u64 to bytes (little-endian, remove leading zeros)
@@ -179,6 +201,7 @@ where
 
             Ok(CodePatch {
                 address,
+                symbol: patch.symbol,
                 data: bytes,
             })
         })

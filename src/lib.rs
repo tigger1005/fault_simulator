@@ -5,7 +5,8 @@ mod simulation;
 
 #[derive(Debug, Clone)]
 pub struct CodePatch {
-    pub address: u64,
+    pub address: Option<u64>,
+    pub symbol: Option<String>,
     pub data: Vec<u8>,
 }
 
