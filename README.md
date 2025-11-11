@@ -200,11 +200,16 @@ CLI arguments always override values from the config file.
 ### JSON Configuration Options
 The following features are only available using hte JSON configuration file.
 #### Code Patches
-Apply binary patches to modify firmware behavior at specific addresses. Useful for bypassing security functions or modifying control flow.
+Apply binary patches to modify firmware behavior at specific addresses or symbols. Useful for bypassing security functions or modifying control flow.
 
 ```json
 {
   "code_patches": [
+    {
+      "symbol": "decision_activation",
+      "data": "0x4770",
+      "description": "Patch function to return immediately (bx lr)"
+    },
     {
       "address": "0x08000100",
       "data": "0x4770",
@@ -220,9 +225,12 @@ Apply binary patches to modify firmware behavior at specific addresses. Useful f
 ```
 
 **Fields:**
-- `address` (string): Memory address to patch (hex format)
+- `address` (string, optional): Memory address to patch (hex format) - use either `address` or `symbol`
+- `symbol` (string, optional): Symbol name to patch (resolved from ELF symbol table) - use either `address` or `symbol`
 - `data` (string): Hex data to write at the address
 - `description` (string, optional): Human-readable description of the patch
+
+**Note:** Each patch must specify either `address` OR `symbol`, but not both. Using symbols makes configurations more portable across firmware versions.
 
 #### Memory Regions
 Define custom memory regions with optional data loading from files. Essential for firmware that expects specific memory layouts (SRAM, peripherals, flash).
