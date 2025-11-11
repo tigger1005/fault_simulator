@@ -123,7 +123,7 @@ impl ElfFile {
                     .symbol_map
                     .get(sym_name)
                     .ok_or_else(|| format!("Symbol '{}' not found in ELF file", sym_name))?;
-                
+
                 println!(
                     "  Resolving symbol '{}' to address 0x{:08X}",
                     sym_name, symbol.st_value
