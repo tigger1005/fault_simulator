@@ -246,11 +246,11 @@ impl<'a> Cpu<'a> {
 
         let segments = &self.emu.get_data().file_data.program_data;
 
-        // Iterate over all program parts and write them to memory
+        // First pass: collect all segment ranges and merge overlapping ones
+        let mut ranges: Vec<(u64, u64, Prot)> = Vec::new();
+        
         for segment in segments {
             let mut permission = Prot::NONE;
-
-            // Convert p_flags to permission
             if segment.0.p_flags & PF_X != 0 {
                 permission |= Prot::EXEC;
             }
@@ -260,13 +260,36 @@ impl<'a> Cpu<'a> {
             if segment.0.p_flags & PF_R != 0 {
                 permission |= Prot::READ;
             }
-            // Map segment to memory
+            
+            // Align address down to page boundary
+            let addr = segment.0.p_paddr & 0xfffff000;
+            let segment_end = segment.0.p_paddr + segment.0.p_memsz;
+            let size = ((segment_end - addr + MINIMUM_MEMORY_SIZE - 1) & 0xfffff000).max(MINIMUM_MEMORY_SIZE);
+            let end = addr + size;
+            
+            // Try to merge with existing ranges
+            let mut merged = false;
+            for (range_start, range_end, range_perm) in ranges.iter_mut() {
+                if addr <= *range_end && end >= *range_start {
+                    // Overlapping or adjacent, merge
+                    *range_start = (*range_start).min(addr);
+                    *range_end = (*range_end).max(end);
+                    *range_perm |= permission;  // Combine permissions
+                    merged = true;
+                    break;
+                }
+            }
+            
+            if !merged {
+                ranges.push((addr, end, permission));
+            }
+        }
+        
+        // Second pass: map the merged ranges
+        for (addr, end, permission) in ranges {
+            let size = end - addr;
             self.emu
-                .mem_map(
-                    segment.0.p_paddr,
-                    (segment.0.p_memsz + MINIMUM_MEMORY_SIZE) & 0xfffff000, // Calculate length of part with a minimum granularity of 4KB
-                    permission,
-                )
+                .mem_map(addr, size, permission)
                 .expect("failed to map code page");
         }
 
