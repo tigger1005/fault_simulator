@@ -124,11 +124,14 @@ impl ElfFile {
                     .get(sym_name)
                     .ok_or_else(|| format!("Symbol '{}' not found in ELF file", sym_name))?;
 
+                // Clear LSB for Thumb mode indicator - actual code is at even address
+                let actual_address = symbol.st_value & !1;
+                
                 println!(
                     "  Resolving symbol '{}' to address 0x{:08X}",
-                    sym_name, symbol.st_value
+                    sym_name, actual_address
                 );
-                symbol.st_value
+                actual_address
             } else if let Some(addr) = patch.address {
                 addr
             } else {
