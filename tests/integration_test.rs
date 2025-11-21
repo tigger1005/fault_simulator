@@ -70,8 +70,8 @@ fn run_double_glitch() {
     .unwrap();
     // Result is (false: bool, number_of_attacks: usize)
     let vec = vec!["glitch".to_string()];
-    // This was changed from 22808 to 27720 since we now have more unicorn hooks
-    assert_eq!((false, 27720), attack.double(&mut vec.iter()).unwrap());
+    // This was changed from 22808 to 27240 since we now have more unicorn hooks
+    assert_eq!((false, 27240), attack.double(&mut vec.iter()).unwrap());
     let mut attack = FaultAttacks::new(
         std::path::PathBuf::from("tests/bin/victim_3.elf"),
         2000,

@@ -175,15 +175,7 @@ impl<'a> Control<'a> {
                 // Switch on tracing from the beginning and record also register values
                 self.emu.start_tracing(true);
             }
-            RunType::Run => {
-                // Enable basic tracing for error reporting (but don't start recording yet)
-                self.emu.set_trace_hook();
-            }
-        }
-
-        // Enable tracing for error reporting purposes (capture last 10-20 instructions)
-        if run_type == RunType::Run {
-            self.emu.start_tracing(false); // Start basic tracing without registers
+            _ => (),
         }
 
         // Preload instruction backup if fault is inserted with index = 0
@@ -246,9 +238,12 @@ impl<'a> Control<'a> {
                     if !deep_analysis_trace {
                         self.emu.reduce_trace();
                     }
-                    println!(
-                        "Execution failed, but returning collected trace data up to error point"
-                    );
+                    // Only print if error printing is enabled
+                    if self.emu.get_print_errors() {
+                        println!(
+                            "Execution failed, but returning collected trace data up to error point"
+                        );
+                    }
                     return Ok(Data::Trace(self.emu.get_trace_data().clone()));
                 }
                 RunType::Run => {
