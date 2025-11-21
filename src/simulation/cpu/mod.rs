@@ -218,15 +218,17 @@ impl<'a> Cpu<'a> {
         let has_custom_addresses = !self.emu.get_data().success_addresses.is_empty()
             || !self.emu.get_data().failure_addresses.is_empty();
         if has_custom_addresses {
-            // Add code hook for the entire program to check for custom addresses
-            let program_data = &self.emu.get_data().file_data.program_data[0];
-            self.emu
-                .add_code_hook(
-                    program_data.0.p_paddr,
-                    program_data.0.p_paddr + program_data.0.p_memsz,
-                    hook_custom_addresses_callback,
-                )
-                .expect("failed to set custom address code hook");
+            // Add code hook for all program segments to check for custom addresses
+            let program_data = &self.emu.get_data().file_data.program_data.clone();
+            for segment in program_data {
+                self.emu
+                    .add_code_hook(
+                        segment.0.p_paddr,
+                        segment.0.p_paddr + segment.0.p_memsz,
+                        hook_custom_addresses_callback,
+                    )
+                    .expect("failed to set custom address code hook");
+            }
         } else {
             // Only set up the MMIO hook when NOT using custom addresses
             self.emu
