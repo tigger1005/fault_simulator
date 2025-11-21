@@ -50,7 +50,7 @@ impl<'a> Control<'a> {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-        memory_regions: &[crate::MemoryRegion],
+        memory_regions: &[crate::config::MemoryRegion],
     ) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(

@@ -1,25 +1,14 @@
+pub mod config;
 mod disassembly;
 mod elf_file;
 mod fault_attacks;
 mod simulation;
-
-#[derive(Debug, Clone)]
-pub struct CodePatch {
-    pub address: Option<u64>,
-    pub symbol: Option<String>,
-    pub data: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub struct MemoryRegion {
-    pub address: u64,
-    pub size: u64,
-    pub data: Option<Vec<u8>>, // Optional: data to initialize the region with
-}
+mod simulation_thread;
 
 pub mod prelude {
+    pub use crate::config::{CodePatch, Config, MemoryRegion};
+    pub use crate::elf_file::*;
     pub use crate::fault_attacks::{faults::*, FaultAttacks};
     pub use crate::simulation::record::TraceRecord;
-    pub use crate::CodePatch;
-    pub use crate::MemoryRegion;
+    pub use crate::simulation_thread::{SimulationConfig, SimulationThread, WorkloadMessage};
 }

@@ -109,7 +109,7 @@ impl ElfFile {
     }
 
     /// Apply patches to the program data
-    pub fn apply_patches(&mut self, patches: &[crate::CodePatch]) -> Result<(), String> {
+    pub fn apply_patches(&mut self, patches: &[crate::config::CodePatch]) -> Result<(), String> {
         if patches.is_empty() {
             return Ok(());
         }
@@ -126,7 +126,7 @@ impl ElfFile {
 
                 // Clear LSB for Thumb mode indicator - actual code is at even address
                 let actual_address = symbol.st_value & !1;
-                
+
                 println!(
                     "  Resolving symbol '{}' to address 0x{:08X}",
                     sym_name, actual_address

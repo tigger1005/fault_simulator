@@ -196,22 +196,23 @@ impl<'a> Cpu<'a> {
     /// BreakPoints
     /// { binInfo.Symbols["decision_activation"].Address }
     pub fn setup_breakpoints(&mut self, decision_activation_active: bool) {
+        // Setup decision_activation code hook
         if decision_activation_active {
-            let decision_activation = self
+            if let Some(decision_activation) = self
                 .emu
                 .get_data()
                 .file_data
                 .symbol_map
                 .get("decision_activation")
-                .expect("No decision_activation symbol found");
-
-            self.emu
-                .add_code_hook(
-                    decision_activation.st_value,
-                    decision_activation.st_value + 1,
-                    hook_code_decision_activation_callback,
-                )
-                .expect("failed to set decision_activation code hook");
+            {
+                self.emu
+                    .add_code_hook(
+                        decision_activation.st_value,
+                        decision_activation.st_value + 1,
+                        hook_code_decision_activation_callback,
+                    )
+                    .expect("failed to set decision_activation code hook");
+            }
         }
 
         // Set up code hooks for custom success/failure addresses (if any provided)
@@ -250,7 +251,7 @@ impl<'a> Cpu<'a> {
 
         // First pass: collect all segment ranges and merge overlapping ones
         let mut ranges: Vec<(u64, u64, Prot)> = Vec::new();
-        
+
         for segment in segments {
             let mut permission = Prot::NONE;
             if segment.0.p_flags & PF_X != 0 {
@@ -262,13 +263,14 @@ impl<'a> Cpu<'a> {
             if segment.0.p_flags & PF_R != 0 {
                 permission |= Prot::READ;
             }
-            
+
             // Align address down to page boundary
             let addr = segment.0.p_paddr & 0xfffff000;
             let segment_end = segment.0.p_paddr + segment.0.p_memsz;
-            let size = ((segment_end - addr + MINIMUM_MEMORY_SIZE - 1) & 0xfffff000).max(MINIMUM_MEMORY_SIZE);
+            let size = ((segment_end - addr + MINIMUM_MEMORY_SIZE - 1) & 0xfffff000)
+                .max(MINIMUM_MEMORY_SIZE);
             let end = addr + size;
-            
+
             // Try to merge with existing ranges
             let mut merged = false;
             for (range_start, range_end, range_perm) in ranges.iter_mut() {
@@ -276,17 +278,17 @@ impl<'a> Cpu<'a> {
                     // Overlapping or adjacent, merge
                     *range_start = (*range_start).min(addr);
                     *range_end = (*range_end).max(end);
-                    *range_perm |= permission;  // Combine permissions
+                    *range_perm |= permission; // Combine permissions
                     merged = true;
                     break;
                 }
             }
-            
+
             if !merged {
                 ranges.push((addr, end, permission));
             }
         }
-        
+
         // Second pass: map the merged ranges
         for (addr, end, permission) in ranges {
             let size = end - addr;
@@ -317,7 +319,7 @@ impl<'a> Cpu<'a> {
     }
 
     /// Setup custom memory regions from configuration
-    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::MemoryRegion]) {
+    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::config::MemoryRegion]) {
         for region in memory_regions {
             // Map the memory region
             match self.emu.mem_map(

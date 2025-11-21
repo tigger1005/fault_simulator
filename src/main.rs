@@ -1,144 +1,14 @@
 use clap::Parser;
-use serde::Deserialize;
-use std::collections::HashMap;
 use std::io::stdout;
 use std::io::{self, Write};
-use std::path::PathBuf;
-use unicorn_engine::RegisterARM;
 
+use fault_simulator::config::{Args, Config};
 use fault_simulator::prelude::*;
 
 mod compile;
-mod deserializers;
 
-use deserializers::*;
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
-
-/// Configuration structure that can be loaded from JSON
-#[derive(Debug, Clone, Deserialize)]
-struct Config {
-    #[serde(default = "Config::default_threads")]
-    threads: usize,
-    #[serde(default)]
-    no_compilation: bool,
-    #[serde(default)]
-    class: Vec<String>,
-    #[serde(default)]
-    faults: Vec<String>,
-    #[serde(default)]
-    analysis: bool,
-    #[serde(default)]
-    deep_analysis: bool,
-    #[serde(default = "Config::default_max_instructions")]
-    max_instructions: usize,
-    #[serde(default)]
-    elf: Option<PathBuf>,
-    #[serde(default)]
-    trace: bool,
-    #[serde(default)]
-    no_check: bool,
-    #[serde(default)]
-    run_through: bool,
-    #[serde(default)]
-    print_unicorn_errors: bool,
-    #[serde(default, deserialize_with = "deserialize_hex")]
-    success_addresses: Vec<u64>,
-    #[serde(default, deserialize_with = "deserialize_hex")]
-    failure_addresses: Vec<u64>,
-    #[serde(default, deserialize_with = "deserialize_register_context")]
-    initial_registers: HashMap<RegisterARM, u64>,
-    #[serde(default, deserialize_with = "deserialize_code_patches")]
-    code_patches: Vec<CodePatch>,
-    #[serde(default, deserialize_with = "deserialize_memory_regions")]
-    memory_regions: Vec<MemoryRegion>,
-}
-
-impl Config {
-    // Keep defaults in sync with CLI defaults
-    fn default_threads() -> usize {
-        15
-    }
-    fn default_max_instructions() -> usize {
-        2000
-    }
-
-    /// Load configuration from JSON file
-    fn from_file(path: &PathBuf) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read config file: {}", e))?;
-
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON config: {}", e))
-    }
-
-    /// Create config from CLI args (for when no JSON file is provided)
-    fn from_args(args: &Args) -> Self {
-        Self {
-            threads: args.threads,
-            no_compilation: args.no_compilation,
-            class: args.class.clone(),
-            faults: args.faults.clone(),
-            analysis: args.analysis,
-            deep_analysis: args.deep_analysis,
-            max_instructions: args.max_instructions,
-            elf: args.elf.clone(),
-            trace: args.trace,
-            no_check: args.no_check,
-            run_through: args.run_through,
-            success_addresses: args.success_addresses.clone(),
-            failure_addresses: args.failure_addresses.clone(),
-            initial_registers: HashMap::new(),
-            code_patches: Vec::new(),
-            memory_regions: Vec::new(),
-            print_unicorn_errors: false,
-        }
-    }
-
-    /// Override config values with CLI args (CLI takes precedence)
-    fn override_with_args(&mut self, args: &Args) {
-        // Always apply CLI values since they include defaults
-        self.threads = args.threads;
-        self.max_instructions = args.max_instructions;
-
-        // Only override boolean flags if they're true (explicitly set by user)
-        if args.no_compilation {
-            self.no_compilation = true;
-        }
-        if args.analysis {
-            self.analysis = true;
-        }
-        if args.deep_analysis {
-            self.deep_analysis = true;
-        }
-        if args.trace {
-            self.trace = true;
-        }
-        if args.no_check {
-            self.no_check = true;
-        }
-        if args.run_through {
-            self.run_through = true;
-        }
-
-        // Override vectors/options only if provided
-        if !args.class.is_empty() {
-            self.class = args.class.clone();
-        }
-        if !args.faults.is_empty() {
-            self.faults = args.faults.clone();
-        }
-        if args.elf.is_some() {
-            self.elf = args.elf.clone();
-        }
-        if !args.success_addresses.is_empty() {
-            self.success_addresses = args.success_addresses.clone();
-        }
-        if !args.failure_addresses.is_empty() {
-            self.failure_addresses = args.failure_addresses.clone();
-        }
-        // Note: initial_registers and code_patches from JSON config are preserved
-    }
-}
 
 /// Command line parameter structure for configuring the fault injection simulator.
 ///
@@ -157,73 +27,7 @@ impl Config {
 /// * `no_check` - Disables program flow checks.
 /// * `run_through` - Continues simulation without stopping at the first successful fault injection.
 /// * `success_addresses` - List of memory addresses that indicate success when accessed.
-/// * `failure_addresses` - List of memory addresses that indicate failure when accessed.
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Load configuration from JSON file
-    #[arg(short = 'c', long)]
-    config: Option<PathBuf>,
-
-    /// Number of threads started in parallel
-    #[arg(short, long, default_value_t = 15)]
-    threads: usize,
-
-    /// Suppress re-compilation of target program
-    #[arg(short, long, default_value_t = false)]
-    no_compilation: bool,
-
-    /// Attacks class to be executed:
-    ///   --class [all, single, double] [optional: glitch, regbf, regfld, cmdbf]
-    ///     E.g.: --class single glitch
-    #[arg(long,  value_delimiter = ' ', num_args = 1.., verbatim_doc_comment)]
-    class: Vec<String>,
-
-    /// Run a command line defined sequence of faults.
-    ///   --faults [specific_attack] [optional: specific_attack2 specific_attack3 ...]
-    ///     E.g.: --faults regbf_r1_0100 glitch_1
-    #[arg(long, value_delimiter = ' ', num_args = 1.., verbatim_doc_comment)]
-    faults: Vec<String>,
-
-    /// Activate trace analysis of picked fault
-    #[arg(short, long, default_value_t = false)]
-    analysis: bool,
-
-    /// Switch on deep analysis scan. Repeated code (e.g. loops) are fully analysed
-    #[arg(short, long, default_value_t = false)]
-    deep_analysis: bool,
-
-    /// Maximum number of instructions to be executed
-    #[arg(short, long, default_value_t = 2000)]
-    max_instructions: usize,
-
-    /// Load elf file w/o compilation step
-    #[arg(short, long)]
-    elf: Option<PathBuf>,
-
-    /// Trace failure run w/o fault injection for analysis
-    #[arg(long, default_value_t = false)]
-    trace: bool,
-
-    /// Disable program flow check
-    #[arg(long, default_value_t = false)]
-    no_check: bool,
-
-    /// Don't stop on first successful fault injection
-    #[arg(short, long, default_value_t = false)]
-    run_through: bool,
-
-    /// List of memory addresses that indicate success when accessed
-    /// Format: --success-addresses 0x8000123 0x8000456
-    #[arg(long, value_parser = parse_hex, num_args = 0..)]
-    success_addresses: Vec<u64>,
-
-    /// List of memory addresses that indicate failure when accessed
-    /// Format: --failure-addresses 0x8000789 0x8000abc
-    #[arg(long, value_parser = parse_hex, num_args = 0..)]
-    failure_addresses: Vec<u64>,
-}
-
+///
 /// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
 ///
 fn main() -> Result<(), String> {
@@ -272,20 +76,44 @@ fn main() -> Result<(), String> {
         println!();
     }
 
-    // Load victim data for attack simulation
-    let mut attack_sim = FaultAttacks::new(
-        path,
+    // Print code patches if provided
+    if !config.code_patches.is_empty() {
+        println!("Code patches configured: {}", config.code_patches.len());
+    }
+
+    // Print memory regions if provided
+    if !config.memory_regions.is_empty() {
+        println!(
+            "Custom memory regions configured: {}",
+            config.memory_regions.len()
+        );
+    }
+
+    // Load victim data
+    let mut file_data: ElfFile = ElfFile::new(path)?;
+
+    // Apply patches immediately after loading
+    if !config.code_patches.is_empty() {
+        file_data.apply_patches(&config.code_patches)?;
+    }
+    // Create simulation configuration
+    let sim_config = SimulationConfig::new(
         config.max_instructions,
         config.deep_analysis,
         config.run_through,
-        config.threads,
         config.success_addresses,
         config.failure_addresses,
         config.initial_registers,
-        config.code_patches,
         config.memory_regions,
         config.print_unicorn_errors,
-    )?;
+    );
+    // Create user thread for simulation
+    let mut user_thread = SimulationThread::new(sim_config)?;
+    // Start worker threads
+    user_thread.start_worker_threads(&file_data, config.threads)?;
+
+    // Load victim data for attack simulation
+    let mut attack_sim = FaultAttacks::new(&file_data, &user_thread)?;
 
     // Check for correct program behavior
     if !config.no_check {
