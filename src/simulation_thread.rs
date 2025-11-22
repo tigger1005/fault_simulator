@@ -39,6 +39,10 @@ pub struct SimulationConfig {
     pub failure_addresses: Vec<u64>,
     /// Initial CPU register values to set before each simulation.
     pub initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+    /// Custom memory regions to initialize.
+    pub memory_regions: Vec<crate::config::MemoryRegion>,
+    /// Whether to print Unicorn emulator errors.
+    pub print_unicorn_errors: bool,
 }
 
 impl SimulationConfig {
@@ -52,6 +56,8 @@ impl SimulationConfig {
     /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
     /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
     /// * `initial_registers` - Initial CPU register values to set before each simulation.
+    /// * `memory_regions` - Custom memory regions to initialize.
+    /// * `print_unicorn_errors` - Whether to print Unicorn emulator errors.
     pub fn new(
         cycles: usize,
         deep_analysis: bool,
@@ -59,6 +65,8 @@ impl SimulationConfig {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
+        memory_regions: Vec<crate::config::MemoryRegion>,
+        print_unicorn_errors: bool,
     ) -> Self {
         Self {
             cycles,
@@ -67,6 +75,8 @@ impl SimulationConfig {
             success_addresses,
             failure_addresses,
             initial_registers,
+            memory_regions,
+            print_unicorn_errors,
         }
     }
 }
@@ -200,6 +210,8 @@ impl SimulationThread {
             success_addresses,
             failure_addresses,
             initial_registers,
+            Vec::new(), // No memory regions in this test
+            false,      // Don't print unicorn errors by default
         );
         Self::new(config)
     }
@@ -267,6 +279,8 @@ impl SimulationThread {
             let success_addrs = self.config.success_addresses.clone();
             let failure_addrs = self.config.failure_addresses.clone();
             let init_regs = self.config.initial_registers.clone();
+            let mem_regions = self.config.memory_regions.clone();
+            let print_errs = self.config.print_unicorn_errors;
             let cycles = self.config.cycles;
             let handle = spawn(move || {
                 // Wait for workload
@@ -277,7 +291,9 @@ impl SimulationThread {
                     success_addrs.clone(),
                     failure_addrs.clone(),
                     init_regs.clone(),
+                    &mem_regions,
                 );
+                simulation.set_print_errors(print_errs);
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
                     let WorkloadMessage {
@@ -291,15 +307,18 @@ impl SimulationThread {
                     // Todo: Do error handling
                     match run_type {
                         RunType::RecordFullTrace | RunType::RecordTrace => {
-                            match Control::new(
+                            let mut trace_sim = Control::new(
                                 &file,
                                 false,
                                 success_addrs.clone(),
                                 failure_addrs.clone(),
                                 init_regs.clone(),
-                            )
-                            .run_with_faults(cycles, run_type, deep_analysis, &records)
-                            .unwrap()
+                                &mem_regions,
+                            );
+                            trace_sim.set_print_errors(print_errs);
+                            match trace_sim
+                                .run_with_faults(cycles, run_type, deep_analysis, &records)
+                                .unwrap()
                             {
                                 Data::Trace(trace) => trace_sender
                                     .unwrap()
@@ -312,16 +331,24 @@ impl SimulationThread {
                             }
                         }
                         RunType::Run => {
-                            if let Data::Fault(fault) = simulation
-                                .run_with_faults(cycles, run_type, deep_analysis, &records)
-                                .unwrap()
-                            {
-                                if !fault.is_empty() {
-                                    fault_sender
-                                        .unwrap()
-                                        .send(fault)
-                                        .expect("Unable to send fault data");
+                            match simulation.run_with_faults(
+                                cycles,
+                                run_type,
+                                deep_analysis,
+                                &records,
+                            ) {
+                                Ok(Data::Fault(fault)) => {
+                                    if !fault.is_empty() {
+                                        fault_sender
+                                            .unwrap()
+                                            .send(fault)
+                                            .expect("Unable to send fault data");
+                                    }
                                 }
+                                Err(_e) => {
+                                    // Silently ignore errors - they're expected during fault injection
+                                }
+                                _ => {}
                             }
                             let mut counter = workload_counter.lock().unwrap();
                             *counter += 1;

@@ -1,6 +1,10 @@
 # Fault Simulator
 This project is used as a tool to simulate fault attacks to ARM-M processors (Thumb mode).
-Within the "content" folder, there is a C project that is loaded into the simulation environment.
+
+The simulator supports two modes of operation:
+1. **C Project Mode**: Compile and test the included C project from the "content" folder
+2. **Firmware Mode**: Load and instrument an independent ELF file (e.g., real firmware binaries) with custom memory regions, code patches, and register initialization
+
 Faults are introduces depending the predefined ranges or manualy. For the simulated attacks "all", "single" and "double", all implemented faults are executed till one leads to an successful attack.
 (e.g. "--class double"). For specific cases the check of the C code operation can be disabled with the "--no-check" option. This will allow to remove for e.g. the SUCCESS_DATA from the file under attack.
 
@@ -127,6 +131,7 @@ CLI arguments always override values from the config file.
 | `-e, --elf <FILE>`             | Use external elf file w/o compilation step |
 | `--trace`                      | Trace and analyse program w/o fault injection |
 | `-r, --run-through`            | Don't stop on first successful fault injection |
+| `--print-unicorn-errors`       | Enable printing of Unicorn engine memory errors (useful for debugging) |
 | `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456 |
 | `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc |
 | `-h, --help`                   | Print help |
@@ -191,6 +196,68 @@ CLI arguments always override values from the config file.
 **Supported registers:** R0-R12, SP, LR, PC, CPSR  
 **Value formats:** Hex strings (`"0x12345678"`) or decimal numbers (`42`)  
 **Case insensitive:** `"r0"`, `"R0"`, `"sp"`, `"SP"` all work
+
+### JSON Configuration Options
+The following features are only available using hte JSON configuration file.
+#### Code Patches
+Apply binary patches to modify firmware behavior at specific addresses or symbols. Useful for bypassing security functions or modifying control flow.
+
+```json
+{
+  "code_patches": [
+    {
+      "symbol": "decision_activation",
+      "data": "0x4770",
+      "description": "Patch function to return immediately (bx lr)"
+    },
+    {
+      "address": "0x08000100",
+      "data": "0x4770",
+      "description": "Replace function with bx lr (immediate return)"
+    },
+    {
+      "address": "0x08000200",
+      "data": "0xbf00bf00",
+      "description": "Replace instruction with nop; nop"
+    }
+  ]
+}
+```
+
+**Fields:**
+- `address` (string, optional): Memory address to patch (hex format) - use either `address` or `symbol`
+- `symbol` (string, optional): Symbol name to patch (resolved from ELF symbol table) - use either `address` or `symbol`
+- `data` (string): Hex data to write at the address
+- `description` (string, optional): Human-readable description of the patch
+
+**Note:** Each patch must specify either `address` OR `symbol`, but not both. Using symbols makes configurations more portable across firmware versions.
+
+#### Memory Regions
+Define custom memory regions with optional data loading from files. Essential for firmware that expects specific memory layouts (SRAM, peripherals, flash).
+
+```json
+{
+  "memory_regions": [
+    {
+      "address": "0x20000000",
+      "size": "0x20000",
+      "description": "SRAM region"
+    },
+    {
+      "address": "0x40000000",
+      "size": "0x10000",
+      "file": "peripheral_data.bin",
+      "description": "Peripheral registers initialized from file"
+    }
+  ]
+}
+```
+
+**Fields:**
+- `address` (string): Starting address of the memory region (hex format)
+- `size` (string): Size of the region in bytes (hex format)
+- `file` (string, optional): Binary file to load into this region
+- `description` (string, optional): Human-readable description
 
 
 ## Ghidra Visualization

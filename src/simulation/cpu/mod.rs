@@ -7,8 +7,8 @@ use crate::simulation::{
 mod callback;
 
 use callback::{
-    hook_code_callback, hook_code_decision_activation_callback, hook_custom_addresses_callback,
-    mmio_auth_write_callback, mmio_serial_write_callback,
+    capture_memory_errors, hook_code_callback, hook_code_decision_activation_callback,
+    hook_custom_addresses_callback, mmio_auth_write_callback, mmio_serial_write_callback,
 };
 
 use unicorn_engine::unicorn_const::uc_error;
@@ -66,6 +66,7 @@ struct CpuState<'a> {
     with_register_data: bool,
     negative_run: bool,
     deactivate_print: bool,
+    print_unicorn_errors: bool,
     trace_data: Vec<TraceRecord>,
     fault_data: Vec<FaultData>,
     file_data: &'a ElfFile,
@@ -102,6 +103,7 @@ impl<'a> Cpu<'a> {
                 with_register_data: false,
                 negative_run: false,
                 deactivate_print: false,
+                print_unicorn_errors: true,
                 trace_data: Vec::new(),
                 fault_data: Vec::new(),
                 file_data,
@@ -132,18 +134,12 @@ impl<'a> Cpu<'a> {
             .iter()
             .for_each(|reg| self.emu.reg_write(*reg, 0x00).unwrap());
 
-        // Setup stack pointer
-        let stack = self
-            .emu
-            .get_data()
-            .file_data
-            .section_map
-            .get(".stack")
-            .expect("Failed to get stack section");
-
-        self.emu
-            .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
-            .expect("failed to set register");
+        // Setup stack pointer (if .stack section exists)
+        if let Some(stack) = self.emu.get_data().file_data.section_map.get(".stack") {
+            self.emu
+                .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
+                .expect("failed to set register");
+        }
 
         // Set initial program start address (default from ELF)
         self.program_counter = self.emu.get_data().file_data.header.e_entry;
@@ -178,17 +174,21 @@ impl<'a> Cpu<'a> {
     pub fn deactivate_printf_function(&mut self) {
         self.emu.get_data_mut().deactivate_print = true;
 
-        let serial_puts = self
-            .emu
-            .get_data()
-            .file_data
-            .symbol_map
-            .get("serial_puts")
-            .expect("No serial_puts symbol found");
+        if let Some(serial_puts) = self.emu.get_data().file_data.symbol_map.get("serial_puts") {
+            self.emu
+                .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
+                .unwrap();
+        }
+    }
 
-        self.emu
-            .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
-            .unwrap();
+    /// Enable or disable error printing
+    pub fn set_print_errors(&mut self, print_unicorn_errors: bool) {
+        self.emu.get_data_mut().print_unicorn_errors = print_unicorn_errors;
+    }
+
+    /// Get the current print_unicorn_errors setting
+    pub fn get_print_errors(&self) -> bool {
+        self.emu.get_data().print_unicorn_errors
     }
 
     /// Setup all breakpoints
@@ -196,37 +196,40 @@ impl<'a> Cpu<'a> {
     /// BreakPoints
     /// { binInfo.Symbols["decision_activation"].Address }
     pub fn setup_breakpoints(&mut self, decision_activation_active: bool) {
+        // Setup decision_activation code hook
         if decision_activation_active {
-            let decision_activation = self
+            if let Some(decision_activation) = self
                 .emu
                 .get_data()
                 .file_data
                 .symbol_map
                 .get("decision_activation")
-                .expect("No decision_activation symbol found");
-
-            self.emu
-                .add_code_hook(
-                    decision_activation.st_value,
-                    decision_activation.st_value + 1,
-                    hook_code_decision_activation_callback,
-                )
-                .expect("failed to set decision_activation code hook");
+            {
+                self.emu
+                    .add_code_hook(
+                        decision_activation.st_value,
+                        decision_activation.st_value + 1,
+                        hook_code_decision_activation_callback,
+                    )
+                    .expect("failed to set decision_activation code hook");
+            }
         }
 
         // Set up code hooks for custom success/failure addresses (if any provided)
         let has_custom_addresses = !self.emu.get_data().success_addresses.is_empty()
             || !self.emu.get_data().failure_addresses.is_empty();
         if has_custom_addresses {
-            // Add code hook for the entire program to check for custom addresses
-            let program_data = &self.emu.get_data().file_data.program_data[0];
-            self.emu
-                .add_code_hook(
-                    program_data.0.p_paddr,
-                    program_data.0.p_paddr + program_data.0.p_memsz,
-                    hook_custom_addresses_callback,
-                )
-                .expect("failed to set custom address code hook");
+            // Add code hook for all program segments to check for custom addresses
+            let program_data = &self.emu.get_data().file_data.program_data.clone();
+            for segment in program_data {
+                self.emu
+                    .add_code_hook(
+                        segment.0.p_paddr,
+                        segment.0.p_paddr + segment.0.p_memsz,
+                        hook_custom_addresses_callback,
+                    )
+                    .expect("failed to set custom address code hook");
+            }
         } else {
             // Only set up the MMIO hook when NOT using custom addresses
             self.emu
@@ -246,11 +249,11 @@ impl<'a> Cpu<'a> {
 
         let segments = &self.emu.get_data().file_data.program_data;
 
-        // Iterate over all program parts and write them to memory
+        // First pass: collect all segment ranges and merge overlapping ones
+        let mut ranges: Vec<(u64, u64, Prot)> = Vec::new();
+
         for segment in segments {
             let mut permission = Prot::NONE;
-
-            // Convert p_flags to permission
             if segment.0.p_flags & PF_X != 0 {
                 permission |= Prot::EXEC;
             }
@@ -260,13 +263,37 @@ impl<'a> Cpu<'a> {
             if segment.0.p_flags & PF_R != 0 {
                 permission |= Prot::READ;
             }
-            // Map segment to memory
+
+            // Align address down to page boundary
+            let addr = segment.0.p_paddr & 0xfffff000;
+            let segment_end = segment.0.p_paddr + segment.0.p_memsz;
+            let size = ((segment_end - addr + MINIMUM_MEMORY_SIZE - 1) & 0xfffff000)
+                .max(MINIMUM_MEMORY_SIZE);
+            let end = addr + size;
+
+            // Try to merge with existing ranges
+            let mut merged = false;
+            for (range_start, range_end, range_perm) in ranges.iter_mut() {
+                if addr <= *range_end && end >= *range_start {
+                    // Overlapping or adjacent, merge
+                    *range_start = (*range_start).min(addr);
+                    *range_end = (*range_end).max(end);
+                    *range_perm |= permission; // Combine permissions
+                    merged = true;
+                    break;
+                }
+            }
+
+            if !merged {
+                ranges.push((addr, end, permission));
+            }
+        }
+
+        // Second pass: map the merged ranges
+        for (addr, end, permission) in ranges {
+            let size = end - addr;
             self.emu
-                .mem_map(
-                    segment.0.p_paddr,
-                    (segment.0.p_memsz + MINIMUM_MEMORY_SIZE) & 0xfffff000, // Calculate length of part with a minimum granularity of 4KB
-                    permission,
-                )
+                .mem_map(addr, size, permission)
                 .expect("failed to map code page");
         }
 
@@ -279,6 +306,66 @@ impl<'a> Cpu<'a> {
         self.emu
             .mmio_map_wo(0x11000000, MINIMUM_MEMORY_SIZE, mmio_serial_write_callback)
             .expect("failed to map serial IO");
+
+        // Hook to capture memory errors (unmapped and protection violations only)
+        self.emu
+            .add_mem_hook(
+                HookType::MEM_UNMAPPED | HookType::MEM_PROT,
+                0,
+                u64::MAX,
+                capture_memory_errors,
+            )
+            .expect("failed to add unmapped mem hook");
+    }
+
+    /// Setup custom memory regions from configuration
+    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::config::MemoryRegion]) {
+        for region in memory_regions {
+            // Map the memory region
+            match self.emu.mem_map(
+                region.address,
+                region.size,
+                unicorn_engine::unicorn_const::Prot::READ
+                    | unicorn_engine::unicorn_const::Prot::WRITE,
+            ) {
+                Ok(_) => {
+                    println!(
+                        "Successfully mapped memory region: 0x{:08X} - 0x{:08X} ({} bytes)",
+                        region.address,
+                        region.address + region.size,
+                        region.size
+                    );
+                }
+                Err(e) => {
+                    println!(
+                        "Warning: Failed to map memory region at 0x{:08X} (size: 0x{:X}): {:?}",
+                        region.address, region.size, e
+                    );
+                    println!("This might be because the region is already mapped by the ELF file.");
+                    continue;
+                }
+            }
+
+            // If data is provided, write it to the memory region
+            if let Some(ref data) = region.data {
+                // Ensure we don't write more data than the region size
+                let write_size = std::cmp::min(data.len(), region.size as usize);
+                match self.emu.mem_write(region.address, &data[..write_size]) {
+                    Ok(_) => {
+                        println!(
+                            "Wrote {} bytes of data to memory region at 0x{:08X}",
+                            write_size, region.address
+                        );
+                    }
+                    Err(e) => {
+                        println!(
+                            "Warning: Failed to write data to memory region at 0x{:08X}: {:?}",
+                            region.address, e
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Execute code on pc set in internal structure till cycles

@@ -107,6 +107,77 @@ impl ElfFile {
     ) -> Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>> {
         Context::new(&read::File::parse(&*self.file_data).unwrap()).unwrap()
     }
+
+    /// Apply patches to the program data
+    pub fn apply_patches(&mut self, patches: &[crate::config::CodePatch]) -> Result<(), String> {
+        if patches.is_empty() {
+            return Ok(());
+        }
+
+        println!("Applying {} code patches to ELF data...", patches.len());
+
+        for patch in patches {
+            // Resolve address from symbol if needed, otherwise use direct address
+            let address = if let Some(sym_name) = &patch.symbol {
+                let symbol = self
+                    .symbol_map
+                    .get(sym_name)
+                    .ok_or_else(|| format!("Symbol '{}' not found in ELF file", sym_name))?;
+
+                // Clear LSB for Thumb mode indicator - actual code is at even address
+                let actual_address = symbol.st_value & !1;
+
+                println!(
+                    "  Resolving symbol '{}' to address 0x{:08X}",
+                    sym_name, actual_address
+                );
+                actual_address
+            } else if let Some(addr) = patch.address {
+                addr
+            } else {
+                return Err("Code patch must specify either 'address' or 'symbol'".to_string());
+            };
+
+            println!(
+                "  Patching address 0x{:08X} with {} bytes",
+                address,
+                patch.data.len()
+            );
+
+            // Find which program segment contains this address
+            let mut found = false;
+            for (header, data) in &mut self.program_data {
+                let segment_start = header.p_paddr;
+                let segment_end = segment_start + header.p_filesz;
+
+                if address >= segment_start && address < segment_end {
+                    let offset = (address - segment_start) as usize;
+
+                    // Check if patch fits within segment
+                    if offset + patch.data.len() > data.len() {
+                        return Err(format!(
+                            "Code patch at 0x{:08X} extends beyond segment boundary",
+                            address
+                        ));
+                    }
+
+                    // Apply the patch
+                    data[offset..offset + patch.data.len()].copy_from_slice(&patch.data);
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return Err(format!(
+                    "Address 0x{:08X} not found in any loadable segment",
+                    address
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Clone for ElfFile {

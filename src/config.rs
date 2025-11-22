@@ -174,6 +174,12 @@ pub struct Config {
     pub failure_addresses: Vec<u64>,
     #[serde(default, deserialize_with = "deserialize_register_context")]
     pub initial_registers: HashMap<RegisterARM, u64>,
+    #[serde(default, deserialize_with = "deserialize_code_patches")]
+    pub code_patches: Vec<CodePatch>,
+    #[serde(default, deserialize_with = "deserialize_memory_regions")]
+    pub memory_regions: Vec<MemoryRegion>,
+    #[serde(default)]
+    pub print_unicorn_errors: bool,
 }
 
 impl Config {
@@ -211,26 +217,56 @@ impl Config {
             success_addresses: args.success_addresses.clone(),
             failure_addresses: args.failure_addresses.clone(),
             initial_registers: HashMap::new(),
+            code_patches: Vec::new(),
+            memory_regions: Vec::new(),
+            print_unicorn_errors: false,
         }
     }
 
     /// Override config values with command line arguments
+    /// Override config values with command line arguments
     pub fn override_with_args(&mut self, args: &Args) {
+        // Always apply CLI values since they include defaults
         self.threads = args.threads;
-        self.no_compilation = args.no_compilation;
-        self.class = args.class.clone();
-        self.faults = args.faults.clone();
-        self.analysis = args.analysis;
-        self.deep_analysis = args.deep_analysis;
         self.max_instructions = args.max_instructions;
+
+        // Only override boolean flags if they're true (explicitly set by user)
+        if args.no_compilation {
+            self.no_compilation = true;
+        }
+        if args.analysis {
+            self.analysis = true;
+        }
+        if args.deep_analysis {
+            self.deep_analysis = true;
+        }
+        if args.trace {
+            self.trace = true;
+        }
+        if args.no_check {
+            self.no_check = true;
+        }
+        if args.run_through {
+            self.run_through = true;
+        }
+
+        // Override vectors/options only if provided
+        if !args.class.is_empty() {
+            self.class = args.class.clone();
+        }
+        if !args.faults.is_empty() {
+            self.faults = args.faults.clone();
+        }
         if args.elf.is_some() {
             self.elf = args.elf.clone();
         }
-        self.trace = args.trace;
-        self.no_check = args.no_check;
-        self.run_through = args.run_through;
-        self.success_addresses = args.success_addresses.clone();
-        self.failure_addresses = args.failure_addresses.clone();
+        if !args.success_addresses.is_empty() {
+            self.success_addresses = args.success_addresses.clone();
+        }
+        if !args.failure_addresses.is_empty() {
+            self.failure_addresses = args.failure_addresses.clone();
+        }
+        // Note: initial_registers, code_patches, memory_regions, and print_unicorn_errors from JSON config are preserved
     }
 }
 
@@ -325,4 +361,125 @@ pub struct Args {
     /// Format: --failure-addresses 0x8000789 0x8000abc
     #[arg(long, value_parser = parse_hex_address, num_args = 0..)]
     pub failure_addresses: Vec<u64>,
+}
+
+/// Custom deserializer for code patches
+pub fn deserialize_code_patches<'de, D>(deserializer: D) -> Result<Vec<CodePatch>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    struct CodePatchHelper {
+        address: Option<String>,
+        symbol: Option<String>,
+        data: String,
+        #[serde(default)]
+        description: Option<String>, // Allow description field but ignore it
+    }
+
+    let patches: Vec<CodePatchHelper> = Deserialize::deserialize(deserializer)?;
+
+    patches
+        .into_iter()
+        .map(|patch| {
+            // Validate that exactly one of address or symbol is provided
+            match (&patch.address, &patch.symbol) {
+                (None, None) => {
+                    return Err(de::Error::custom(
+                        "Code patch must specify either 'address' or 'symbol'",
+                    ));
+                }
+                (Some(_), Some(_)) => {
+                    return Err(de::Error::custom(
+                        "Code patch cannot specify both 'address' and 'symbol'",
+                    ));
+                }
+                _ => {}
+            }
+
+            // Parse address if provided
+            let address = if let Some(addr_str) = patch.address {
+                Some(parse_hex(&addr_str).map_err(de::Error::custom)?)
+            } else {
+                None
+            };
+
+            let hex_val = parse_hex(&patch.data).map_err(de::Error::custom)?;
+
+            // Convert u64 to bytes (little-endian, remove leading zeros)
+            let mut bytes = Vec::new();
+            let mut val = hex_val;
+            if val == 0 {
+                bytes.push(0);
+            } else {
+                while val > 0 {
+                    bytes.push((val & 0xFF) as u8);
+                    val >>= 8;
+                }
+            }
+
+            Ok(CodePatch {
+                address,
+                symbol: patch.symbol,
+                data: bytes,
+            })
+        })
+        .collect()
+}
+
+/// Custom deserializer for memory regions
+pub fn deserialize_memory_regions<'de, D>(deserializer: D) -> Result<Vec<MemoryRegion>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+    use std::fs;
+
+    #[derive(Deserialize)]
+    struct MemoryRegionHelper {
+        address: String,
+        size: String,
+        file: Option<String>, // Optional binary file to load
+        #[serde(default)]
+        description: Option<String>, // Allow description field but ignore it
+    }
+
+    let regions: Vec<MemoryRegionHelper> = Deserialize::deserialize(deserializer)?;
+
+    regions
+        .into_iter()
+        .map(|region| {
+            let address = parse_hex(&region.address).map_err(de::Error::custom)?;
+            let size = parse_hex(&region.size).map_err(de::Error::custom)?;
+
+            // If a file is specified, load its contents
+            let data = if let Some(file_path) = region.file {
+                Some(fs::read(file_path).map_err(de::Error::custom)?)
+            } else {
+                None
+            };
+
+            Ok(MemoryRegion {
+                address,
+                size,
+                data,
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
+pub struct CodePatch {
+    pub address: Option<u64>,
+    pub symbol: Option<String>,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemoryRegion {
+    pub address: u64,
+    pub size: u64,
+    pub data: Option<Vec<u8>>, // Optional: data to initialize the region with
 }

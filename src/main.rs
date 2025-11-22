@@ -76,8 +76,26 @@ fn main() -> Result<(), String> {
         println!();
     }
 
+    // Print code patches if provided
+    if !config.code_patches.is_empty() {
+        println!("Code patches configured: {}", config.code_patches.len());
+    }
+
+    // Print memory regions if provided
+    if !config.memory_regions.is_empty() {
+        println!(
+            "Custom memory regions configured: {}",
+            config.memory_regions.len()
+        );
+    }
+
     // Load victim data
-    let file_data: ElfFile = ElfFile::new(path)?;
+    let mut file_data: ElfFile = ElfFile::new(path)?;
+
+    // Apply patches immediately after loading
+    if !config.code_patches.is_empty() {
+        file_data.apply_patches(&config.code_patches)?;
+    }
     // Create simulation configuration
     let sim_config = SimulationConfig::new(
         config.max_instructions,
@@ -86,6 +104,8 @@ fn main() -> Result<(), String> {
         config.success_addresses,
         config.failure_addresses,
         config.initial_registers,
+        config.memory_regions,
+        config.print_unicorn_errors,
     );
     // Create user thread for simulation
     let mut user_thread = SimulationThread::new(sim_config)?;

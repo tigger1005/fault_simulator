@@ -76,7 +76,7 @@ fn run_double_glitch() {
 
     // Result is (false: bool, number_of_attacks: usize)
     let vec = ["glitch".to_string()];
-    assert_eq!((false, 22808), attack.double(&mut vec.iter()).unwrap());
+    assert_eq!((false, 27240), attack.double(&mut vec.iter()).unwrap());
 
     // Test second scenario with regbf
     let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
