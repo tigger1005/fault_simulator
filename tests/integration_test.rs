@@ -284,7 +284,7 @@ fn test_json_config_initial_registers() {
 
     cmd.args([
         "--config",
-        "tests/test_config.json",
+        "tests/test_config_initial_registers.json",
         "--no-check",
         "--max-instructions",
         "100",
@@ -297,6 +297,60 @@ fn test_json_config_initial_registers() {
         .stdout(predicate::str::contains("R7: 0x2000FFF8"))
         .stdout(predicate::str::contains("SP: 0x2000FFF8"))
         .stdout(predicate::str::contains("LR: 0x08000005"))
-        .stdout(predicate::str::contains("PC: 0x08000620"))
+        .stdout(predicate::str::contains("PC: 0x08000644"))
         .success();
+}
+
+#[test]
+/// Test memory region initialization from JSON config
+///
+/// This test verifies that memory regions can be initialized from the config file.
+/// The test program reads from an unmapped memory address (0x30000000) which would
+/// normally fault with a Unicorn READ_UNMAPPED error. With memory_regions config,
+/// the region is mapped and the program can read from it without crashing.
+fn test_memory_region_init() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args(["--config", "tests/test_config_memory_region.json", "--no-check"]);
+
+    // Should run without Unicorn error (memory mapped successfully)
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("READ_UNMAPPED").not());
+}
+
+#[test]
+/// Test code patching from JSON config using address
+///
+/// This test verifies that code patches can be applied using a specific address.
+/// The test program has an instruction at 0x08000496 that loads from unmapped memory.
+/// With code_patches config, we patch this instruction to load the expected value directly,
+/// bypassing the unmapped memory access entirely.
+fn test_code_patch() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args(["--config", "tests/test_config_code_patch.json", "--no-check"]);
+
+    // Should run without Unicorn error (instruction patched successfully)
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("READ_UNMAPPED").not());
+}
+
+#[test]
+/// Test code patching from JSON config using symbol
+///
+/// This test verifies that code patches can be applied using a function symbol name.
+/// The test program has a check_secret() function that reads from unmapped memory.
+/// With code_patches config, we patch the function entry point to return immediately,
+/// bypassing the entire function logic including the unmapped memory access.
+fn test_code_patch_symbol() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args(["--config", "tests/test_config_code_patch_symbol.json", "--no-check"]);
+
+    // Should run without Unicorn error (function patched successfully)
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("READ_UNMAPPED").not());
 }

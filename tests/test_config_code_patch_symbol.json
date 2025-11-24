@@ -1,0 +1,15 @@
+{
+    "elf": "tests/bin/test.elf",
+    "class": [
+        "single",
+        "glitch"
+    ],
+    "analysis": true,
+    "code_patches": [
+        {
+            "description": "Patch check_secret function to return immediately with success (return 1)",
+            "symbol": "check_secret",
+            "data": "0x47702001"
+        }
+    ]
+}

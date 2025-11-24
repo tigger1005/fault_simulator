@@ -1,0 +1,17 @@
+{
+    "elf": "tests/bin/test.elf",
+    "class": [
+        "single",
+        "glitch"
+    ],
+    "analysis": true,
+    "memory_regions": [
+        {
+            "description": "Unmapped memory region for test",
+            "address": "0x30000000",
+            "size": "0x1000",
+            "permissions": "r",
+            "data": "0xDEADBEEF"
+        }
+    ]
+}
