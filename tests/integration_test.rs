@@ -311,7 +311,11 @@ fn test_json_config_initial_registers() {
 fn test_memory_region_init() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(["--config", "tests/test_config_memory_region.json5", "--no-check"]);
+    cmd.args([
+        "--config",
+        "tests/test_config_memory_region.json5",
+        "--no-check",
+    ]);
 
     // Should run without Unicorn error (memory mapped successfully)
     cmd.assert()
@@ -329,7 +333,11 @@ fn test_memory_region_init() {
 fn test_code_patch() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(["--config", "tests/test_config_code_patch.json5", "--no-check"]);
+    cmd.args([
+        "--config",
+        "tests/test_config_code_patch.json5",
+        "--no-check",
+    ]);
 
     // Should run without Unicorn error (instruction patched successfully)
     cmd.assert()
@@ -347,7 +355,11 @@ fn test_code_patch() {
 fn test_code_patch_symbol() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(["--config", "tests/test_config_code_patch_symbol.json5", "--no-check"]);
+    cmd.args([
+        "--config",
+        "tests/test_config_code_patch_symbol.json5",
+        "--no-check",
+    ]);
 
     // Should run without Unicorn error (function patched successfully)
     cmd.assert()
