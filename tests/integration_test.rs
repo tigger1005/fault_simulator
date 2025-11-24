@@ -216,15 +216,15 @@ fn test_success_and_failure_addresses() {
 }
 
 #[test]
-/// Integration test for JSON config loading
+/// Integration test for JSON5 config loading
 ///
-/// This test creates a temporary JSON config file, runs the simulator with
+/// This test creates a temporary JSON5 config file, runs the simulator with
 /// --config, and checks that the output contains expected values.
 /// It verifies that the config file is correctly parsed and used.
 fn test_json_config() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(["--config", "tests/test_config.json"])
+    cmd.args(["--config", "tests/test_config.json5"])
         .output()
         .expect("Failed to run binary");
 
@@ -275,7 +275,7 @@ fn test_initial_register_context() {
 }
 
 #[test]
-/// Test JSON config with initial registers
+/// Test JSON5 config with initial registers
 ///
 /// This test verifies that initial register configuration is loaded from JSON
 /// and displayed in the output
@@ -284,7 +284,7 @@ fn test_json_config_initial_registers() {
 
     cmd.args([
         "--config",
-        "tests/test_config_initial_registers.json",
+        "tests/test_config_initial_registers.json5",
         "--no-check",
         "--max-instructions",
         "100",
@@ -302,7 +302,7 @@ fn test_json_config_initial_registers() {
 }
 
 #[test]
-/// Test memory region initialization from JSON config
+/// Test memory region initialization from JSON5 config
 ///
 /// This test verifies that memory regions can be initialized from the config file.
 /// The test program reads from an unmapped memory address (0x30000000) which would
@@ -311,7 +311,7 @@ fn test_json_config_initial_registers() {
 fn test_memory_region_init() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(["--config", "tests/test_config_memory_region.json", "--no-check"]);
+    cmd.args(["--config", "tests/test_config_memory_region.json5", "--no-check"]);
 
     // Should run without Unicorn error (memory mapped successfully)
     cmd.assert()
@@ -320,7 +320,7 @@ fn test_memory_region_init() {
 }
 
 #[test]
-/// Test code patching from JSON config using address
+/// Test code patching from JSON5 config using address
 ///
 /// This test verifies that code patches can be applied using a specific address.
 /// The test program has an instruction at 0x08000496 that loads from unmapped memory.
@@ -329,7 +329,7 @@ fn test_memory_region_init() {
 fn test_code_patch() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(["--config", "tests/test_config_code_patch.json", "--no-check"]);
+    cmd.args(["--config", "tests/test_config_code_patch.json5", "--no-check"]);
 
     // Should run without Unicorn error (instruction patched successfully)
     cmd.assert()
@@ -338,7 +338,7 @@ fn test_code_patch() {
 }
 
 #[test]
-/// Test code patching from JSON config using symbol
+/// Test code patching from JSON5 config using symbol
 ///
 /// This test verifies that code patches can be applied using a function symbol name.
 /// The test program has a check_secret() function that reads from unmapped memory.
@@ -347,7 +347,7 @@ fn test_code_patch() {
 fn test_code_patch_symbol() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
-    cmd.args(["--config", "tests/test_config_code_patch_symbol.json", "--no-check"]);
+    cmd.args(["--config", "tests/test_config_code_patch_symbol.json5", "--no-check"]);
 
     // Should run without Unicorn error (function patched successfully)
     cmd.assert()

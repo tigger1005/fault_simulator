@@ -192,12 +192,12 @@ impl Config {
         2000
     }
 
-    /// Load configuration from JSON file
+    /// Load configuration from JSON5 file
     pub fn from_file(path: &PathBuf) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config file: {}", e))?;
 
-        serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON config: {}", e))
+        json5::from_str(&content).map_err(|e| format!("Failed to parse JSON5 config: {}", e))
     }
 
     /// Create Config from command line arguments
@@ -283,7 +283,7 @@ pub fn parse_hex_address(s: &str) -> Result<u64, String> {
 ///
 /// # Fields
 ///
-/// * `config` - Load configuration from JSON file.
+/// * `config` - Load configuration from JSON5 file.
 /// * `threads` - Number of threads started in parallel.
 /// * `no_compilation` - Suppress re-compilation of the target program.
 /// * `class` - Specifies the attack class to execute. Options include `all`, `single`, `double`, and optional subtypes like `glitch`, `regbf`, `regfld`, `cmdbf`.
@@ -300,7 +300,7 @@ pub fn parse_hex_address(s: &str) -> Result<u64, String> {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
-    /// Load configuration from JSON file
+    /// Load configuration from JSON5 file
     #[arg(short = 'c', long)]
     pub config: Option<PathBuf>,
 
@@ -375,8 +375,6 @@ where
         address: Option<String>,
         symbol: Option<String>,
         data: String,
-        #[serde(default)]
-        description: Option<String>, // Allow description field but ignore it
     }
 
     let patches: Vec<CodePatchHelper> = Deserialize::deserialize(deserializer)?;
@@ -442,8 +440,6 @@ where
         address: String,
         size: String,
         file: Option<String>, // Optional binary file to load
-        #[serde(default)]
-        description: Option<String>, // Allow description field but ignore it
     }
 
     let regions: Vec<MemoryRegionHelper> = Deserialize::deserialize(deserializer)?;

@@ -1,0 +1,16 @@
+// Test configuration for memory region initialization
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    memory_regions: [
+        // Unmapped memory region for test
+        {
+            address: "0x30000000",
+            size: "0x1000",         // 4 KB
+        },
+    ],
+}

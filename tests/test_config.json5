@@ -1,0 +1,9 @@
+// Basic test configuration
+{
+    elf: "tests/bin/victim_3.elf",
+    class: [
+        "single",
+        "glitch",  // Trailing comma allowed in JSON5
+    ],
+    analysis: true,
+}

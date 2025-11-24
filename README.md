@@ -113,7 +113,7 @@ CFLAGS_LD = -N -Wl,--build-id=none -g -gdwarf -Os -Wno-unused-but-set-variable \
 
 ## Usage
 
-You can configure the simulator using either command-line arguments or a JSON config file.  
+You can configure the simulator using either command-line arguments or a JSON5 config file.  
 CLI arguments always override values from the config file.
 
 ### Command-Line Options
@@ -144,22 +144,22 @@ CLI arguments always override values from the config file.
    cargo run -- --class single glitch --analysis
    ```  
 
-2. **Single glitch attack with trace analysis (JSON config):**
-   Create a file (e.g., `example.json`):
-   ```json
+2. **Single glitch attack with trace analysis (JSON5 config):**
+   Create a file (e.g., `example.json5`):
+   ```json5
    {
-     "class": ["single", "glitch"],
-     "analysis": true
+     class: ["single", "glitch"],
+     analysis: true,
    }
    ```
    Run with:
    ```bash
-   cargo run -- --config example.json
+   cargo run -- --config example.json5
    ```
 
-3. **Mixing CLI and JSON:**
+3. **Mixing CLI and JSON5:**
    ```bash
-   cargo run -- --config example.json --analysis false
+   cargo run -- --config example.json5 --analysis false
    ```
 
 4. **Double attack (glitch + register flood) on custom ELF:**
@@ -173,54 +173,54 @@ CLI arguments always override values from the config file.
    ```
 
 6. **Running with custom initial register context:**
-   Create a config file (`custom_context.json`):
-   ```json
+   Create a config file (`custom_context.json5`):
+   ```json5
    {
-     "elf": "tests/bin/victim_3.elf",
-     "class": ["single", "glitch"],
-     "analysis": true,
-     "initial_registers": {
-       "R0": "0x12345678",
-       "R7": "0x2000FFF8",
-       "SP": "0x2000FFF8",
-       "LR": "0x08000005",
-       "PC": "0x08000620"
-     }
+     elf: "tests/bin/victim_3.elf",
+     class: ["single", "glitch"],
+     analysis: true,
+     initial_registers: {
+       R0: "0x12345678",  // Custom value
+       R7: "0x2000FFF8",  // Frame pointer
+       SP: "0x2000FFF8",  // Stack pointer
+       LR: "0x08000005",  // Link register
+       PC: "0x08000620",  // Program counter - entry point
+     },
    }
    ```
    Run with:
    ```bash
-   cargo run -- --config custom_context.json
+   cargo run -- --config custom_context.json5
    ```
 
 **Supported registers:** R0-R12, SP, LR, PC, CPSR  
 **Value formats:** Hex strings (`"0x12345678"`) or decimal numbers (`42`)  
 **Case insensitive:** `"r0"`, `"R0"`, `"sp"`, `"SP"` all work
 
-### JSON Configuration Options
-The following features are only available using hte JSON configuration file.
+### JSON5 Configuration Options
+The following features are only available using hte JSON5 configuration file.
 #### Code Patches
 Apply binary patches to modify firmware behavior at specific addresses or symbols. Useful for bypassing security functions or modifying control flow.
 
-```json
+```json5
 {
-  "code_patches": [
+  code_patches: [
+    // Patch function to return immediately (bx lr)
     {
-      "symbol": "decision_activation",
-      "data": "0x4770",
-      "description": "Patch function to return immediately (bx lr)"
+      symbol: "decision_activation",
+      data: "0x4770",
     },
+    // Replace function with bx lr (immediate return)
     {
-      "address": "0x08000100",
-      "data": "0x4770",
-      "description": "Replace function with bx lr (immediate return)"
+      address: "0x08000100",
+      data: "0x4770",
     },
+    // Replace instruction with nop; nop
     {
-      "address": "0x08000200",
-      "data": "0xbf00bf00",
-      "description": "Replace instruction with nop; nop"
-    }
-  ]
+      address: "0x08000200",
+      data: "0xbf00bf00",
+    },
+  ],
 }
 ```
 
@@ -228,28 +228,33 @@ Apply binary patches to modify firmware behavior at specific addresses or symbol
 - `address` (string, optional): Memory address to patch (hex format) - use either `address` or `symbol`
 - `symbol` (string, optional): Symbol name to patch (resolved from ELF symbol table) - use either `address` or `symbol`
 - `data` (string): Hex data to write at the address
-- `description` (string, optional): Human-readable description of the patch
 
 **Note:** Each patch must specify either `address` OR `symbol`, but not both. Using symbols makes configurations more portable across firmware versions.
 
 #### Memory Regions
 Define custom memory regions with optional data loading from files. Essential for firmware that expects specific memory layouts (SRAM, peripherals, flash).
 
-```json
+```json5
 {
-  "memory_regions": [
+  memory_regions: [
+    // SRAM region
     {
-      "address": "0x20000000",
-      "size": "0x20000",
-      "description": "SRAM region"
+      address: "0x20000000",  // SRAM base
+      size: "0x20000",        // 128 KB
     },
+    // Peripheral registers initialized from file
     {
-      "address": "0x40000000",
-      "size": "0x10000",
-      "file": "peripheral_data.bin",
-      "description": "Peripheral registers initialized from file"
-    }
-  ]
+      address: "0x40000000",  // Peripheral base
+      size: "0x10000",        // 64 KB
+      file: "peripheral_data.bin",
+    },
+    // Memory region with inline hex data
+    {
+      address: "0x30000000",
+      size: "0x1000",
+      data: "0xDEADBEEF",  // Inline hex value to initialize region
+    },
+  ],
 }
 ```
 
@@ -257,7 +262,7 @@ Define custom memory regions with optional data loading from files. Essential fo
 - `address` (string): Starting address of the memory region (hex format)
 - `size` (string): Size of the region in bytes (hex format)
 - `file` (string, optional): Binary file to load into this region
-- `description` (string, optional): Human-readable description
+- `data` (string, optional): Hex value to initialize the region with (e.g., "0xDEADBEEF")
 
 
 ## Ghidra Visualization

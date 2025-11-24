@@ -1,8 +1,0 @@
-{
-    "elf": "tests/bin/victim_3.elf",
-    "class": [
-        "single",
-        "glitch"
-    ],
-    "analysis": true
-}

@@ -1,0 +1,15 @@
+// Test configuration with initial register values
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    initial_registers: {
+        R7: "0x2000FFF8",  // Frame pointer
+        SP: "0x2000FFF8",  // Stack pointer
+        LR: "0x08000005",  // Link register
+        PC: "0x08000644",  // Program counter
+    },
+}
