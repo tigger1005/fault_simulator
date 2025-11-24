@@ -118,8 +118,8 @@ CLI arguments always override values from the config file.
 
 ### Command-Line Options
 | Flag/Option                    | Description |
-| `-c, --config <CONFIG>`             | Load configuration from JSON file |
 |--------------------------------|-------------|
+| `-c, --config <CONFIG>`             | Load configuration from JSON file |
 | `-t, --threads <THREADS>`      | Number of threads started in parallel [default: 1]. "-t 0" activate full thread usage |
 | `-n, --no-compilation`         | Suppress re-compilation of target program |
 | `--class <ATTACK>,<GROUPS>`    | Attack class to be executed. Possible values are: all, single, double [default: all]. GROUPS can be the names of the implemented attacks. E.g. --class single regbf separated by ' ' |
