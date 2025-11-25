@@ -210,6 +210,12 @@ Apply binary patches to modify firmware behavior at specific addresses or symbol
       symbol: "decision_activation",
       data: "0x4770",
     },
+    // Patch at offset from symbol (symbol address + offset)
+    {
+      symbol: "check_secret",
+      offset: "0x10",
+      data: "0x2001",  // movs r0, #1
+    },
     // Replace function with bx lr (immediate return)
     {
       address: "0x08000100",
@@ -227,9 +233,10 @@ Apply binary patches to modify firmware behavior at specific addresses or symbol
 **Fields:**
 - `address` (string, optional): Memory address to patch (hex format) - use either `address` or `symbol`
 - `symbol` (string, optional): Symbol name to patch (resolved from ELF symbol table) - use either `address` or `symbol`
+- `offset` (string, optional): Hex offset to add to the symbol address (only used with `symbol`, defaults to 0)
 - `data` (string): Hex data to write at the address
 
-**Note:** Each patch must specify either `address` OR `symbol`, but not both. Using symbols makes configurations more portable across firmware versions.
+**Note:** Each patch must specify either `address` OR `symbol`, but not both. When using `symbol`, you can optionally specify an `offset` to patch at a location relative to the symbol address. Using symbols makes configurations more portable across firmware versions.
 
 #### Memory Regions
 Define custom memory regions with optional data loading from files. Essential for firmware that expects specific memory layouts (SRAM, peripherals, flash).

@@ -1,0 +1,17 @@
+// Test configuration for code patching by symbol name with offset
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    code_patches: [
+        // Patch check_secret function at offset 0x4 from function start
+        {
+            symbol: "check_secret",
+            offset: "0x4",
+            data: "0x2001",  // movs r0, #1
+        },
+    ],
+}
