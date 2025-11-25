@@ -14,7 +14,7 @@ const GIT_VERSION: &str = git_version!();
 ///
 /// # Fields
 ///
-/// * `config` - Load configuration from JSON file.
+/// * `config` - Load configuration from JSON5 file.
 /// * `threads` - Number of threads started in parallel.
 /// * `no_compilation` - Suppress re-compilation of the target program.
 /// * `class` - Specifies the attack class to execute. Options include `all`, `single`, `double`, and optional subtypes like `glitch`, `regbf`, `regfld`, `cmdbf`.
