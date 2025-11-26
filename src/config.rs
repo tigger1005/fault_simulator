@@ -374,6 +374,7 @@ where
     struct CodePatchHelper {
         address: Option<String>,
         symbol: Option<String>,
+        offset: Option<String>,
         data: String,
     }
 
@@ -404,6 +405,13 @@ where
                 None
             };
 
+            // Parse offset if provided
+            let offset = if let Some(offset_str) = patch.offset {
+                parse_hex(&offset_str).map_err(de::Error::custom)?
+            } else {
+                0
+            };
+
             let hex_val = parse_hex(&patch.data).map_err(de::Error::custom)?;
 
             // Convert u64 to bytes (little-endian, remove leading zeros)
@@ -421,6 +429,7 @@ where
             Ok(CodePatch {
                 address,
                 symbol: patch.symbol,
+                offset,
                 data: bytes,
             })
         })
@@ -470,6 +479,7 @@ where
 pub struct CodePatch {
     pub address: Option<u64>,
     pub symbol: Option<String>,
+    pub offset: u64,
     pub data: Vec<u8>,
 }
 
