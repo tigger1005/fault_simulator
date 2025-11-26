@@ -126,7 +126,7 @@ impl ElfFile {
 
                 // Clear LSB for Thumb mode indicator - actual code is at even address
                 let mut actual_address = symbol.st_value & !1;
-                
+
                 // Add offset if provided
                 if patch.offset != 0 {
                     actual_address = actual_address.wrapping_add(patch.offset);
