@@ -3,6 +3,7 @@ use crate::simulation::{
     cpu::Cpu,
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
+    TraceElement,
 };
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -101,7 +102,7 @@ impl FaultFunctions for CmdBitFlip {
     ///
     /// * `records` - The trace records to filter.
     /// * `cs` - The disassembly context.
-    fn filter(&self, _records: &mut Vec<TraceRecord>, _cs: &Disassembly) {}
+    fn filter(&self, _records: &mut TraceElement, _cs: &Disassembly) {}
 
     /// Try to parse a CmdBitFlip fault from a string.
     ///

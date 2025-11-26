@@ -1,7 +1,7 @@
 use crate::elf_file::{ElfFile, PF_R, PF_W, PF_X};
 use crate::simulation::{
-    fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
+    FaultElement, TraceElement,
 };
 
 mod callback;
@@ -67,8 +67,8 @@ struct CpuState<'a> {
     negative_run: bool,
     deactivate_print: bool,
     print_unicorn_errors: bool,
-    trace_data: Vec<TraceRecord>,
-    fault_data: Vec<FaultData>,
+    trace_data: TraceElement,
+    fault_data: FaultElement,
     file_data: &'a ElfFile,
     success_addresses: Vec<u64>,
     failure_addresses: Vec<u64>,
@@ -440,7 +440,7 @@ impl<'a> Cpu<'a> {
     }
 
     /// Get fault_data
-    pub fn get_fault_data(&mut self) -> &mut Vec<FaultData> {
+    pub fn get_fault_data(&mut self) -> &mut FaultElement {
         &mut self.emu.get_data_mut().fault_data
     }
 
@@ -492,7 +492,7 @@ impl<'a> Cpu<'a> {
     }
 
     /// Copy trace data to caller
-    pub fn get_trace_data(&mut self) -> &mut Vec<TraceRecord> {
+    pub fn get_trace_data(&mut self) -> &mut TraceElement {
         &mut self.emu.get_data_mut().trace_data
     }
 
