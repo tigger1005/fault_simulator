@@ -1,5 +1,8 @@
 use super::FaultRecord;
-use crate::{disassembly::Disassembly, simulation::{cpu::Cpu, TraceElement}};
+use crate::{
+    disassembly::Disassembly,
+    simulation::{cpu::Cpu, TraceElement},
+};
 use std::{fmt::Debug, slice::Iter, sync::Arc};
 
 pub mod cmd_bitflip;

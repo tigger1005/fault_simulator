@@ -54,6 +54,7 @@ impl SimulationConfig {
     /// * `initial_registers` - Initial CPU register values to set before each simulation.
     /// * `memory_regions` - Custom memory regions to initialize.
     /// * `print_unicorn_errors` - Whether to print Unicorn emulator errors.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cycles: usize,
         deep_analysis: bool,
