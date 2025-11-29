@@ -229,6 +229,7 @@ impl SimulationThread {
     /// * Success/failure criteria determine attack detection
     /// * Analysis depth controls performance vs. comprehensiveness trade-offs
     /// * Initial register state ensures reproducible execution conditions
+    ///
     /// primitives needed for coordinating fault injection simulations across
     /// multiple worker threads. No worker threads are spawned at this stage.
     ///
