@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::io::stdout;
 use std::io::{self, Write};
+use std::sync::Arc;
 
 use fault_simulator::config::{Args, Config};
 use fault_simulator::prelude::*;
@@ -10,26 +11,70 @@ mod compile;
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
 
-/// Command line parameter structure for configuring the fault injection simulator.
+// Fault Injection Simulator for ARM Cortex-M Processors
+//
+// This is the main entry point for the fault injection simulator targeting
+// ARMv8-M processors (e.g., Cortex-M33). The simulator provides comprehensive
+// fault injection capabilities for security research and vulnerability assessment.
+//
+// Key Features:
+// * Multi-threaded Execution: Parallel fault injection for performance
+// * Multiple Attack Types: Glitch, register corruption, instruction modification
+// * Configurable Campaigns: JSON configuration and command-line control
+// * Debug Integration: Source-level fault correlation and analysis
+// * Comprehensive Reporting: Detailed attack success analysis
+//
+// Supported Fault Types:
+// * Glitch Attacks: Clock/voltage glitching causing instruction skipping
+// * Register Bit Flips: Single-bit errors in processor registers
+// * Register Flooding: Complete register corruption attacks
+// * Command Bit Flips: Instruction stream corruption
+//
+// Attack Classes:
+// * all - Test all available fault types systematically
+// * single - Single fault injection per execution
+// * double - Two-fault combination attacks
+// * Specific types: glitch, regbf, regfld, cmdbf
+//
+// Configuration Options:
+// The simulator accepts both command-line arguments and JSON configuration
+// files, with command-line parameters taking precedence for flexible usage
+// in automated testing environments.
+
+/// Main entry point for the fault injection simulator.
 ///
-/// # Fields
+/// Orchestrates the complete fault injection simulation workflow including:
+/// * Configuration loading and validation
+/// * Target program compilation (if needed)
+/// * ELF file loading and analysis
+/// * Multi-threaded simulation setup
+/// * Fault injection campaign execution
+/// * Results analysis and reporting
 ///
-/// * `config` - Load configuration from JSON file.
-/// * `threads` - Number of threads started in parallel.
-/// * `no_compilation` - Suppress re-compilation of the target program.
-/// * `class` - Specifies the attack class to execute. Options include `all`, `single`, `double`, and optional subtypes like `glitch`, `regbf`, `regfld`, `cmdbf`.
-/// * `faults` - Defines a sequence of faults to simulate, e.g., `regbf_r1_0100` or `glitch_1`.
-/// * `analysis` - Activates trace analysis of the selected fault.
-/// * `deep_analysis` - Enables a deep scan of repeated code (e.g., loops).
-/// * `max_instructions` - Maximum number of instructions to execute.
-/// * `elf` - Path to the ELF file to load without compilation.
-/// * `trace` - Enables tracing of failure runs without fault injection.
-/// * `no_check` - Disables program flow checks.
-/// * `run_through` - Continues simulation without stopping at the first successful fault injection.
-/// * `success_addresses` - List of memory addresses that indicate success when accessed.
+/// # Configuration Hierarchy
 ///
-/// Program to simulate fault injections on ARMv8-M processors (e.g. M33)
+/// 1. **Default values**: Sensible defaults for all parameters
+/// 2. **JSON configuration**: Structured configuration from file
+/// 3. **Command-line overrides**: CLI arguments override file settings
 ///
+/// # Error Handling
+///
+/// Returns descriptive error messages for:
+/// * Configuration parsing failures
+/// * ELF file loading errors
+/// * Thread initialization problems
+/// * Simulation execution failures
+///
+/// # Performance Considerations
+///
+/// * Automatically determines optimal thread count
+/// * Balances fault attack threads with general simulation threads
+/// * Provides progress reporting for long-running campaigns
+///
+/// # Returns
+///
+/// * `Ok(())` - Simulation completed successfully
+/// * `Err(String)` - Detailed error message describing the failure
 fn main() -> Result<(), String> {
     // Get parameter from command line
     let args = Args::parse();
@@ -88,13 +133,17 @@ fn main() -> Result<(), String> {
         config.initial_registers,
     );
     // Create user thread for simulation
-    let mut user_thread = SimulationThread::new(sim_config)?;
-    // Start worker threads
-    user_thread.start_worker_threads(&file_data, config.threads)?;
+    let user_thread = Arc::new(SimulationThread::new_with_threads(
+        sim_config,
+        &file_data,
+        config.threads,
+    )?);
 
-    // Load victim data for attack simulation
-    let mut attack_sim = FaultAttacks::new(&file_data, &user_thread)?;
-
+    // Load victim data for attack simulation with dedicated fault attack threads
+    // Use half the available threads for fault attacks to balance with general simulation
+    let fault_attack_threads = (config.threads / 2).max(1);
+    let mut attack_sim =
+        FaultAttacks::new_with_threads(&file_data, Arc::clone(&user_thread), fault_attack_threads)?;
     // Check for correct program behavior
     if !config.no_check {
         println!("Check for correct program behavior:");
@@ -128,15 +177,18 @@ fn main() -> Result<(), String> {
         }
     } else {
         // Get fault type and numbers
-        let faults: Vec<FaultType> = config
+        let faults: Vec<Vec<FaultType>> = config
             .faults
             .iter()
-            .filter_map(|argument| get_fault_from(argument).ok())
+            .filter_map(|argument| match get_fault_from(argument) {
+                Ok(val) => Some(vec![val]),
+                Err(_) => None,
+            })
             .collect();
 
-        let result = attack_sim.fault_simulation(&faults)?;
-        // Save result to attack struct
-        attack_sim.set_fault_data(result);
+        // Use threaded fault simulation for better performance
+        // Falls back to regular simulation if threads aren't available
+        let _result = attack_sim.fault_simulation(&faults)?;
     }
 
     // Pretty print fault data

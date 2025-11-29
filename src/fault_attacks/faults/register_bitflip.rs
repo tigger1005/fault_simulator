@@ -3,6 +3,7 @@ use crate::simulation::{
     cpu::{Cpu, ARM_REG},
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
+    TraceElement,
 };
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -105,7 +106,7 @@ impl FaultFunctions for RegisterBitFlip {
     ///
     /// * `records` - The trace records to filter.
     /// * `cs` - The disassembly context.
-    fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly) {
+    fn filter(&self, records: &mut TraceElement, cs: &Disassembly) {
         records.retain(|record| match record {
             TraceRecord::Instruction {
                 address,

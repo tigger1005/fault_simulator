@@ -1,10 +1,57 @@
+//! # Configuration Management
+//!
+//! This module provides comprehensive configuration management for the fault
+//! injection simulator, supporting both command-line arguments and JSON
+//! configuration files. It handles parameter validation, type conversion,
+//! and provides flexible configuration override capabilities.
+//!
+//! ## Configuration Sources
+//!
+//! * **Command Line**: Direct parameter specification via clap
+//! * **JSON Files**: Structured configuration with validation
+//! * **Hybrid Mode**: JSON base with command-line overrides
+//!
+//! ## Key Features
+//!
+//! * **Hex Address Parsing**: Flexible address format support (0x prefix optional)
+//! * **Register Configuration**: Initial CPU register state specification
+//! * **Validation**: Comprehensive parameter validation and error reporting
+//! * **Override System**: Command-line parameters override file-based settings
+
 use clap::Parser;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use unicorn_engine::RegisterARM;
 
-/// Parse hex address strings to u64 values (alias for compatibility)
+/// Parse hexadecimal address strings to u64 values with flexible format support.format support.
+///
+/// This function provides robust parsing of memory addresses from various
+/// string formats commonly used in configuration files and command-line
+/// arguments. It handles both prefixed and non-prefixed hexadecimal strings.
+///
+/// # Supported Formats
+///
+/// * **Prefixed**: "0x1000", "0X1000" (case insensitive)
+/// * **Non-prefixed**: "1000", "ABCD" (pure hex digits)
+/// * **Mixed case**: "0xaBcD", "FFff" (case insensitive)
+///
+/// # Arguments
+///
+/// * `s` - String containing hexadecimal address representation
+///
+/// # Returns
+///
+/// * `Ok(u64)` - Successfully parsed 64-bit address value
+/// * `Err(String)` - Descriptive error message for invalid input
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// assert_eq!(parse_hex("0x1000")?, 4096);
+/// assert_eq!(parse_hex("1000")?, 4096);
+/// assert_eq!(parse_hex("FFFF")?, 65535);
+/// ```
 fn parse_hex(s: &str) -> Result<u64, String> {
     let cleaned = s.strip_prefix("0x").unwrap_or(s);
     u64::from_str_radix(cleaned, 16).map_err(|e| format!("Invalid hex address '{}': {}", s, e))
@@ -194,7 +241,19 @@ impl Config {
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON config: {}", e))
     }
 
-    /// Create Config from command line arguments
+    /// Create Config from command line arguments.
+    ///
+    /// If a config file is specified via --config, loads the base configuration
+    /// from JSON and then applies command line overrides. Otherwise creates
+    /// a new configuration using only command line parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - Parsed command line arguments
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Config, String>` - Loaded and processed configuration
     pub fn from_args(args: &Args) -> Self {
         Self {
             threads: args.threads,
@@ -283,7 +342,7 @@ pub struct Args {
     pub class: Vec<String>,
 
     /// Run a command line defined sequence of faults.
-    ///   --faults [specific_attack] [optional: specific_attack2 specific_attack3 ...]
+    ///   --faults \[specific_attack\] \[optional: specific_attack2 specific_attack3 ...\]
     ///     E.g.: --faults regbf_r1_0100 glitch_1
     #[arg(long, value_delimiter = ' ', num_args = 1.., verbatim_doc_comment)]
     pub faults: Vec<String>,

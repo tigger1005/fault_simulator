@@ -107,7 +107,7 @@ fn run_fault_simulation_one_glitch() {
     user_thread.start_worker_threads(&file_data, 15).unwrap();
     let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
 
-    // Result is Vec<Vec<FaultData>>
+    // Result is Vec<FaultElement>
     let result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
 
     // Check if correct faults are found (at: 0x80004BA, 0x8000634, 0x800063C)

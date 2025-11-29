@@ -1,30 +1,65 @@
-use std::sync::{Arc, Mutex};
+//! # Multi-threaded Simulation Coordination
+//!
+//! This module provides the core infrastructure for managing parallel fault
+//! injection simulations across multiple worker threads. It handles work
+//! distribution, result collection, and thread lifecycle management for
+//! high-performance fault injection campaigns.
+//!
+//! ## Key Components
+//!
+//! * **SimulationThread**: Main coordinator for worker thread management
+//! * **SimulationConfig**: Immutable configuration shared across all workers
+//! * **WorkloadMessage**: Work distribution mechanism for parallel processing
+//! * **Thread Pool**: Scalable worker thread management with automatic cleanup
+//!
+//! ## Performance Benefits
+//!
+//! * **Parallel Execution**: Utilizes multiple CPU cores effectively
+//! * **Load Balancing**: Automatic work distribution across available threads
+//! * **Resource Management**: Efficient memory and thread resource usage
+//! * **Scalability**: Adapts to available hardware resources automatically
+
 use std::thread::{/*sleep, */ spawn, JoinHandle};
 
 //use crate::disassembly::Disassembly;
 use crate::elf_file::ElfFile;
+use crate::simulation::{FaultElement, TraceElement};
 //use crate::prelude::FaultType;
-use crate::simulation::fault_data::FaultData;
+
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
-use crate::simulation::{
-    record::{FaultRecord, TraceRecord},
-    Control, Data, RunType,
-};
+use crate::simulation::{record::FaultRecord, Control, Data, RunType};
 
-/// Configuration for fault injection simulation parameters.
+pub enum FaultEnum {
+    FaultData(FaultElement),
+    EmptyData,
+}
+
+/// Configuration parameters for fault injection simulation execution.
 ///
-/// This structure encapsulates all the simulation-specific parameters
-/// that control how fault injection attacks are executed and evaluated.
+/// This structure defines the complete execution environment and evaluation
+/// criteria for fault injection simulations. It controls simulation behavior,
+/// termination conditions, and success/failure detection mechanisms.
 ///
-/// # Fields
+/// # Simulation Control
 ///
-/// * `cycles` - Maximum number of CPU cycles/instructions to execute per simulation.
-/// * `deep_analysis` - Enable detailed analysis of loops and repeated code patterns.
-/// * `run_through` - Continue simulation after finding successful attacks (don't stop early).
-/// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
-/// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
-/// * `initial_registers` - Initial CPU register values to set before each simulation.
+/// * **Execution Limits**: Maximum instruction count to prevent infinite loops
+/// * **Analysis Depth**: Controls whether detailed loop analysis is performed
+/// * **Continuation Policy**: Whether to stop after first success or continue
+///
+/// # Success Detection
+///
+/// The simulator uses memory access patterns to detect successful attacks:
+/// * Success addresses indicate the attack achieved its goal
+/// * Failure addresses indicate the attack was detected or failed
+/// * Initial register state ensures consistent starting conditions
+///
+/// # Performance Tuning
+///
+/// Different configurations provide trade-offs between analysis depth and speed:
+/// * Deep analysis: Slower but more comprehensive loop detection
+/// * Run-through mode: Finds multiple attack vectors but takes longer
+/// * Cycle limits: Prevents runaway simulations while allowing sufficient execution
 #[derive(Debug, Clone)]
 pub struct SimulationConfig {
     /// Maximum number of CPU cycles/instructions to execute per simulation.
@@ -75,57 +110,125 @@ impl SimulationConfig {
 ///
 /// This structure encapsulates all the information needed for a worker thread
 /// to execute a specific type of simulation run, along with the channels
-/// needed to return results to the coordinator.
+/// needed to return results to the coordinator. It serves as the primary
+/// communication mechanism for distributing simulation work across the
+/// thread pool.
+///
+/// # Message Types
+///
+/// Different combinations of fields enable various simulation modes:
+/// * **Trace Recording**: Uses trace_sender for execution trace collection
+/// * **Fault Injection**: Uses fault_sender for successful attack results
+/// * **Mixed Analysis**: Can use both channels for comprehensive analysis
+///
+/// # Thread Coordination
+///
+/// The workload counter enables tracking of completion across the thread pool,
+/// allowing the main thread to determine when all distributed work is finished.
 ///
 /// # Fields
 ///
-/// * `run_type` - Type of simulation to execute (trace recording or fault injection).
-/// * `deep_analysis` - Enable detailed analysis for loop detection and pattern analysis.
-/// * `fault_records` - Sequence of fault injections to apply during simulation.
-/// * `trace_sender` - Optional channel for returning execution trace data.
-/// * `fault_sender` - Optional channel for returning successful fault injection results.
-///
-/// # Usage
-///
-/// Sent via the workload channel to coordinate simulation work across multiple
-/// worker threads. The appropriate response channel is used based on `run_type`.
+/// * `run_type` - Type of simulation to execute (trace recording or fault injection)
+/// * `deep_analysis` - Enable detailed analysis for loop detection and pattern analysis
+/// * `fault_records` - Sequence of fault injections to apply during simulation
+/// * `trace_sender` - Optional channel for returning execution trace data
+/// * `fault_sender` - Optional channel for returning successful fault injection results
 pub struct WorkloadMessage {
+    /// Specifies the type of simulation execution to perform.
     pub run_type: RunType,
+    /// Enable detailed analysis including loop detection and pattern recognition.
+    ///
+    /// When true, the simulator performs comprehensive analysis of execution
+    /// patterns, detecting loops and repeated code sequences for more thorough
+    /// fault injection coverage at the cost of increased execution time.
     pub deep_analysis: bool,
+    /// Sequence of fault injections to apply during this simulation run.
+    ///
+    /// Contains the complete fault injection plan with timing and parameters.
+    /// Empty vector indicates a normal execution without fault injection
+    /// (typically used for baseline trace collection).
     pub fault_records: Vec<FaultRecord>,
-    pub trace_sender: Option<Sender<Vec<TraceRecord>>>,
-    pub fault_sender: Option<Sender<Vec<FaultData>>>,
+    /// Optional channel for returning execution trace data to the coordinator.
+    ///
+    /// Used when run_type includes trace recording. The worker thread sends
+    /// the complete execution trace through this channel for analysis.
+    pub trace_sender: Option<Sender<TraceElement>>,
+    /// Optional channel for returning successful fault injection results.
+    ///
+    /// Used when run_type includes fault injection. Worker threads send
+    /// successful attack results through this channel for aggregation.
+    pub fault_sender: Option<Sender<FaultEnum>>,
 }
 
-/// Manages worker threads for parallel fault injection simulation.
+/// Central coordinator for multi-threaded fault injection simulation.
 ///
-/// This struct coordinates the execution of fault injection simulations across
-/// multiple worker threads. It maintains simulation parameters, communication
-/// channels, and synchronization primitives for distributed simulation work.
+/// This structure manages a pool of worker threads that execute fault injection
+/// simulations in parallel. It provides work distribution, result collection,
+/// and lifecycle management for high-performance fault injection campaigns.
 ///
-/// # Lifecycle
+/// # Core Responsibilities
 ///
-/// 1. Create with `new()` to establish communication channels
-/// 2. Call `start_worker_threads()` to spawn worker thread pool
-/// 3. Use workload channels to distribute simulation tasks
-/// 4. Worker threads automatically clean up when dropped
+/// * **Thread Pool Management**: Creates and manages simulation worker threads
+/// * **Work Distribution**: Distributes simulation tasks across available workers
+/// * **Configuration Management**: Maintains consistent simulation parameters
+/// * **Result Coordination**: Aggregates results from parallel execution
+/// * **Resource Cleanup**: Ensures proper thread termination and resource release
+///
+/// # Architecture Benefits
+///
+/// * **Scalability**: Automatically scales to available CPU cores
+/// * **Efficiency**: Parallel execution reduces total simulation time
+/// * **Isolation**: Worker threads operate independently for fault tolerance
+/// * **Flexibility**: Supports various simulation types and configurations
+///
+/// # Usage Workflow
+///
+/// 1. Initialize with simulation configuration parameters
+/// 2. Start worker thread pool with desired thread count
+/// 3. Submit simulation workloads through the work distribution system
+/// 4. Collect results through dedicated result channels
+/// 5. Automatic cleanup and resource management on drop
 pub struct SimulationThread {
-    /// Simulation configuration parameters.
+    /// Immutable simulation configuration shared across all worker threads.
+    ///
+    /// Contains execution limits, success criteria, analysis settings, and
+    /// other parameters that control simulation behavior consistently
+    /// across the entire thread pool.
     pub config: SimulationConfig,
-    /// Channel for sending workload messages to worker threads.
+    /// Channel sender for distributing simulation workloads to worker threads.
+    ///
+    /// Set to None after shutdown begins to prevent new work submission.
+    /// Used by the coordinator to send WorkloadMessage instances to the
+    /// shared worker thread pool for parallel processing.
     workload_sender: Option<Sender<WorkloadMessage>>,
-    /// Channel for receiving workload messages (shared by all worker threads).
+    /// Channel receiver shared among all worker threads for work distribution.
+    ///
+    /// Each worker thread receives a clone of this receiver to participate
+    /// in round-robin work distribution from the shared workload queue.
     workload_receiver: Receiver<WorkloadMessage>,
-    /// Shared counter for tracking completed simulation jobs across threads.
-    work_load_counter: Arc<Mutex<usize>>,
-    /// Handles for spawned worker threads (None until threads are started).
+    /// Thread handles for spawned simulation worker processes.
+    ///
+    /// Maintained for proper cleanup during drop, ensuring all worker threads
+    /// complete their current work and terminate gracefully before the
+    /// coordinator is destroyed.
     handles: Option<Vec<JoinHandle<()>>>,
 }
 
 impl SimulationThread {
-    /// Creates a new SimulationThread instance with specified simulation parameters.
+    /// Creates a new SimulationThread instance with comprehensive simulation configuration.
     ///
-    /// This constructor initializes the communication channels and synchronization
+    /// Initializes the thread coordination infrastructure without starting worker
+    /// threads. The configuration parameters define the execution environment
+    /// and analysis criteria that will be applied consistently across all
+    /// worker threads in the pool.
+    ///
+    /// # Configuration Impact
+    ///
+    /// The provided configuration affects all aspects of simulation execution:
+    /// * Execution limits prevent runaway simulations
+    /// * Success/failure criteria determine attack detection
+    /// * Analysis depth controls performance vs. comprehensiveness trade-offs
+    /// * Initial register state ensures reproducible execution conditions
     /// primitives needed for coordinating fault injection simulations across
     /// multiple worker threads. No worker threads are spawned at this stage.
     ///
@@ -155,16 +258,22 @@ impl SimulationThread {
             Receiver<WorkloadMessage>,
         ) = unbounded();
 
-        // Create a counter for the workload done
-        let work_load_counter = Arc::new(Mutex::new(0));
-
         Ok(SimulationThread {
             config,
             workload_sender: Some(workload_sender),
             workload_receiver,
-            work_load_counter,
             handles: None,
         })
+    }
+
+    pub fn new_with_threads(
+        config: SimulationConfig,
+        file_data: &ElfFile,
+        number_of_threads: usize,
+    ) -> Result<Self, String> {
+        let mut sim_thread = Self::new(config)?;
+        sim_thread.start_worker_threads(file_data, number_of_threads)?;
+        Ok(sim_thread)
     }
 
     /// Creates a new SimulationThread instance with individual simulation parameters.
@@ -244,7 +353,7 @@ impl SimulationThread {
     ///
     /// # Synchronization
     ///
-    /// Uses shared `work_load_counter` (Arc<Mutex<usize>>) to track completed simulations
+    /// Uses shared `work_load_counter` (`Arc<Mutex<usize>>`) to track completed simulations
     /// for coordination between worker threads and the main coordination logic.
     pub fn start_worker_threads(
         &mut self,
@@ -263,7 +372,6 @@ impl SimulationThread {
             // Copy data to be moved into threads
             let file = file_data.clone();
             let receiver = self.workload_receiver.clone();
-            let workload_counter = Arc::clone(&self.work_load_counter);
             let success_addrs = self.config.success_addresses.clone();
             let failure_addrs = self.config.failure_addresses.clone();
             let init_regs = self.config.initial_registers.clone();
@@ -312,19 +420,25 @@ impl SimulationThread {
                             }
                         }
                         RunType::Run => {
-                            if let Data::Fault(fault) = simulation
+                            match simulation
                                 .run_with_faults(cycles, run_type, deep_analysis, &records)
                                 .unwrap()
                             {
-                                if !fault.is_empty() {
+                                Data::Fault(fault) => {
+                                    // Attach fault records
                                     fault_sender
                                         .unwrap()
-                                        .send(fault)
+                                        .send(FaultEnum::FaultData(fault))
                                         .expect("Unable to send fault data");
                                 }
+                                Data::None => {
+                                    fault_sender
+                                        .unwrap()
+                                        .send(FaultEnum::EmptyData)
+                                        .expect("Unable to send empty fault data");
+                                }
+                                _ => {}
                             }
-                            let mut counter = workload_counter.lock().unwrap();
-                            *counter += 1;
                         }
                     }
                 }
@@ -368,8 +482,8 @@ impl SimulationThread {
         run_type: RunType,
         deep_analysis: bool,
         fault_records: Vec<FaultRecord>,
-        trace_sender: Option<Sender<Vec<TraceRecord>>>,
-        fault_sender: Option<Sender<Vec<FaultData>>>,
+        trace_sender: Option<Sender<TraceElement>>,
+        fault_sender: Option<Sender<FaultEnum>>,
     ) -> Result<(), String> {
         if let Some(sender) = &self.workload_sender {
             let msg = WorkloadMessage {
@@ -385,36 +499,6 @@ impl SimulationThread {
         } else {
             Err("Workload sender channel is closed".to_string())
         }
-    }
-
-    /// Gets the current value of the workload counter.
-    ///
-    /// This method provides thread-safe access to the shared workload counter
-    /// that tracks completed simulation jobs across all worker threads.
-    ///
-    /// # Returns
-    ///
-    /// * `usize` - Current value of the workload counter.
-    ///
-    /// # Thread Safety
-    ///
-    /// Uses mutex locking to ensure atomic read access to the shared counter.
-    pub fn get_workload_counter(&self) -> usize {
-        let counter = self.work_load_counter.lock().unwrap();
-        *counter
-    }
-
-    /// Resets the workload counter to zero.
-    ///
-    /// This method provides thread-safe access to reset the shared workload counter
-    /// before starting a new batch of simulation jobs.
-    ///
-    /// # Thread Safety
-    ///
-    /// Uses mutex locking to ensure atomic write access to the shared counter.
-    pub fn reset_workload_counter(&self) {
-        let mut counter = self.work_load_counter.lock().unwrap();
-        *counter = 0;
     }
 }
 

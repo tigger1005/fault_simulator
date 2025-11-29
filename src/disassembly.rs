@@ -1,16 +1,47 @@
+//! # ARM Instruction Disassembly and Fault Analysis
+//!
+//! This module provides comprehensive ARM instruction disassembly capabilities
+//! specifically designed for fault injection analysis. It integrates with the
+//! Capstone disassembly engine to provide detailed instruction analysis,
+//! register usage detection, and formatted output with source code correlation.
+//!
+//! ## Key Features
+//!
+//! * **ARM Thumb-2 Support**: Specialized for ARM Cortex-M processors
+//! * **Debug Integration**: Maps assembly to source code using DWARF information
+//! * **Fault Analysis**: Analyzes successful fault injection patterns
+//! * **Colored Output**: Enhanced readability for fault injection reports
+
 use std::{
     fs::File,
     io::{self, BufRead},
     path::Path,
 };
 
-use crate::simulation::{fault_data::FaultData, record::TraceRecord};
+use crate::simulation::{fault_data::FaultData, record::TraceRecord, FaultElement, TraceElement};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
 use colored::Colorize;
 use regex::Regex;
 
-/// Struct for disassembling instructions and analyzing faults.
+/// ARM instruction disassembler and fault analysis engine.
+///
+/// Provides comprehensive ARM Thumb-2 instruction disassembly with integrated
+/// fault injection analysis capabilities. This structure encapsulates the
+/// Capstone disassembly engine configured for ARM Cortex-M processors and
+/// provides methods for analyzing fault injection results.
+///
+/// # Architecture Support
+///
+/// * **ARM Thumb-2**: Primary instruction set for Cortex-M processors
+/// * **M-Class Extensions**: Specialized instructions for microcontrollers
+/// * **Detail Mode**: Enhanced instruction analysis with operand information
+///
+/// # Integration Features
+///
+/// * **Debug Information**: Correlates assembly with source code locations
+/// * **Register Analysis**: Detects register usage in instructions
+/// * **Fault Pattern Analysis**: Identifies successful fault injection sequences
 pub struct Disassembly {
     cs: Capstone,
 }
@@ -22,11 +53,26 @@ impl Default for Disassembly {
 }
 
 impl Disassembly {
-    /// Creates a new `Disassembly` instance.
+    /// Creates a new Disassembly instance configured for ARM Cortex-M processors.
+    ///
+    /// Initializes the Capstone disassembly engine with ARM Thumb-2 mode and
+    /// M-Class extensions, enabling detailed instruction analysis suitable
+    /// for fault injection simulation on microcontroller targets.
+    ///
+    /// # Configuration
+    ///
+    /// * **Architecture**: ARM with Thumb mode
+    /// * **Extra Mode**: M-Class extensions for microcontroller instructions
+    /// * **Detail Level**: Full detail mode for operand and register analysis
     ///
     /// # Returns
     ///
-    /// * `Self` - Returns a `Disassembly` instance.
+    /// A fully configured Disassembly instance ready for ARM Thumb-2 analysis.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the Capstone engine cannot be initialized, typically due to
+    /// missing Capstone library or unsupported architecture configuration.
     pub fn new() -> Self {
         let cs = Capstone::new()
             .arm()
@@ -39,17 +85,27 @@ impl Disassembly {
         Self { cs }
     }
 
-    /// Checks if a register is used in the given instruction.
+    /// Analyzes whether a specific register is referenced in an ARM instruction.
+    ///
+    /// Disassembles the provided instruction bytes and examines the operand
+    /// string to determine if the specified register number appears in any
+    /// operand position (source or destination).
     ///
     /// # Arguments
     ///
-    /// * `instruction` - The instruction bytes.
-    /// * `addr` - The address of the instruction.
-    /// * `register` - The register number to check.
+    /// * `instruction` - Raw instruction bytes to disassemble and analyze
+    /// * `addr` - Memory address of the instruction for proper disassembly context
+    /// * `register` - ARM register number (0-15) to search for in the instruction
     ///
     /// # Returns
     ///
-    /// * `bool` - Returns `true` if the register is used, otherwise `false`.
+    /// * `true` - The specified register is used as an operand in the instruction
+    /// * `false` - The register is not referenced by this instruction
+    ///
+    /// # Usage
+    ///
+    /// Commonly used to determine if fault injection targeting a specific
+    /// register would affect a particular instruction's execution.
     pub fn check_for_register(&self, instruction: &[u8], addr: u64, register: u32) -> bool {
         let inst = self.cs.disasm_count(instruction, addr, 1).unwrap();
         inst[0]
@@ -58,12 +114,32 @@ impl Disassembly {
             .contains(format!("r{}", register).as_str())
     }
 
-    /// Disassembles the fault data structure and prints the disassembled instructions.
+    /// Disassembles and displays fault injection data with source correlation.
+    ///
+    /// This method takes fault injection data and produces a detailed disassembly
+    /// output that correlates assembly instructions with their source file locations.
+    /// It provides comprehensive analysis of where faults were injected and their
+    /// potential impact on program execution.
+    ///
+    /// # Output Format
+    ///
+    /// For each fault injection point:
+    /// * **Address**: Memory location where the fault occurred
+    /// * **Instruction**: Disassembled ARM instruction with operands
+    /// * **Source Location**: File name and line number (when debug info available)
+    /// * **Fault Type**: Type and parameters of the injected fault
     ///
     /// # Arguments
     ///
-    /// * `fault_data` - A reference to the fault data to disassemble.
-    /// * `debug_context` - The debug context for resolving source code information from addresses.
+    /// * `fault_data` - Fault injection data containing addresses, instructions, and fault types
+    /// * `debug_context` - DWARF debug context for mapping addresses to source locations
+    ///
+    /// # Color Coding
+    ///
+    /// Uses colored output to distinguish different types of information:
+    /// * Addresses and instructions in standard colors
+    /// * Source file information in muted colors
+    /// * Fault type information highlighted for visibility
     fn disassembly_fault_data(
         &self,
         fault_data: &FaultData,
@@ -101,7 +177,7 @@ impl Disassembly {
     /// * `debug_context` - The debug context for the ELF file.
     pub fn disassembly_trace_records(
         &self,
-        trace_records: &Option<Vec<TraceRecord>>,
+        trace_records: &Option<TraceElement>,
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,
@@ -190,7 +266,7 @@ impl Disassembly {
     /// * `debug_context` - The debug context for the ELF file.
     pub fn print_fault_records(
         &self,
-        fault_data_vec: &[Vec<FaultData>],
+        fault_data_vec: &[FaultElement],
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,

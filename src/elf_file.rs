@@ -1,3 +1,9 @@
+//! # ELF File Parsing and Analysis
+//!
+//! This module provides comprehensive ELF file parsing capabilities specifically
+//! designed for fault injection simulation. It extracts program segments, debug
+//! information, symbol tables, and memory layout data needed for accurate CPU emulation.
+
 use addr2line::{gimli, object::read, Context};
 use elf::{
     endian::AnyEndian, file::FileHeader, section::SectionHeader, segment::ProgramHeader,
@@ -7,25 +13,80 @@ use std::collections::HashMap;
 
 pub use elf::abi::*;
 
-/// This struct is used to parse an elf file and store the relevant data
+/// ELF file parser and data container for fault injection simulation.
+///
+/// This structure provides comprehensive parsing and access to ELF binary files,
+/// extracting all information necessary for accurate CPU emulation and fault
+/// injection simulation. It maintains parsed program segments, section headers,
+/// symbol tables, and debug information for use by the simulation engine.
+///
+/// # Key Features
+///
+/// * **Program Segment Extraction**: Parses and stores loadable program segments
+/// * **Symbol Table Access**: Provides fast lookup of global and weak symbols
+/// * **Debug Information**: Maintains DWARF debug context for source line mapping
+/// * **Memory Layout**: Preserves original ELF memory layout for accurate simulation
+///
+/// # Usage
+///
+/// ```rust,no_run
+/// let elf_file = ElfFile::new(std::path::PathBuf::from("target.elf"))?;
+/// let debug_context = elf_file.get_debug_context();
+/// ```
 pub struct ElfFile {
+    /// ELF file header containing architecture and format information.
+    ///
+    /// Provides access to key file metadata including machine type,
+    /// entry point address, and endianness for proper emulation setup.
     pub header: FileHeader<AnyEndian>,
+    /// Loadable program segments with their data.
+    ///
+    /// Contains (ProgramHeader, data) tuples for all PT_LOAD segments
+    /// that need to be loaded into memory during simulation setup.
+    /// The data vector contains the actual bytes to be loaded.
     pub program_data: Vec<(ProgramHeader, Vec<u8>)>,
+    /// Named section headers for quick section lookup.
+    ///
+    /// Maps section names to their headers, filtered to include only
+    /// PROGBITS and NOBITS sections relevant for simulation.
     pub section_map: HashMap<String, SectionHeader>,
+    /// Global and weak symbol table for symbol resolution.
+    ///
+    /// Maps symbol names to their Symbol entries, including functions,
+    /// variables, and other global symbols needed for fault targeting.
     pub symbol_map: HashMap<String, Symbol>,
+    /// Raw ELF file data for debug context creation.
+    ///
+    /// Preserved to enable creation of debug contexts that require
+    /// access to the original file data for DWARF parsing.
     file_data: Vec<u8>,
 }
 
 impl ElfFile {
-    /// Creates a new `ElfFile` instance from the given file path.
+    /// Creates a new ElfFile instance by parsing the specified ELF binary.
+    ///
+    /// This constructor performs comprehensive ELF parsing including:
+    /// * File header validation and architecture detection
+    /// * Program segment extraction (PT_LOAD segments only)
+    /// * Section header parsing and filtering
+    /// * Symbol table construction for global and weak symbols
+    /// * Debug information preparation
     ///
     /// # Arguments
     ///
-    /// * `path` - A `PathBuf` representing the path to the ELF file.
+    /// * `path` - Path to the ELF binary file to parse
     ///
     /// # Returns
     ///
-    /// * `Result<Self, String>` - Returns an `ElfFile` instance if successful, otherwise an error message.
+    /// * `Ok(ElfFile)` - Successfully parsed ELF file with all data extracted
+    /// * `Err(String)` - Parsing error with descriptive message
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// * File cannot be read or is not a valid ELF file
+    /// * Required sections (string tables, symbol tables) are missing
+    /// * ELF format is unsupported or corrupted
     pub fn new(path: std::path::PathBuf) -> Result<Self, String> {
         let file_data = std::fs::read(path).expect("Could not read file.");
         let elf_data = ElfBytes::<AnyEndian>::minimal_parse(file_data.as_ref())
@@ -97,11 +158,22 @@ impl ElfFile {
         })
     }
 
-    /// Returns a debug context for the ELF file.
+    /// Creates a DWARF debug context for source line mapping and debugging.
+    ///
+    /// This method constructs an addr2line debug context that enables mapping
+    /// between memory addresses and source file locations. Essential for
+    /// generating meaningful fault injection reports and analysis.
     ///
     /// # Returns
     ///
-    /// * `Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>>` - The debug context.
+    /// A debug context that can resolve addresses to source locations,
+    /// function names, and line numbers when DWARF debug information
+    /// is available in the ELF file.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ELF file data is corrupted or if DWARF parsing fails.
+    /// This typically indicates an invalid or corrupted ELF file.
     pub fn get_debug_context(
         &self,
     ) -> Context<gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>> {

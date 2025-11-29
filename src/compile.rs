@@ -1,10 +1,41 @@
+//! # Target Program Compilation
+//!
+//! This module provides compilation capabilities for target programs used in
+//! fault injection simulation. It manages the cross-compilation process for
+//! ARM targets and ensures proper build configuration for simulation.
+
 use std::process::Command;
 
-/// Compiles the victim binary using the `make` command in the `./content` directory.
+/// Compiles the victim binary for fault injection simulation.
 ///
-/// This function checks if the compilation is necessary and executes the `make` command.
-/// If the compilation fails, it prints the status, stdout, and stderr for debugging purposes.
-/// The function asserts that the compilation is successful.
+/// This function orchestrates the compilation process for the target program
+/// located in the `./content` directory. It uses the provided Makefile to
+/// perform cross-compilation for ARM Cortex-M processors with appropriate
+/// compiler flags and linker settings.
+///
+/// # Compilation Process
+///
+/// 1. **Cross-Compilation**: Uses ARM GCC toolchain for Cortex-M targets
+/// 2. **Debug Information**: Ensures DWARF debug info is included
+/// 3. **Memory Layout**: Applies custom linker script for simulation
+/// 4. **Optimization**: Builds with appropriate optimization for analysis
+///
+/// # Output
+///
+/// Produces `victim.elf` in `content/bin/aarch32/` directory, ready for
+/// loading into the fault injection simulator.
+///
+/// # Error Handling
+///
+/// Prints detailed compilation output (stdout/stderr) on failure and
+/// terminates the program if compilation is unsuccessful.
+///
+/// # Panics
+///
+/// Panics if:
+/// * The `make` command cannot be executed
+/// * The compilation process returns a non-zero exit code
+/// * Required build tools or dependencies are missing
 pub fn compile() {
     // Compile victim
     println!("Compile victim if necessary:");

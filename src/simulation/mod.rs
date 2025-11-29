@@ -1,3 +1,15 @@
+//! # Simulation Module
+//!
+//! Core simulation engine for fault injection attacks on ARM processors.
+//! This module provides the foundational types and execution control for
+//! running fault injection simulations using CPU emulation.
+//!
+//! ## Submodules
+//!
+//! * `cpu` - CPU emulation and execution control
+//! * `fault_data` - Fault injection data structures
+//! * `record` - Execution trace recording and analysis
+
 pub mod cpu;
 pub mod fault_data;
 pub mod record;
@@ -9,23 +21,86 @@ use log::info;
 use record::FaultRecord;
 pub use record::TraceRecord;
 
+/// Type alias for a collection of fault injection data elements.
+///
+/// Represents a sequence of fault injections that were successfully applied
+/// during a simulation run. Each `FaultData` contains information about
+/// the fault location, type, and timing.
+pub type FaultElement = Vec<FaultData>;
+
+/// Type alias for a collection of execution trace records.
+///
+/// Represents the complete execution trace of a simulation run, including
+/// all instructions executed, memory accesses, and control flow changes.
+/// Used for analysis and replay of simulation results.
+pub type TraceElement = Vec<TraceRecord>;
+
+/// Specifies the type of simulation run to execute.
+///
+/// Different run types collect different information and have different
+/// performance characteristics. Choose the appropriate type based on
+/// the analysis requirements.
 #[derive(PartialEq, Debug, Clone, Copy)]
-/// Enum representing the type of run for the simulation.
 pub enum RunType {
+    /// Execute with fault injection and minimal tracing.
+    ///
+    /// This is the fastest execution mode, collecting only essential
+    /// information needed to detect successful fault attacks.
     Run,
+    /// Record instruction-level execution trace without full details.
+    ///
+    /// Captures basic execution flow for analysis while maintaining
+    /// reasonable performance. Suitable for most fault attack analysis.
     RecordTrace,
+    /// Record complete execution trace with full details.
+    ///
+    /// Captures comprehensive execution information including memory
+    /// accesses, register states, and detailed timing. Slowest but
+    /// most comprehensive analysis mode.
     RecordFullTrace,
 }
 
-/// Enum representing the data returned by the simulation.
+/// Represents the data returned by a simulation run.
+///
+/// The type of data returned depends on the `RunType` specified
+/// when starting the simulation. This enum encapsulates all
+/// possible return values from simulation execution.
 pub enum Data {
-    Fault(Vec<FaultData>),
-    Trace(Vec<TraceRecord>),
+    /// Successful fault injection data.
+    ///
+    /// Contains the sequence of faults that were applied and resulted
+    /// in a successful attack (reached success criteria).
+    Fault(FaultElement),
+    /// Execution trace data.
+    ///
+    /// Contains the complete or partial execution trace collected
+    /// during the simulation run.
+    Trace(TraceElement),
+    /// No data returned.
+    ///
+    /// Indicates the simulation completed without collecting specific
+    /// data, or the operation was not successful.
     None,
 }
 
-/// Struct representing the control for the simulation.
+/// Central control structure for managing CPU emulation and simulation execution.
+///
+/// This structure encapsulates the CPU emulator and provides high-level methods
+/// for executing fault injection simulations. It manages the emulation lifecycle,
+/// fault injection timing, and result collection.
+///
+/// # Lifetime
+///
+/// The lifetime parameter `'a` ensures the Control instance doesn't outlive
+/// the ELF file data it references for program execution.
+///
+/// # Usage
+///
+/// 1. Create with `new()` providing ELF file and configuration
+/// 2. Use `run()` to execute simulations with optional fault injection
+/// 3. Extract results through the returned `Data` enum
 pub struct Control<'a> {
+    /// The CPU emulator instance that executes the target program.
     emu: Cpu<'a>,
 }
 
@@ -39,6 +114,7 @@ impl<'a> Control<'a> {
     /// * `success_addresses` - List of memory addresses that indicate success when executed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
     /// * `initial_registers` - HashMap of RegisterARM to initial values for CPU registers.
+    /// * `memory_regions` - Array of memory region configurations for the simulation.
     ///
     /// # Returns
     ///
@@ -100,17 +176,20 @@ impl<'a> Control<'a> {
         self.emu.init_states(run_successful);
     }
 
-    /// Checks the program for correct behavior.
-    /// Check if code under investigation is working correct for
-    /// positive and negative execution
+    /// Validates correct program behavior by testing both success and failure paths.
+    ///
+    /// Executes the program twice: once configured for success (should reach success_addresses)
+    /// and once configured for failure (should reach failure_addresses). This ensures the
+    /// target program behaves correctly before fault injection testing begins.
     ///
     /// # Arguments
     ///
-    /// * `cycles` - The number of cycles to run the check.
+    /// * `cycles` - Maximum number of CPU cycles to execute for each validation run.
     ///
     /// # Returns
     ///
-    /// * `Result<(), String>` - Returns `Ok` if successful, otherwise an error message.
+    /// * `Ok(())` - Both success and failure paths behave as expected.
+    /// * `Err(String)` - Program validation failed with descriptive error message.
     pub fn check_program(&mut self, cycles: usize) -> Result<(), String> {
         // Deactivate io print
         self.emu.deactivate_printf_function();
@@ -128,21 +207,25 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
-    /// Runs the simulation with the specified faults.
-    /// Execute or trace loaded code with the given faults
-    /// If code execution with successful state, a vector array will be returned with the injected faults
-    /// If code tracing was activated a vector array with the trace records will be returned
+    /// Runs the simulation with the specified fault injection sequence.
+    ///
+    /// Executes the target program with fault injections applied at specific points during execution.
+    /// The behavior depends on the run_type: normal execution returns fault data on success,
+    /// while trace modes return execution trace records for analysis.
     ///
     /// # Arguments
     ///
-    /// * `cycles` - The number of cycles to run the simulation.
-    /// * `run_type` - The type of run to execute (e.g., normal, stress test).
-    /// * `deep_analysis` - Whether to perform a deep analysis during the simulation.
-    /// * `records` - A collection of records to be used during the simulation.
+    /// * `cycles` - Maximum number of CPU cycles to execute during simulation.
+    /// * `run_type` - Type of simulation (Run, RecordTrace, or RecordFullTrace).
+    /// * `deep_analysis_trace` - Whether to perform detailed loop analysis during trace recording.
+    /// * `faults` - Sequence of fault injection records to apply during execution.
     ///
     /// # Returns
     ///
-    /// * `Result<Data, String>` - Returns the resulting data from the simulation if successful, otherwise an error message.
+    /// * `Ok(Data::Fault(FaultElement))` - Fault data if execution reaches success state.
+    /// * `Ok(Data::Trace(TraceElement))` - Execution trace if run_type is trace mode.
+    /// * `Ok(Data::None)` - No meaningful result (execution failed or no success).
+    /// * `Err(String)` - Error message if simulation setup or execution fails.
     pub fn run_with_faults(
         &mut self,
         cycles: usize,
