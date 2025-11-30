@@ -20,6 +20,7 @@
 //! * **Scalability**: Adapts to available hardware resources automatically
 
 use std::thread::{/*sleep, */ spawn, JoinHandle};
+use std::vec;
 
 //use crate::disassembly::Disassembly;
 use crate::elf_file::ElfFile;
@@ -29,11 +30,6 @@ use crate::simulation::{FaultElement, TraceElement};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use crate::simulation::{record::FaultRecord, Control, Data, RunType};
-
-pub enum FaultEnum {
-    FaultData(FaultElement),
-    EmptyData,
-}
 
 /// Configuration parameters for fault injection simulation execution.
 ///
@@ -157,7 +153,7 @@ pub struct WorkloadMessage {
     ///
     /// Used when run_type includes fault injection. Worker threads send
     /// successful attack results through this channel for aggregation.
-    pub fault_sender: Option<Sender<FaultEnum>>,
+    pub fault_sender: Option<Sender<FaultElement>>,
 }
 
 /// Central coordinator for multi-threaded fault injection simulation.
@@ -429,13 +425,13 @@ impl SimulationThread {
                                     // Attach fault records
                                     fault_sender
                                         .unwrap()
-                                        .send(FaultEnum::FaultData(fault))
+                                        .send(fault)
                                         .expect("Unable to send fault data");
                                 }
                                 Data::None => {
                                     fault_sender
                                         .unwrap()
-                                        .send(FaultEnum::EmptyData)
+                                        .send(vec![])
                                         .expect("Unable to send empty fault data");
                                 }
                                 _ => {}
@@ -484,7 +480,7 @@ impl SimulationThread {
         deep_analysis: bool,
         fault_records: Vec<FaultRecord>,
         trace_sender: Option<Sender<TraceElement>>,
-        fault_sender: Option<Sender<FaultEnum>>,
+        fault_sender: Option<Sender<FaultElement>>,
     ) -> Result<(), String> {
         if let Some(sender) = &self.workload_sender {
             let msg = WorkloadMessage {

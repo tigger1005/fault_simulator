@@ -5,7 +5,6 @@ use crate::disassembly::Disassembly;
 use crate::prelude::{SimulationThread, TraceRecord};
 
 use crate::simulation::{record::FaultRecord, FaultElement, RunType, TraceElement};
-use crate::simulation_thread::FaultEnum;
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 
 use crate::fault_attacks::faults::FaultType;
@@ -315,7 +314,7 @@ fn fault_simulation(
     for _ in 0..n {
         match fault_response_receiver.recv_timeout(Duration::from_millis(1000)) {
             Ok(faults) => {
-                if let FaultEnum::FaultData(faults) = faults {
+                if !faults.is_empty() {
                     data.push(faults);
                 }
             }
@@ -358,7 +357,7 @@ fn fault_simulation(
 /// - Recursive case: Record trace with current faults, filter injection points,
 ///   then recurse for each valid injection point with remaining faults
 fn fault_simulation_inner(
-    fault_response_sender: Sender<FaultEnum>,
+    fault_response_sender: Sender<FaultElement>,
     remaining_faults: &[FaultType],
     simulation_fault_records: &[FaultRecord],
     cs: &Disassembly,
