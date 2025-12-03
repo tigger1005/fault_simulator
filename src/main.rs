@@ -141,9 +141,8 @@ fn main() -> Result<(), String> {
 
     // Load victim data for attack simulation with dedicated fault attack threads
     // Use half the available threads for fault attacks to balance with general simulation
-    let fault_attack_threads = (config.threads / 2).max(1);
     let mut attack_sim =
-        FaultAttacks::new_with_threads(&file_data, Arc::clone(&user_thread), fault_attack_threads)?;
+        FaultAttacks::new_with_threads(&file_data, Arc::clone(&user_thread), config.threads)?;
     // Check for correct program behavior
     if !config.no_check {
         println!("Check for correct program behavior:");

@@ -226,7 +226,10 @@ pub struct Config {
 impl Config {
     // Keep defaults in sync with CLI defaults
     fn default_threads() -> usize {
-        15
+        let num_cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        num_cpus
     }
 
     fn default_max_instructions() -> usize {
@@ -328,7 +331,9 @@ pub struct Args {
     pub config: Option<PathBuf>,
 
     /// Number of threads started in parallel
-    #[arg(short, long, default_value_t = 15)]
+    #[arg(short, long, default_value_t =  std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1))]
     pub threads: usize,
 
     /// Suppress re-compilation of target program

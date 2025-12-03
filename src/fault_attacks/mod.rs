@@ -23,6 +23,7 @@ pub struct FaultAttacks {
     result_receiver: Option<Receiver<(Vec<FaultElement>, usize)>>,
     user_thread: Arc<SimulationThread>,
     fault_attack_thread: Option<FaultAttackThread>,
+    number_of_threads: Option<usize>,
 }
 
 impl FaultAttacks {
@@ -56,6 +57,7 @@ impl FaultAttacks {
             result_receiver: None,
             user_thread,
             fault_attack_thread: None,
+            number_of_threads: None,
         })
     }
 
@@ -94,6 +96,8 @@ impl FaultAttacks {
     /// This should be called before running fault attacks to enable optimized
     /// parallel execution. If not called, fault attacks will fall back to
     pub fn start_fault_attack_threads(&mut self, number_of_threads: usize) -> Result<(), String> {
+        // Set threads
+        self.number_of_threads = Some(number_of_threads);
         // Create a channel for collecting results
         let (result_sender, result_receiver) = unbounded();
         // Set reveiver
@@ -238,7 +242,7 @@ impl FaultAttacks {
                 .collect::<Vec<Vec<FaultType>>>();
 
             // Iterate over all fault pairs
-            for chunks in iter_list.chunks(16) {
+            for chunks in iter_list.chunks(self.number_of_threads.unwrap_or(1)) {
                 any_success |= self.fault_simulation(chunks)?;
 
                 if any_success && !self.user_thread.config.run_through {
