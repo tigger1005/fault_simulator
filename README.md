@@ -261,6 +261,13 @@ Define custom memory regions with optional data loading from files. Essential fo
       size: "0x1000",
       data: "0xDEADBEEF",  // Inline hex value to initialize region
     },
+    // SRAM with memory dump - force merge fragmented ELF segments
+    {
+      address: "0x34000000",
+      size: "0x10000",
+      file: "sram_dump.bin",
+      force_overwrite: true,  // Merge ELF segments to load full dump
+    },
   ],
 }
 ```
@@ -270,6 +277,7 @@ Define custom memory regions with optional data loading from files. Essential fo
 - `size` (string): Size of the region in bytes (hex format)
 - `file` (string, optional): Binary file to load into this region
 - `data` (string, optional): Hex value to initialize the region with (e.g., "0xDEADBEEF")
+- `force_overwrite` (boolean, optional, default: false): If true, merges fragmented ELF segments within this region into one contiguous block to ensure the entire region can be mapped and overwritten with custom data
 
 
 ## Ghidra Visualization
