@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::simulation::{fault_data::FaultData, record::TraceRecord};
+use crate::simulation::{fault_data::FaultData, record::TraceRecord, FaultElement, TraceElement};
 use addr2line::{fallible_iterator::FallibleIterator, gimli};
 use capstone::prelude::*;
 use colored::Colorize;
@@ -101,7 +101,7 @@ impl Disassembly {
     /// * `debug_context` - The debug context for the ELF file.
     pub fn disassembly_trace_records(
         &self,
-        trace_records: &Option<Vec<TraceRecord>>,
+        trace_records: &Option<TraceElement>,
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,
@@ -190,7 +190,7 @@ impl Disassembly {
     /// * `debug_context` - The debug context for the ELF file.
     pub fn print_fault_records(
         &self,
-        fault_data_vec: &[Vec<FaultData>],
+        fault_data_vec: &[FaultElement],
         debug_context: &addr2line::Context<
             gimli::EndianReader<gimli::RunTimeEndian, std::rc::Rc<[u8]>>,
         >,

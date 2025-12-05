@@ -5,7 +5,7 @@ use crate::simulation_thread::SimulationThread;
 use super::simulation::{
     fault_data::FaultData,
     record::{FaultRecord, TraceRecord},
-    Control, RunType,
+    Control, FaultElement, RunType, TraceElement,
 };
 use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use faults::*;
@@ -18,8 +18,8 @@ use crossbeam_channel::{unbounded, Sender};
 pub struct FaultAttacks<'a> {
     cs: Disassembly,
     pub file_data: ElfFile,
-    pub fault_data: Vec<Vec<FaultData>>,
-    pub initial_trace: Vec<TraceRecord>,
+    pub fault_data: Vec<FaultElement>,
+    pub initial_trace: TraceElement,
     pub count_sum: usize,
     user_thread: &'a SimulationThread,
 }
@@ -67,7 +67,7 @@ impl<'a> FaultAttacks<'a> {
     /// # Arguments
     ///
     /// * `fault_data` - Collection of successful fault injection results to store.
-    pub fn set_fault_data(&mut self, fault_data: Vec<Vec<FaultData>>) {
+    pub fn set_fault_data(&mut self, fault_data: Vec<FaultElement>) {
         self.fault_data = fault_data;
     }
 
@@ -201,13 +201,10 @@ impl<'a> FaultAttacks<'a> {
     ///
     /// # Returns
     ///
-    /// * `Ok(Vec<Vec<FaultData>>)` - Vector of successful attack results, where each
+    /// * `Ok(Vec<FaultElement>)` - Vector of successful attack results, where each
     ///   inner vector contains the fault data for one successful attack scenario.
     /// * `Err(String)` - Error message if simulation setup or execution fails.
-    pub fn fault_simulation(
-        &mut self,
-        faults: &[FaultType],
-    ) -> Result<Vec<Vec<FaultData>>, String> {
+    pub fn fault_simulation(&mut self, faults: &[FaultType]) -> Result<Vec<FaultElement>, String> {
         // Setup the trace response channel if not already set
         if self.initial_trace.is_empty() {
             // Run full trace to populate initial_trace
@@ -242,7 +239,7 @@ impl<'a> FaultAttacks<'a> {
     ///
     /// # Returns
     ///
-    /// * `Ok(Vec<TraceRecord>)` - Collected execution trace records.
+    /// * `Ok(TraceElement)` - Collected execution trace records.
     /// * `Err(String)` - Error message if trace recording fails or times out.
     ///
     /// # Usage
@@ -254,7 +251,7 @@ impl<'a> FaultAttacks<'a> {
         run_type: RunType,
         deep_analysis: bool,
         fault_data: Vec<FaultRecord>,
-    ) -> Result<Vec<TraceRecord>, String> {
+    ) -> Result<TraceElement, String> {
         let (trace_response_sender, trace_response_receiver) = unbounded();
         self.user_thread.send_workload(
             run_type,
@@ -406,7 +403,7 @@ impl<'a> FaultAttacks<'a> {
 ///
 /// # Returns
 ///
-/// * `Ok((Vec<Vec<FaultData>>, usize))` - Tuple containing successful attack results and execution count.
+/// * `Ok((Vec<FaultElement>, usize))` - Tuple containing successful attack results and execution count.
 /// * `Err(String)` - Error message if simulation setup or execution fails.
 ///
 /// # Process
@@ -423,10 +420,10 @@ impl<'a> FaultAttacks<'a> {
 /// Progress is tracked via shared counters and channels.
 pub fn fault_simulation(
     faults: &[FaultType],
-    mut records: Vec<TraceRecord>,
+    mut records: TraceElement,
     cs: &Disassembly,
     user_thread: &SimulationThread,
-) -> Result<(Vec<Vec<FaultData>>, usize), String> {
+) -> Result<(Vec<FaultElement>, usize), String> {
     println!("Running simulation for faults: {faults:?}");
 
     // Check if faults are empty
@@ -513,7 +510,7 @@ pub fn fault_simulation(
 /// - Recursive case: Record trace with current faults, filter injection points,
 ///   then recurse for each valid injection point with remaining faults
 fn fault_simulation_inner(
-    fault_response_sender: Sender<Vec<FaultData>>,
+    fault_response_sender: Sender<FaultElement>,
     remaining_faults: &[FaultType],
     simulation_fault_records: &[FaultRecord],
     cs: &Disassembly,
@@ -594,14 +591,14 @@ fn fault_simulation_inner(
 ///
 /// # Returns
 ///
-/// * `Ok(Vec<TraceRecord>)` - Collected execution trace records.
+/// * `Ok(TraceElement)` - Collected execution trace records.
 /// * `Err(String)` - Error message if trace recording fails or times out.
 fn get_trace_data(
     run_type: RunType,
     deep_analysis: bool,
     fault_data: Vec<FaultRecord>,
     user_thread: &SimulationThread,
-) -> Result<Vec<TraceRecord>, String> {
+) -> Result<TraceElement, String> {
     let (trace_response_sender, trace_response_receiver) = unbounded();
     user_thread.send_workload(
         run_type,

@@ -10,6 +10,11 @@ use record::FaultRecord;
 pub use record::TraceRecord;
 use unicorn_engine::uc_error;
 
+// Set type for vector of faultdata
+pub type FaultElement = Vec<FaultData>;
+// Set type for vector of trace records
+pub type TraceElement = Vec<TraceRecord>;
+
 #[derive(PartialEq, Debug, Clone, Copy)]
 /// Enum representing the type of run for the simulation.
 pub enum RunType {
@@ -20,8 +25,8 @@ pub enum RunType {
 
 /// Enum representing the data returned by the simulation.
 pub enum Data {
-    Fault(Vec<FaultData>),
-    Trace(Vec<TraceRecord>),
+    Fault(FaultElement),
+    Trace(TraceElement),
     None,
 }
 

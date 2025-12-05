@@ -1,5 +1,8 @@
-use super::{FaultRecord, TraceRecord};
-use crate::{disassembly::Disassembly, simulation::cpu::Cpu};
+use super::FaultRecord;
+use crate::{
+    disassembly::Disassembly,
+    simulation::{cpu::Cpu, TraceElement},
+};
 use std::{fmt::Debug, slice::Iter, sync::Arc};
 
 pub mod cmd_bitflip;
@@ -49,7 +52,7 @@ pub trait FaultFunctions: Send + Sync + Debug {
     ///
     /// * `records` - A mutable reference to the vector of trace records to filter.
     /// * `cs` - The disassembly context used for filtering.
-    fn filter(&self, records: &mut Vec<TraceRecord>, cs: &Disassembly);
+    fn filter(&self, records: &mut TraceElement, cs: &Disassembly);
 
     /// Tries to create a fault from the given input string.
     ///
