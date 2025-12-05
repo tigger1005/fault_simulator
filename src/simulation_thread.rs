@@ -313,14 +313,18 @@ impl SimulationThread {
                                 &mem_regions,
                             );
                             trace_sim.set_print_errors(print_errs);
-                            match trace_sim
-                                .run_with_faults(cycles, run_type, deep_analysis, &records)
-                                .unwrap()
-                            {
-                                Data::Trace(trace) => trace_sender
-                                    .unwrap()
-                                    .send(trace)
-                                    .expect("Unable to send trace data"),
+                            match trace_sim.run_with_faults(
+                                cycles,
+                                run_type,
+                                deep_analysis,
+                                &records,
+                            ) {
+                                Ok(Data::Trace(trace)) => {
+                                    trace_sender
+                                        .unwrap()
+                                        .send(trace)
+                                        .expect("Unable to send trace data");
+                                }
                                 _ => trace_sender
                                     .unwrap()
                                     .send(vec![])
