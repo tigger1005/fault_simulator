@@ -449,6 +449,8 @@ where
         address: String,
         size: String,
         file: Option<String>, // Optional binary file to load
+        #[serde(default)]
+        force_overwrite: bool, // If true, merge ELF segments to allow overwriting
     }
 
     let regions: Vec<MemoryRegionHelper> = Deserialize::deserialize(deserializer)?;
@@ -470,6 +472,7 @@ where
                 address,
                 size,
                 data,
+                force_overwrite: region.force_overwrite,
             })
         })
         .collect()
@@ -488,4 +491,5 @@ pub struct MemoryRegion {
     pub address: u64,
     pub size: u64,
     pub data: Option<Vec<u8>>, // Optional: data to initialize the region with
+    pub force_overwrite: bool, // If true, merge ELF segments to allow overwriting
 }

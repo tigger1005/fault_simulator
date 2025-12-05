@@ -60,7 +60,7 @@ impl<'a> Control<'a> {
             initial_registers,
         );
         // Cpu setup
-        emu.setup_mmio();
+        emu.setup_mmio(memory_regions);
         emu.setup_memory_regions(memory_regions);
         emu.setup_breakpoints(decision_activation_active);
         // Write code to memory area
