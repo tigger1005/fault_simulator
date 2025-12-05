@@ -156,7 +156,8 @@ impl ElfFile {
             // Find which program segment contains this address
             let mut found = false;
             for (header, data) in &mut self.program_data {
-                let segment_start = header.p_paddr;
+                // Use virtual address (p_vaddr) for ARM Cortex-M flat memory model
+                let segment_start = header.p_vaddr;
                 let segment_end = segment_start + header.p_filesz;
 
                 if address >= segment_start && address < segment_end {

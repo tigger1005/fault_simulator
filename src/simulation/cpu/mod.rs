@@ -162,9 +162,10 @@ impl<'a> Cpu<'a> {
         let program_parts = &self.emu.get_data().file_data.program_data;
 
         // Iterate over all program parts and write them to memory
+        // Use virtual address (p_vaddr) for ARM Cortex-M flat memory model
         for part in program_parts {
             self.emu
-                .mem_write(part.0.p_paddr, &part.1)
+                .mem_write(part.0.p_vaddr, &part.1)
                 .expect("failed to write program data");
         }
     }
@@ -220,12 +221,13 @@ impl<'a> Cpu<'a> {
             || !self.emu.get_data().failure_addresses.is_empty();
         if has_custom_addresses {
             // Add code hook for all program segments to check for custom addresses
+            // Use virtual addresses (p_vaddr) for ARM Cortex-M flat memory model
             let program_data = &self.emu.get_data().file_data.program_data.clone();
             for segment in program_data {
                 self.emu
                     .add_code_hook(
-                        segment.0.p_paddr,
-                        segment.0.p_paddr + segment.0.p_memsz,
+                        segment.0.p_vaddr,
+                        segment.0.p_vaddr + segment.0.p_memsz,
                         hook_custom_addresses_callback,
                     )
                     .expect("failed to set custom address code hook");
@@ -244,12 +246,12 @@ impl<'a> Cpu<'a> {
     }
 
     /// Setup memory mapping, stack, io mapping
-    pub fn setup_mmio(&mut self) {
+    pub fn setup_mmio(&mut self, memory_regions: &[crate::config::MemoryRegion]) {
         const MINIMUM_MEMORY_SIZE: u64 = 0x1000;
 
         let segments = &self.emu.get_data().file_data.program_data;
 
-        // First pass: collect all segment ranges and merge overlapping ones
+        // First pass: collect all segment ranges
         let mut ranges: Vec<(u64, u64, Prot)> = Vec::new();
 
         for segment in segments {
@@ -265,33 +267,85 @@ impl<'a> Cpu<'a> {
             }
 
             // Align address down to page boundary
-            let addr = segment.0.p_paddr & 0xfffff000;
-            let segment_end = segment.0.p_paddr + segment.0.p_memsz;
+            // Use virtual address (p_vaddr) for ARM Cortex-M flat memory model
+            let addr = segment.0.p_vaddr & 0xfffff000;
+            let segment_end = segment.0.p_vaddr + segment.0.p_memsz;
             let size = ((segment_end - addr + MINIMUM_MEMORY_SIZE - 1) & 0xfffff000)
                 .max(MINIMUM_MEMORY_SIZE);
             let end = addr + size;
 
-            // Try to merge with existing ranges
-            let mut merged = false;
-            for (range_start, range_end, range_perm) in ranges.iter_mut() {
-                if addr <= *range_end && end >= *range_start {
-                    // Overlapping or adjacent, merge
-                    *range_start = (*range_start).min(addr);
-                    *range_end = (*range_end).max(end);
-                    *range_perm |= permission; // Combine permissions
-                    merged = true;
-                    break;
-                }
-            }
+            ranges.push((addr, end, permission));
+        }
 
-            if !merged {
-                ranges.push((addr, end, permission));
+        // Sort ranges by start address
+        ranges.sort_by_key(|r| r.0);
+
+        // Apply force_overwrite: extend ranges to cover the entire requested region
+        for region in memory_regions {
+            if region.force_overwrite {
+                let region_start = region.address;
+                let region_end = region.address + region.size;
+
+                // Find all ranges that overlap with this force_overwrite region
+                let mut matching_indices = Vec::new();
+                for (i, (addr, end, _perm)) in ranges.iter().enumerate() {
+                    if *addr < region_end && *end > region_start {
+                        matching_indices.push(i);
+                    }
+                }
+
+                if !matching_indices.is_empty() {
+                    // Merge all matching ranges into one that covers the full requested region
+                    let mut combined_perm = Prot::NONE;
+                    for &i in &matching_indices {
+                        combined_perm |= ranges[i].2;
+                    }
+
+                    // Replace first matching range with merged range covering full region
+                    let first_idx = matching_indices[0];
+                    ranges[first_idx] = (
+                        region_start,
+                        region_end,
+                        combined_perm | Prot::READ | Prot::WRITE,
+                    );
+
+                    // Remove other matching ranges (in reverse order to maintain indices)
+                    for &i in matching_indices.iter().skip(1).rev() {
+                        ranges.remove(i);
+                    }
+                }
             }
         }
 
-        // Second pass: map the merged ranges
-        for (addr, end, permission) in ranges {
+        // Sort again after modifications
+        ranges.sort_by_key(|r| r.0);
+
+        // Merge only overlapping and adjacent ranges (no automatic merging)
+        let mut merged_ranges: Vec<(u64, u64, Prot)> = Vec::new();
+
+        for (addr, end, perm) in ranges {
+            if let Some(last) = merged_ranges.last_mut() {
+                if addr <= last.1 {
+                    // Overlapping, merge
+                    last.1 = last.1.max(end);
+                    last.2 |= perm;
+                } else {
+                    // Not overlapping, add as new range
+                    merged_ranges.push((addr, end, perm));
+                }
+            } else {
+                // First range
+                merged_ranges.push((addr, end, perm));
+            }
+        }
+
+        // Map all merged ranges
+        for (addr, end, permission) in merged_ranges {
             let size = end - addr;
+            println!(
+                "Mapping ELF segment: 0x{:08X} - 0x{:08X} ({} bytes, perm: {:?})",
+                addr, end, size, permission
+            );
             self.emu
                 .mem_map(addr, size, permission)
                 .expect("failed to map code page");
@@ -321,7 +375,7 @@ impl<'a> Cpu<'a> {
     /// Setup custom memory regions from configuration
     pub fn setup_memory_regions(&mut self, memory_regions: &[crate::config::MemoryRegion]) {
         for region in memory_regions {
-            // Map the memory region
+            // Try to map the memory region
             match self.emu.mem_map(
                 region.address,
                 region.size,
@@ -336,17 +390,44 @@ impl<'a> Cpu<'a> {
                         region.size
                     );
                 }
+                Err(unicorn_engine::unicorn_const::uc_error::MAP) => {
+                    println!(
+                        "Region at 0x{:08X} (size: 0x{:X}) already mapped by ELF.",
+                        region.address, region.size
+                    );
+                    // Try to ensure the region has write permissions
+                    match self.emu.mem_protect(
+                        region.address,
+                        region.size,
+                        unicorn_engine::unicorn_const::Prot::READ
+                            | unicorn_engine::unicorn_const::Prot::WRITE,
+                    ) {
+                        Ok(_) => {
+                            println!(
+                                "Updated permissions to RW for region at 0x{:08X}",
+                                region.address
+                            );
+                        }
+                        Err(e) => {
+                            println!(
+                                "Warning: Could not update permissions for 0x{:08X}: {:?}",
+                                region.address, e
+                            );
+                            println!(
+                                "Region may be partially mapped - will try to write data anyway."
+                            );
+                        }
+                    }
+                }
                 Err(e) => {
                     println!(
                         "Warning: Failed to map memory region at 0x{:08X} (size: 0x{:X}): {:?}",
                         region.address, region.size, e
                     );
-                    println!("This might be because the region is already mapped by the ELF file.");
-                    continue;
                 }
             }
 
-            // If data is provided, write it to the memory region
+            // If data is provided, always try to write it
             if let Some(ref data) = region.data {
                 // Ensure we don't write more data than the region size
                 let write_size = std::cmp::min(data.len(), region.size as usize);
@@ -357,9 +438,17 @@ impl<'a> Cpu<'a> {
                             write_size, region.address
                         );
                     }
+                    Err(unicorn_engine::unicorn_const::uc_error::WRITE_UNMAPPED) => {
+                        println!(
+                            "Error: Region at 0x{:08X} is not fully mapped (only partial mapping exists).",
+                            region.address
+                        );
+                        println!("ELF segments may not cover the full requested range.");
+                        println!("Consider splitting this into multiple smaller regions that match ELF segments.");
+                    }
                     Err(e) => {
                         println!(
-                            "Warning: Failed to write data to memory region at 0x{:08X}: {:?}",
+                            "Error: Failed to write data to memory region at 0x{:08X}: {:?}",
                             region.address, e
                         );
                     }
