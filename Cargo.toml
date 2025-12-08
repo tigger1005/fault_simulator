@@ -1,6 +1,6 @@
 [package]
 name = "fault_simulator"
-authors = ["Roland Ebrecht", "Luca Gladiator"]
+authors = ["Roland Ebrecht", "Dominik Zürner", "Luca Gladiator"]
 version = "0.9.0"
 edition = "2021"
 
