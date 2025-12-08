@@ -74,11 +74,6 @@ impl<'a> Control<'a> {
         Self { emu }
     }
 
-    /// Enable or disable error printing
-    pub fn set_print_errors(&mut self, print_errors: bool) {
-        self.emu.set_print_errors(print_errors);
-    }
-
     /// Setup system state to a successful or failed state
     /// and run the program. Return the state of the program after compilation
     ///
@@ -243,12 +238,10 @@ impl<'a> Control<'a> {
                     if !deep_analysis_trace {
                         self.emu.reduce_trace();
                     }
-                    // Only print if error printing is enabled
-                    if self.emu.get_print_errors() {
-                        println!(
-                            "Execution failed, but returning collected trace data up to error point"
-                        );
-                    }
+                    // Log execution failure but return trace data
+                    log::info!(
+                        "Execution failed, but returning collected trace data up to error point"
+                    );
                     return Ok(Data::Trace(self.emu.get_trace_data().clone()));
                 }
                 RunType::Run => {
@@ -282,24 +275,21 @@ impl<'a> Control<'a> {
     /// Helper method to report unicorn emulator errors
     fn report_unicorn_error(&mut self, error: uc_error, context: &str) -> String {
         let pc = self.emu.get_program_counter();
-        let print_errors = self.emu.get_print_errors();
 
-        // Only print if print_errors is enabled
-        if print_errors {
-            match error {
-                // All memory-related errors are already printed by the callback
-                uc_error::READ_UNMAPPED
-                | uc_error::WRITE_UNMAPPED
-                | uc_error::FETCH_UNMAPPED
-                | uc_error::READ_PROT
-                | uc_error::WRITE_PROT
-                | uc_error::FETCH_PROT => {
-                    // Already printed by callback with address
-                }
-                // Print non-memory errors (EXCEPTION, INSN_INVALID, etc.)
-                _ => {
-                    eprintln!("Unicorn Error: {:?} at PC 0x{:08X}", error, pc);
-                }
+        // Log errors using the log crate
+        match error {
+            // All memory-related errors are already printed by the callback
+            uc_error::READ_UNMAPPED
+            | uc_error::WRITE_UNMAPPED
+            | uc_error::FETCH_UNMAPPED
+            | uc_error::READ_PROT
+            | uc_error::WRITE_PROT
+            | uc_error::FETCH_PROT => {
+                // Already printed by callback with address
+            }
+            // Log non-memory errors (EXCEPTION, INSN_INVALID, etc.)
+            _ => {
+                log::error!("Unicorn Error: {:?} at PC 0x{:08X}", error, pc);
             }
         }
         format!("{}: {:?} at PC 0x{:08X}", context, error, pc)

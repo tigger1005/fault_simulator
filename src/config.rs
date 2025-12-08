@@ -179,7 +179,7 @@ pub struct Config {
     #[serde(default, deserialize_with = "deserialize_memory_regions")]
     pub memory_regions: Vec<MemoryRegion>,
     #[serde(default)]
-    pub print_unicorn_errors: bool,
+    pub log_level: String,
 }
 
 impl Config {
@@ -219,7 +219,7 @@ impl Config {
             initial_registers: HashMap::new(),
             code_patches: Vec::new(),
             memory_regions: Vec::new(),
-            print_unicorn_errors: false,
+            log_level: "info".to_string(),
         }
     }
 
@@ -266,7 +266,7 @@ impl Config {
         if !args.failure_addresses.is_empty() {
             self.failure_addresses = args.failure_addresses.clone();
         }
-        // Note: initial_registers, code_patches, memory_regions, and print_unicorn_errors from JSON config are preserved
+        // Note: initial_registers, code_patches, memory_regions, and log_level from JSON config are preserved
     }
 }
 

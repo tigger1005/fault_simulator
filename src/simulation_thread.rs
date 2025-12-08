@@ -37,8 +37,8 @@ pub struct SimulationConfig {
     pub initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
     /// Custom memory regions to initialize.
     pub memory_regions: Vec<crate::config::MemoryRegion>,
-    /// Whether to print Unicorn emulator errors.
-    pub print_unicorn_errors: bool,
+    /// Log level: "off", "error", "warn", "info", "debug", "trace".
+    pub log_level: String,
 }
 
 impl SimulationConfig {
@@ -53,7 +53,7 @@ impl SimulationConfig {
     /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
     /// * `initial_registers` - Initial CPU register values to set before each simulation.
     /// * `memory_regions` - Custom memory regions to initialize.
-    /// * `print_unicorn_errors` - Whether to print Unicorn emulator errors.
+    /// * `log_level` - Log level: "off", "error", "warn", "info", "debug", "trace".
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cycles: usize,
@@ -63,7 +63,7 @@ impl SimulationConfig {
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
         memory_regions: Vec<crate::config::MemoryRegion>,
-        print_unicorn_errors: bool,
+        log_level: String,
     ) -> Self {
         Self {
             cycles,
@@ -73,7 +73,7 @@ impl SimulationConfig {
             failure_addresses,
             initial_registers,
             memory_regions,
-            print_unicorn_errors,
+            log_level,
         }
     }
 }
@@ -207,8 +207,8 @@ impl SimulationThread {
             success_addresses,
             failure_addresses,
             initial_registers,
-            Vec::new(), // No memory regions in this test
-            false,      // Don't print unicorn errors by default
+            Vec::new(),         // No memory regions in this test
+            "info".to_string(), // Default verbose level
         );
         Self::new(config)
     }
@@ -277,7 +277,6 @@ impl SimulationThread {
             let failure_addrs = self.config.failure_addresses.clone();
             let init_regs = self.config.initial_registers.clone();
             let mem_regions = self.config.memory_regions.clone();
-            let print_errs = self.config.print_unicorn_errors;
             let cycles = self.config.cycles;
             let handle = spawn(move || {
                 // Wait for workload
@@ -290,7 +289,6 @@ impl SimulationThread {
                     init_regs.clone(),
                     &mem_regions,
                 );
-                simulation.set_print_errors(print_errs);
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
                     let WorkloadMessage {
@@ -312,7 +310,6 @@ impl SimulationThread {
                                 init_regs.clone(),
                                 &mem_regions,
                             );
-                            trace_sim.set_print_errors(print_errs);
                             match trace_sim.run_with_faults(
                                 cycles,
                                 run_type,

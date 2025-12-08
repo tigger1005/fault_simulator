@@ -33,8 +33,6 @@ const GIT_VERSION: &str = git_version!();
 fn main() -> Result<(), String> {
     // Get parameter from command line
     let args = Args::parse();
-    // Set parameter from cli
-    env_logger::init(); // Switch on with: RUST_LOG=debug cargo run
 
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
 
@@ -48,6 +46,21 @@ fn main() -> Result<(), String> {
         }
         None => Config::from_args(&args),
     };
+
+    // Initialize logger with level from config (or use RUST_LOG env var if set)
+    if std::env::var("RUST_LOG").is_err() {
+        let log_level = match config.log_level.as_str() {
+            "off" => "off",
+            "error" => "error",
+            "warn" => "warn",
+            "info" => "info",
+            "debug" => "debug",
+            "trace" => "trace",
+            _ => "info", // default
+        };
+        std::env::set_var("RUST_LOG", log_level);
+    }
+    env_logger::init();
 
     // Check for compilation flag and provided elf file
     let path = match config.elf.is_some() {
@@ -67,23 +80,22 @@ fn main() -> Result<(), String> {
         }
     };
 
-    // Print initial register context if provided
+    // Log initial register context if provided
     if !config.initial_registers.is_empty() {
-        println!("Using custom initial register context:");
+        log::info!("Using custom initial register context:");
         for (reg, value) in &config.initial_registers {
-            println!("  {:?}: 0x{:08X}", reg, value);
+            log::info!("  {:?}: 0x{:08X}", reg, value);
         }
-        println!();
     }
 
-    // Print code patches if provided
+    // Log code patches if provided
     if !config.code_patches.is_empty() {
-        println!("Code patches configured: {}", config.code_patches.len());
+        log::info!("Code patches configured: {}", config.code_patches.len());
     }
 
-    // Print memory regions if provided
+    // Log memory regions if provided
     if !config.memory_regions.is_empty() {
-        println!(
+        log::info!(
             "Custom memory regions configured: {}",
             config.memory_regions.len()
         );
@@ -105,7 +117,7 @@ fn main() -> Result<(), String> {
         config.failure_addresses,
         config.initial_registers,
         config.memory_regions,
-        config.print_unicorn_errors,
+        config.log_level.clone(),
     );
     // Create user thread for simulation
     let mut user_thread = SimulationThread::new(sim_config)?;
