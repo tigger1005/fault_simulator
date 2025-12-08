@@ -131,7 +131,7 @@ CLI arguments always override values from the config file.
 | `-e, --elf <FILE>`             | Use external elf file w/o compilation step |
 | `--trace`                      | Trace and analyse program w/o fault injection |
 | `-r, --run-through`            | Don't stop on first successful fault injection |
-| `--print-unicorn-errors`       | Enable printing of Unicorn engine memory errors (useful for debugging) |
+| `--log-level <LEVEL>`          | Set logging verbosity: off, error, warn, info, debug, trace [default: info] |
 | `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456 |
 | `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc |
 | `-h, --help`                   | Print help |
@@ -198,7 +198,30 @@ CLI arguments always override values from the config file.
 **Case insensitive:** `"r0"`, `"R0"`, `"sp"`, `"SP"` all work
 
 ### JSON5 Configuration Options
-The following features are only available using hte JSON5 configuration file.
+The following features are only available using the JSON5 configuration file.
+
+#### Log Level
+Control logging verbosity in the configuration file. Can be overridden by the `RUST_LOG` environment variable. This can be helpful when debugging a config file.
+
+```json5
+{
+  log_level: "error",  // Options: "off", "error", "warn", "info", "debug", "trace"
+}
+```
+
+**Log Levels:**
+- `"off"` - No logging output
+- `"error"` - Only critical errors (memory access violations, etc.)
+- `"warn"` - Warnings and errors
+- `"info"` - Informational messages, warnings, and errors (default)
+- `"debug"` - Detailed diagnostic information including memory mapping
+- `"trace"` - Maximum verbosity with all internal operations
+
+**Note:** The `RUST_LOG` environment variable takes precedence if set:
+```bash
+RUST_LOG=debug cargo run -- --config myconfig.json5
+```
+
 #### Code Patches
 Apply binary patches to modify firmware behavior at specific addresses or symbols. Useful for bypassing security functions or modifying control flow.
 

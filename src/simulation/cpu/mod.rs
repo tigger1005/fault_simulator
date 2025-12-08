@@ -66,7 +66,6 @@ struct CpuState<'a> {
     with_register_data: bool,
     negative_run: bool,
     deactivate_print: bool,
-    print_unicorn_errors: bool,
     trace_data: TraceElement,
     fault_data: FaultElement,
     file_data: &'a ElfFile,
@@ -103,7 +102,6 @@ impl<'a> Cpu<'a> {
                 with_register_data: false,
                 negative_run: false,
                 deactivate_print: false,
-                print_unicorn_errors: true,
                 trace_data: Vec::new(),
                 fault_data: Vec::new(),
                 file_data,
@@ -180,16 +178,6 @@ impl<'a> Cpu<'a> {
                 .mem_write(serial_puts.st_value & 0xfffffffe, &T1_RET)
                 .unwrap();
         }
-    }
-
-    /// Enable or disable error printing
-    pub fn set_print_errors(&mut self, print_unicorn_errors: bool) {
-        self.emu.get_data_mut().print_unicorn_errors = print_unicorn_errors;
-    }
-
-    /// Get the current print_unicorn_errors setting
-    pub fn get_print_errors(&self) -> bool {
-        self.emu.get_data().print_unicorn_errors
     }
 
     /// Setup all breakpoints
@@ -342,9 +330,12 @@ impl<'a> Cpu<'a> {
         // Map all merged ranges
         for (addr, end, permission) in merged_ranges {
             let size = end - addr;
-            println!(
+            log::debug!(
                 "Mapping ELF segment: 0x{:08X} - 0x{:08X} ({} bytes, perm: {:?})",
-                addr, end, size, permission
+                addr,
+                end,
+                size,
+                permission
             );
             self.emu
                 .mem_map(addr, size, permission)
@@ -383,7 +374,7 @@ impl<'a> Cpu<'a> {
                     | unicorn_engine::unicorn_const::Prot::WRITE,
             ) {
                 Ok(_) => {
-                    println!(
+                    log::debug!(
                         "Successfully mapped memory region: 0x{:08X} - 0x{:08X} ({} bytes)",
                         region.address,
                         region.address + region.size,
@@ -391,9 +382,10 @@ impl<'a> Cpu<'a> {
                     );
                 }
                 Err(unicorn_engine::unicorn_const::uc_error::MAP) => {
-                    println!(
+                    log::debug!(
                         "Region at 0x{:08X} (size: 0x{:X}) already mapped by ELF.",
-                        region.address, region.size
+                        region.address,
+                        region.size
                     );
                     // Try to ensure the region has write permissions
                     match self.emu.mem_protect(
@@ -403,26 +395,29 @@ impl<'a> Cpu<'a> {
                             | unicorn_engine::unicorn_const::Prot::WRITE,
                     ) {
                         Ok(_) => {
-                            println!(
+                            log::debug!(
                                 "Updated permissions to RW for region at 0x{:08X}",
                                 region.address
                             );
                         }
                         Err(e) => {
-                            println!(
-                                "Warning: Could not update permissions for 0x{:08X}: {:?}",
-                                region.address, e
+                            log::warn!(
+                                "Could not update permissions for 0x{:08X}: {:?}",
+                                region.address,
+                                e
                             );
-                            println!(
+                            log::debug!(
                                 "Region may be partially mapped - will try to write data anyway."
                             );
                         }
                     }
                 }
                 Err(e) => {
-                    println!(
-                        "Warning: Failed to map memory region at 0x{:08X} (size: 0x{:X}): {:?}",
-                        region.address, region.size, e
+                    log::warn!(
+                        "Failed to map memory region at 0x{:08X} (size: 0x{:X}): {:?}",
+                        region.address,
+                        region.size,
+                        e
                     );
                 }
             }
@@ -433,23 +428,25 @@ impl<'a> Cpu<'a> {
                 let write_size = std::cmp::min(data.len(), region.size as usize);
                 match self.emu.mem_write(region.address, &data[..write_size]) {
                     Ok(_) => {
-                        println!(
+                        log::debug!(
                             "Wrote {} bytes of data to memory region at 0x{:08X}",
-                            write_size, region.address
+                            write_size,
+                            region.address
                         );
                     }
                     Err(unicorn_engine::unicorn_const::uc_error::WRITE_UNMAPPED) => {
-                        println!(
-                            "Error: Region at 0x{:08X} is not fully mapped (only partial mapping exists).",
+                        log::error!(
+                            "Region at 0x{:08X} is not fully mapped (only partial mapping exists).",
                             region.address
                         );
-                        println!("ELF segments may not cover the full requested range.");
-                        println!("Consider splitting this into multiple smaller regions that match ELF segments.");
+                        log::info!("ELF segments may not cover the full requested range.");
+                        log::info!("Consider splitting this into multiple smaller regions that match ELF segments.");
                     }
                     Err(e) => {
-                        println!(
-                            "Error: Failed to write data to memory region at 0x{:08X}: {:?}",
-                            region.address, e
+                        log::error!(
+                            "Failed to write data to memory region at 0x{:08X}: {:?}",
+                            region.address,
+                            e
                         );
                     }
                 }

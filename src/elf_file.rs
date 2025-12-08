@@ -114,7 +114,7 @@ impl ElfFile {
             return Ok(());
         }
 
-        println!("Applying {} code patches to ELF data...", patches.len());
+        log::info!("Applying {} code patches to ELF data...", patches.len());
 
         for patch in patches {
             // Resolve address from symbol if needed, otherwise use direct address
@@ -130,14 +130,17 @@ impl ElfFile {
                 // Add offset if provided
                 if patch.offset != 0 {
                     actual_address = actual_address.wrapping_add(patch.offset);
-                    println!(
+                    log::debug!(
                         "  Resolving symbol '{}' + 0x{:X} to address 0x{:08X}",
-                        sym_name, patch.offset, actual_address
+                        sym_name,
+                        patch.offset,
+                        actual_address
                     );
                 } else {
-                    println!(
+                    log::debug!(
                         "  Resolving symbol '{}' to address 0x{:08X}",
-                        sym_name, actual_address
+                        sym_name,
+                        actual_address
                     );
                 }
                 actual_address
@@ -147,7 +150,7 @@ impl ElfFile {
                 return Err("Code patch must specify either 'address' or 'symbol'".to_string());
             };
 
-            println!(
+            log::debug!(
                 "  Patching address 0x{:08X} with {} bytes",
                 address,
                 patch.data.len()
