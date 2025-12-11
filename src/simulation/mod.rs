@@ -45,6 +45,8 @@ impl<'a> Control<'a> {
     /// * `success_addresses` - List of memory addresses that indicate success when executed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
     /// * `initial_registers` - HashMap of RegisterARM to initial values for CPU registers.
+    /// * `memory_regions` - Custom memory regions to initialize.
+    /// * `result_checks` - Register-based success/failure checking configuration.
     ///
     /// # Returns
     ///
@@ -56,6 +58,7 @@ impl<'a> Control<'a> {
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
         memory_regions: &[crate::config::MemoryRegion],
+        result_checks: Option<crate::config::ResultChecks>,
     ) -> Self {
         // Setup cpu emulation
         let mut emu = Cpu::new(
@@ -63,6 +66,7 @@ impl<'a> Control<'a> {
             success_addresses,
             failure_addresses,
             initial_registers,
+            result_checks,
         );
         // Cpu setup
         emu.setup_mmio(memory_regions);

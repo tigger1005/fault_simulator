@@ -8,7 +8,8 @@ mod callback;
 
 use callback::{
     capture_memory_errors, hook_code_callback, hook_code_decision_activation_callback,
-    hook_custom_addresses_callback, mmio_auth_write_callback, mmio_serial_write_callback,
+    hook_custom_addresses_callback, hook_result_check_callback, mmio_auth_write_callback,
+    mmio_serial_write_callback,
 };
 
 use unicorn_engine::unicorn_const::uc_error;
@@ -71,6 +72,7 @@ struct CpuState<'a> {
     file_data: &'a ElfFile,
     success_addresses: Vec<u64>,
     failure_addresses: Vec<u64>,
+    result_checks: Option<crate::config::ResultChecks>,
 }
 
 impl<'a> Cpu<'a> {
@@ -82,6 +84,7 @@ impl<'a> Cpu<'a> {
     /// * `success_addresses` - List of memory addresses that indicate success when executed.
     /// * `failure_addresses` - List of memory addresses that indicate failure when executed.
     /// * `initial_registers` - HashMap of RegisterARM to initial values.
+    /// * `result_checks` - Register-based success/failure checking configuration.
     ///
     /// # Returns
     ///
@@ -91,6 +94,7 @@ impl<'a> Cpu<'a> {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: HashMap<RegisterARM, u64>,
+        result_checks: Option<crate::config::ResultChecks>,
     ) -> Self {
         // Setup platform -> ARMv8-m.base
         let emu = Unicorn::new_with_data(
@@ -107,6 +111,7 @@ impl<'a> Cpu<'a> {
                 file_data,
                 success_addresses,
                 failure_addresses,
+                result_checks,
             },
         )
         .expect("failed to initialize Unicorn instance");
@@ -205,11 +210,27 @@ impl<'a> Cpu<'a> {
         }
 
         // Set up code hooks for custom success/failure addresses (if any provided)
+        // Priority: result_checks > custom addresses > MMIO-based checking
+        let has_result_checks = self.emu.get_data().result_checks.is_some();
         let has_custom_addresses = !self.emu.get_data().success_addresses.is_empty()
             || !self.emu.get_data().failure_addresses.is_empty();
-        if has_custom_addresses {
-            // Add code hook for all program segments to check for custom addresses
-            // Use virtual addresses (p_vaddr) for ARM Cortex-M flat memory model
+
+        if has_result_checks {
+            // Use register-based checking (new mechanism)
+            debug!("Using register-based success/failure checking");
+            let program_data = &self.emu.get_data().file_data.program_data.clone();
+            for segment in program_data {
+                self.emu
+                    .add_code_hook(
+                        segment.0.p_vaddr,
+                        segment.0.p_vaddr + segment.0.p_memsz,
+                        hook_result_check_callback,
+                    )
+                    .expect("failed to set result check code hook");
+            }
+        } else if has_custom_addresses {
+            // Use address-based checking (backward compatibility)
+            debug!("Using address-based success/failure checking");
             let program_data = &self.emu.get_data().file_data.program_data.clone();
             for segment in program_data {
                 self.emu
@@ -221,7 +242,8 @@ impl<'a> Cpu<'a> {
                     .expect("failed to set custom address code hook");
             }
         } else {
-            // Only set up the MMIO hook when NOT using custom addresses
+            // Only set up the MMIO hook when NOT using custom addresses or result checks
+            debug!("Using MMIO-based success/failure checking");
             self.emu
                 .add_mem_hook(
                     HookType::MEM_WRITE,

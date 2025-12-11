@@ -302,6 +302,39 @@ Define custom memory regions with optional data loading from files. Essential fo
 - `data` (string, optional): Hex value to initialize the region with (e.g., "0xDEADBEEF")
 - `force_overwrite` (boolean, optional, default: false): If true, merges fragmented ELF segments within this region into one contiguous block to ensure the entire region can be mapped and overwritten with custom data
 
+#### Result Checks
+Check register values at specific addresses to determine success or failure.
+
+```json5
+{
+  result_checks: {
+    success_checks: [
+      {
+        address: "0x08000490",
+        expected_registers: {
+          R0: "0x00000000",
+        }
+      }
+    ],
+    failure_checks: [
+      {
+        address: "0x08000490",
+        expected_registers: {
+          R0: "0xFFFFFFFF",
+        }
+      }
+    ]
+  }
+}
+```
+
+- `success_checks`: Conditions that indicate a successful attack
+- `failure_checks`: Conditions that indicate expected secure behavior
+- `address`: Where to check (hex format)
+- `expected_registers`: Register values that must match (supports R0-R12, SP, LR, PC, CPSR)
+
+All specified registers must match for the check to trigger. If `result_checks` is set, it takes precedence over `success_addresses` and `failure_addresses`.
+
 
 ## Ghidra Visualization
 

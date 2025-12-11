@@ -21,6 +21,7 @@ use crate::simulation::{record::FaultRecord, Control, Data, FaultElement, RunTyp
 /// * `success_addresses` - Memory addresses that indicate successful attack when accessed.
 /// * `failure_addresses` - Memory addresses that indicate attack failure when accessed.
 /// * `initial_registers` - Initial CPU register values to set before each simulation.
+/// * `register_checkpoints` - Register-based success/failure checking configuration.
 #[derive(Debug, Clone)]
 pub struct SimulationConfig {
     /// Maximum number of CPU cycles/instructions to execute per simulation.
@@ -39,6 +40,8 @@ pub struct SimulationConfig {
     pub memory_regions: Vec<crate::config::MemoryRegion>,
     /// Log level: "off", "error", "warn", "info", "debug", "trace".
     pub log_level: String,
+    /// Register-based success/failure checking configuration.
+    pub result_checks: Option<crate::config::ResultChecks>,
 }
 
 impl SimulationConfig {
@@ -54,6 +57,7 @@ impl SimulationConfig {
     /// * `initial_registers` - Initial CPU register values to set before each simulation.
     /// * `memory_regions` - Custom memory regions to initialize.
     /// * `log_level` - Log level: "off", "error", "warn", "info", "debug", "trace".
+    /// * `result_checks` - Register-based success/failure checking configuration.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         cycles: usize,
@@ -64,6 +68,7 @@ impl SimulationConfig {
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
         memory_regions: Vec<crate::config::MemoryRegion>,
         log_level: String,
+        result_checks: Option<crate::config::ResultChecks>,
     ) -> Self {
         Self {
             cycles,
@@ -74,6 +79,7 @@ impl SimulationConfig {
             initial_registers,
             memory_regions,
             log_level,
+            result_checks,
         }
     }
 }
@@ -209,6 +215,7 @@ impl SimulationThread {
             initial_registers,
             Vec::new(),         // No memory regions in this test
             "info".to_string(), // Default verbose level
+            None,               // No result checks
         );
         Self::new(config)
     }
@@ -277,6 +284,7 @@ impl SimulationThread {
             let failure_addrs = self.config.failure_addresses.clone();
             let init_regs = self.config.initial_registers.clone();
             let mem_regions = self.config.memory_regions.clone();
+            let result_checks = self.config.result_checks.clone();
             let cycles = self.config.cycles;
             let handle = spawn(move || {
                 // Wait for workload
@@ -288,6 +296,7 @@ impl SimulationThread {
                     failure_addrs.clone(),
                     init_regs.clone(),
                     &mem_regions,
+                    result_checks.clone(),
                 );
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
@@ -309,6 +318,7 @@ impl SimulationThread {
                                 failure_addrs.clone(),
                                 init_regs.clone(),
                                 &mem_regions,
+                                result_checks.clone(),
                             );
                             match trace_sim.run_with_faults(
                                 cycles,
