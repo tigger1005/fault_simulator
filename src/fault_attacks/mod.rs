@@ -383,6 +383,7 @@ impl<'a> FaultAttacks<'a> {
             self.user_thread.config.failure_addresses.clone(),
             self.user_thread.config.initial_registers.clone(),
             &self.user_thread.config.memory_regions,
+            self.user_thread.config.result_checks.clone(),
         );
         simulation.check_program(self.user_thread.config.cycles)
     }

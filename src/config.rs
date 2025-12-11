@@ -180,6 +180,8 @@ pub struct Config {
     pub memory_regions: Vec<MemoryRegion>,
     #[serde(default)]
     pub log_level: String,
+    #[serde(default)]
+    pub result_checks: Option<ResultChecks>,
 }
 
 impl Config {
@@ -220,6 +222,7 @@ impl Config {
             code_patches: Vec::new(),
             memory_regions: Vec::new(),
             log_level: "info".to_string(),
+            result_checks: None,
         }
     }
 
@@ -478,6 +481,40 @@ where
         .collect()
 }
 
+/// Deserialize a single hex string to u64
+fn deserialize_single_hex<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct HexVisitor;
+
+    impl<'de> Visitor<'de> for HexVisitor {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a hex string (e.g., '0x1234') or a number")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<u64, E>
+        where
+            E: de::Error,
+        {
+            parse_hex(value).map_err(de::Error::custom)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<u64, E>
+        where
+            E: de::Error,
+        {
+            Ok(value)
+        }
+    }
+
+    deserializer.deserialize_any(HexVisitor)
+}
 #[derive(Debug, Clone)]
 pub struct CodePatch {
     pub address: Option<u64>,
@@ -492,4 +529,26 @@ pub struct MemoryRegion {
     pub size: u64,
     pub data: Option<Vec<u8>>, // Optional: data to initialize the region with
     pub force_overwrite: bool, // If true, merge ELF segments to allow overwriting
+}
+
+/// Configuration for register value checking at a specific address
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegisterCheck {
+    /// Address where register values should be checked
+    #[serde(deserialize_with = "deserialize_single_hex")]
+    pub address: u64,
+    /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
+    #[serde(deserialize_with = "deserialize_register_context")]
+    pub expected_registers: HashMap<RegisterARM, u64>,
+}
+
+/// Configuration for register-based success/failure checking
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResultChecks {
+    /// List of register checks that indicate success
+    #[serde(default)]
+    pub success_checks: Vec<RegisterCheck>,
+    /// List of register checks that indicate failure
+    #[serde(default)]
+    pub failure_checks: Vec<RegisterCheck>,
 }

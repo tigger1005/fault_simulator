@@ -69,6 +69,87 @@ pub fn hook_custom_addresses_callback(emu: &mut Unicorn<CpuState>, address: u64,
     }
 }
 
+/// Dedicated hook for register-based success/failure checking
+/// This hook checks register values at specific addresses
+pub fn hook_result_check_callback(emu: &mut Unicorn<CpuState>, address: u64, _size: u32) {
+    let emu_data = emu.get_data();
+
+    if let Some(ref checkpoints) = emu_data.result_checks {
+        // Check success conditions
+        for check in &checkpoints.success_checks {
+            if check.address == address {
+                // Read all required registers and compare
+                let mut all_match = true;
+                for (reg, expected_value) in &check.expected_registers {
+                    match emu.reg_read(*reg) {
+                        Ok(actual_value) => {
+                            if actual_value != *expected_value {
+                                debug!(
+                                    "Register mismatch at success checkpoint 0x{:x}: {:?} = 0x{:x} (expected 0x{:x})",
+                                    address, reg, actual_value, expected_value
+                                );
+                                all_match = false;
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            debug!("Failed to read register {:?}: {:?}", reg, e);
+                            all_match = false;
+                            break;
+                        }
+                    }
+                }
+
+                if all_match {
+                    emu.get_data_mut().state = RunState::Success;
+                    debug!(
+                        "Register checkpoint success at 0x{:x}: all registers match",
+                        address
+                    );
+                    emu.emu_stop().expect("failed to stop");
+                    return;
+                }
+            }
+        }
+
+        // Check failure conditions
+        for check in &checkpoints.failure_checks {
+            if check.address == address {
+                let mut all_match = true;
+                for (reg, expected_value) in &check.expected_registers {
+                    match emu.reg_read(*reg) {
+                        Ok(actual_value) => {
+                            if actual_value != *expected_value {
+                                debug!(
+                                    "Register mismatch at failure checkpoint 0x{:x}: {:?} = 0x{:x} (expected 0x{:x})",
+                                    address, reg, actual_value, expected_value
+                                );
+                                all_match = false;
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            debug!("Failed to read register {:?}: {:?}", reg, e);
+                            all_match = false;
+                            break;
+                        }
+                    }
+                }
+
+                if all_match {
+                    emu.get_data_mut().state = RunState::Failed;
+                    debug!(
+                        "Register checkpoint failure at 0x{:x}: all registers match",
+                        address
+                    );
+                    emu.emu_stop().expect("failed to stop");
+                    return;
+                }
+            }
+        }
+    }
+}
+
 /// Callback for serial mem IO write access
 ///
 /// This IO write displays printed messages

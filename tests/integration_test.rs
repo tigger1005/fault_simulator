@@ -360,3 +360,110 @@ fn test_code_patch_symbol() {
     // Should run without Unicorn error (function patched successfully)
     cmd.assert().success();
 }
+
+#[test]
+/// Test for result_checks functionality
+///
+/// This test verifies the new result_checks mechanism that checks both address
+/// and register values. It uses victim_3.elf and defines checkpoints where specific
+/// register values determine success or failure.
+fn test_result_checks() {
+    use unicorn_engine::RegisterARM;
+
+    env::set_var("RAYON_NUM_THREADS", "1");
+
+    // Create result checks configuration
+    let success_check = RegisterCheck {
+        address: 0x08000490,
+        expected_registers: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(RegisterARM::R0, 0x00000000); // R0 = 0 means success
+            map
+        },
+    };
+
+    let failure_check_1 = RegisterCheck {
+        address: 0x08000490,
+        expected_registers: {
+            let mut map = std::collections::HashMap::new();
+            map.insert(RegisterARM::R0, 0x00000001); // R0 = 1 means failure
+            map
+        },
+    };
+
+    let result_checks = ResultChecks {
+        success_checks: vec![success_check],
+        failure_checks: vec![failure_check_1],
+    };
+
+    let file_data: ElfFile =
+        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+
+    // Create simulation config with result_checks
+    let sim_config = SimulationConfig::new(
+        2000,                             // cycles
+        false,                            // deep_analysis
+        false,                            // run_through
+        vec![],                           // success_addresses (empty, using result_checks)
+        vec![],                           // failure_addresses (empty, using result_checks)
+        std::collections::HashMap::new(), // initial_registers
+        vec![],                           // memory_regions
+        "info".to_string(),               // log_level
+        Some(result_checks),              // result_checks
+    );
+
+    let mut user_thread = SimulationThread::new(sim_config).unwrap();
+    user_thread.start_worker_threads(&file_data, 15).unwrap();
+    let mut attack = FaultAttacks::new(&file_data, &user_thread).unwrap();
+
+    // Test single glitch attack with result_checks
+    let vec = ["glitch".to_string()];
+    let single_result = attack.single(&mut vec.iter()).unwrap();
+
+    // Verify that the attack runs and produces results
+    println!(
+        "Result checks test - Single attack result: success={}, attacks={}",
+        single_result.0, single_result.1
+    );
+    assert!(
+        single_result.1 > 0,
+        "Expected some attack iterations with result_checks"
+    );
+
+    // Test fault simulation with result_checks
+    let fault_result = attack.fault_simulation(&[Glitch::new(1)]).unwrap();
+    println!(
+        "Result checks test - Fault simulation found {} successful attacks",
+        fault_result.len()
+    );
+
+    // Verify that result_checks mechanism is working
+    // Just verify the simulation ran without errors
+    assert!(
+        single_result.1 > 0,
+        "Result checks mechanism should run simulations"
+    );
+}
+
+#[test]
+/// Integration test for result_checks from JSON5 config
+///
+/// This test verifies that result_checks can be loaded from a JSON5 config file
+/// and used in simulation.
+fn test_result_checks_json_config() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks.json5",
+        "--no-check",
+        "--max-instructions",
+        "100",
+    ]);
+
+    cmd.assert()
+        .stderr(predicate::str::contains(
+            "Using register-based success/failure checking",
+        ))
+        .success();
+}

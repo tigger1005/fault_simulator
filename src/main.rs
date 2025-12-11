@@ -118,6 +118,7 @@ fn main() -> Result<(), String> {
         config.initial_registers,
         config.memory_regions,
         config.log_level.clone(),
+        config.result_checks,
     );
     // Create user thread for simulation
     let mut user_thread = SimulationThread::new(sim_config)?;
