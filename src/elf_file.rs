@@ -91,9 +91,16 @@ impl ElfFile {
     /// * Required sections (string tables, symbol tables) are missing
     /// * ELF format is unsupported or corrupted
     pub fn new(path: std::path::PathBuf) -> Result<Self, SimulatorError> {
-        let file_data = std::fs::read(path).expect("Could not read file.");
-        let elf_data = ElfBytes::<AnyEndian>::minimal_parse(file_data.as_ref())
-            .expect("Open file data failed");
+        let file_data = std::fs::read(&path).map_err(|e| {
+            SimulatorError::Elf(format!("Could not read file '{}': {}", path.display(), e))
+        })?;
+        let elf_data = ElfBytes::<AnyEndian>::minimal_parse(file_data.as_ref()).map_err(|e| {
+            SimulatorError::Elf(format!(
+                "Failed to parse ELF file '{}': {}",
+                path.display(),
+                e
+            ))
+        })?;
 
         // Get all program headers and the linked program data into a vector
         let program_data: Vec<(ProgramHeader, Vec<u8>)> = elf_data
