@@ -209,6 +209,8 @@ pub struct Config {
     pub no_check: bool,
     #[serde(default)]
     pub run_through: bool,
+    #[serde(default)]
+    pub print_analysis: Option<usize>,
     #[serde(default, deserialize_with = "deserialize_hex")]
     pub success_addresses: Vec<u64>,
     #[serde(default, deserialize_with = "deserialize_hex")]
@@ -272,6 +274,7 @@ impl Config {
             trace: args.trace,
             no_check: args.no_check,
             run_through: args.run_through,
+            print_analysis: args.print_analysis,
             success_addresses: args.success_addresses.clone(),
             failure_addresses: args.failure_addresses.clone(),
             initial_registers: HashMap::new(),
@@ -307,6 +310,9 @@ impl Config {
         }
         if args.run_through {
             self.run_through = true;
+        }
+        if args.print_analysis.is_some() {
+            self.print_analysis = args.print_analysis;
         }
 
         // Override vectors/options only if provided
@@ -412,6 +418,11 @@ pub struct Args {
     /// Don't stop on first successful fault injection
     #[arg(short, long, default_value_t = false)]
     pub run_through: bool,
+
+    /// Print analysis trace for a specific attack number and exit.
+    /// Useful for automated analysis of successful attacks.
+    #[arg(long, value_name = "NUMBER")]
+    pub print_analysis: Option<usize>,
 
     /// List of memory addresses that indicate success when accessed
     /// Format: --success-addresses 0x8000123 0x8000456

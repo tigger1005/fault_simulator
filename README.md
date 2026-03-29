@@ -131,6 +131,7 @@ CLI arguments always override values from the config file.
 | `-e, --elf <FILE>`                             | Use external elf file w/o compilation step                                                                                                                                                                                                                                                                         |
 | `--trace`                                      | Trace and analyse program w/o fault injection                                                                                                                                                                                                                                                                      |
 | `-r, --run-through`                            | Don't stop on first successful fault injection                                                                                                                                                                                                                                                                     |
+| `--print-analysis <NUMBER>`                    | Print analysis trace for a specific attack number and exit. Useful for automated analysis of successful attacks                                                                                                                                                                                                    |
 | `--log-level <LEVEL>`                          | Set logging verbosity: off, error, warn, info, debug, trace [default: off]                                                                                                                                                                                                                                         |
 | `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456                                                                                                                                                                                                       |
 | `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc                                                                                                                                                                                                       |
@@ -172,7 +173,12 @@ CLI arguments always override values from the config file.
    cargo run -- --faults regbf_r1_0100 glitch_1
    ```
 
-6. **Running with custom initial register context:**
+6. **Print analysis trace for a specific attack and exit (for automation):**
+   ```bash
+   cargo run -- --class single glitch --print-analysis 1
+   ```
+
+7. **Running with custom initial register context:**
    Create a config file (`custom_context.json5`):
    ```json5
    {

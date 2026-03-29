@@ -1,13 +1,12 @@
 use clap::Parser;
-use std::io::stdout;
-use std::io::{self, Write};
-use std::sync::Arc;
 
 use fault_simulator::config::{Args, Config};
 use fault_simulator::error::SimulatorError;
 use fault_simulator::prelude::*;
 
+mod attack;
 mod compile;
+mod report;
 
 use git_version::git_version;
 const GIT_VERSION: &str = git_version!();
@@ -109,7 +108,7 @@ fn main() -> Result<(), SimulatorError> {
     env_logger::init();
 
     // Check for compilation flag and provided elf file
-    let path = match config.elf {
+    let path = match &config.elf {
         None => {
             // Compilation according cli parameter
             if !config.no_compilation {
@@ -119,7 +118,7 @@ fn main() -> Result<(), SimulatorError> {
         }
         Some(elf_path) => {
             println!("Provided elf file: {}\n", elf_path.display());
-            elf_path
+            elf_path.clone()
         }
     };
 
@@ -151,100 +150,9 @@ fn main() -> Result<(), SimulatorError> {
     if !config.code_patches.is_empty() {
         file_data.apply_patches(&config.code_patches)?;
     }
-    // Create simulation configuration
-    let sim_config = SimulationConfig::new(
-        config.max_instructions,
-        config.deep_analysis,
-        config.success_addresses,
-        config.failure_addresses,
-        config.initial_registers,
-        config.memory_regions,
-        config.log_level.clone(),
-        config.result_checks,
-    );
-    // Create user thread for simulation
-    let user_thread = Arc::new(SimulationThread::new_with_threads(
-        sim_config,
-        &file_data,
-        config.threads,
-    )?);
 
-    // Load victim data for attack simulation with dedicated fault attack threads
-    // Use half the available threads for fault attacks to balance with general simulation
-    let mut attack_sim =
-        FaultAttacks::new_with_threads(&file_data, Arc::clone(&user_thread), config.threads)?;
-    // Check for correct program behavior
-    if !config.no_check {
-        println!("Check for correct program behavior:");
-        attack_sim.check_for_correct_behavior()?;
-    }
+    // Run attack campaign (setup threads, validate, execute attacks, report)
+    attack::run(config, &file_data)?;
 
-    // Check if trace is selected
-    if config.trace {
-        attack_sim.print_trace()?;
-        return Ok(());
-    }
-
-    println!("\nRun fault simulations:");
-
-    // Run attack simulation
-    if config.faults.is_empty() {
-        let class = config.class.clone();
-        let subclass = if class.len() > 1 { &class[1..] } else { &[] };
-        match class.first().map(|s| s.as_str()) {
-            Some("all") | None => {
-                if !attack_sim.single(subclass, config.run_through)?.0 {
-                    attack_sim.double(subclass, config.run_through)?;
-                }
-            }
-            Some("single") => {
-                attack_sim.single(subclass, config.run_through)?;
-            }
-            Some("double") => {
-                attack_sim.double(subclass, config.run_through)?;
-            }
-            _ => println!("Unknown attack class!"),
-        }
-    } else {
-        // Get fault type and numbers
-        let faults: Vec<Vec<FaultType>> = config
-            .faults
-            .iter()
-            .filter_map(|argument| match get_fault_from(argument) {
-                Ok(val) => Some(vec![val]),
-                Err(_) => None,
-            })
-            .collect();
-
-        // Use threaded fault simulation for better performance
-        // Falls back to regular simulation if threads aren't available
-        let _result = attack_sim.fault_simulation(&faults)?;
-    }
-
-    // Pretty print fault data
-    attack_sim.print_fault_data();
-
-    println!("Overall tests executed {}", attack_sim.count_sum);
-
-    if config.analysis {
-        loop {
-            {
-                if attack_sim.fault_data.is_empty() {
-                    println!("No successful attacks!");
-                    break;
-                }
-                print!("\nList trace for attack number : (Return for exit): ");
-                stdout().flush().unwrap();
-                let mut buffer = String::new();
-                if io::stdin().read_line(&mut buffer).is_ok() {
-                    if let Ok(number) = buffer.trim().parse::<usize>() {
-                        attack_sim.print_trace_for_fault(number)?;
-                        continue;
-                    }
-                }
-                break;
-            }
-        }
-    }
     Ok(())
 }
