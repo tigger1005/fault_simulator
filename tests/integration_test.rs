@@ -558,3 +558,56 @@ fn test_result_checks_json_config() {
         ))
         .success();
 }
+
+#[test]
+/// Test --print-analysis flag for automated analysis output
+///
+/// This test runs a single glitch attack on victim_.elf (which is known to produce
+/// successful attacks), then uses --print-analysis 1 to print the trace for
+/// the first successful attack and exit. Verifies the program exits successfully
+/// and outputs the expected analysis trace header.
+fn test_print_analysis() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--elf",
+        "tests/bin/victim_.elf",
+        "--class",
+        "single",
+        "glitch",
+        "--no-compilation",
+        "--print-analysis",
+        "1",
+    ]);
+
+    cmd.assert()
+        .stdout(predicate::str::contains(
+            "Assembler trace of attack number 1",
+        ))
+        .success();
+}
+
+#[test]
+/// Test --print-analysis with no successful attacks
+///
+/// This test runs on victim_4.elf (which has no single glitch vulnerabilities)
+/// and verifies that --print-analysis prints "No successful attacks!" and still
+/// exits successfully.
+fn test_print_analysis_no_attacks() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--elf",
+        "tests/bin/victim_4.elf",
+        "--class",
+        "single",
+        "glitch",
+        "--no-compilation",
+        "--print-analysis",
+        "1",
+    ]);
+
+    cmd.assert()
+        .stdout(predicate::str::contains("No successful attacks!"))
+        .success();
+}
