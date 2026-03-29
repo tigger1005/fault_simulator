@@ -19,19 +19,21 @@ fn capture_stdout<F: FnOnce()>(f: F) -> String {
 }
 
 /// Captures stdout output from a closure, returning both the output and the closure's return value.
+///
+/// Uses a pipe to intercept stdout. A dedicated reader thread drains the pipe
+/// concurrently so the closure never blocks when the pipe buffer fills up.
+/// Panics inside the closure are caught and re-raised after stdout is restored.
 fn capture_stdout_with_result<F: FnOnce() -> T, T>(f: F) -> (String, T) {
-    // Use a simple redirect approach: we run the closure and capture via gag
-    // Since gag isn't available, we'll build output strings manually where possible
-    // For complex print functions, we redirect by using a pipe
     use std::os::unix::io::FromRawFd;
-
-    let mut output = String::new();
 
     // Create a pipe
     let (read_fd, write_fd) = {
         let mut fds = [0i32; 2];
-        unsafe {
-            libc::pipe(fds.as_mut_ptr());
+        let ret = unsafe { libc::pipe(fds.as_mut_ptr()) };
+        if ret != 0 {
+            // If pipe creation fails, just run the closure without capturing
+            let result = f();
+            return (String::new(), result);
         }
         (fds[0], fds[1])
     };
@@ -44,23 +46,37 @@ fn capture_stdout_with_result<F: FnOnce() -> T, T>(f: F) -> (String, T) {
         libc::dup2(write_fd, 1);
     }
 
-    // Run the closure
-    let result = f();
+    // Spawn a reader thread BEFORE running the closure to prevent pipe buffer deadlock.
+    // The reader drains the pipe concurrently so writes never block.
+    let reader_handle = std::thread::spawn(move || {
+        let mut output = String::new();
+        let mut read_file = unsafe { std::fs::File::from_raw_fd(read_fd) };
+        use std::io::Read;
+        let _ = read_file.read_to_string(&mut output);
+        output
+    });
 
-    // Flush stdout to ensure all data is written
+    // Run the closure, catching panics to ensure stdout is always restored
+    let closure_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f()));
+
+    // Flush stdout to ensure all data reaches the pipe
     io::stdout().flush().ok();
 
-    // Restore original stdout
+    // Restore original stdout and close write end so the reader thread sees EOF
     unsafe {
         libc::dup2(original_stdout, 1);
         libc::close(original_stdout);
         libc::close(write_fd);
     }
 
-    // Read from pipe
-    let mut read_file = unsafe { std::fs::File::from_raw_fd(read_fd) };
-    use std::io::Read;
-    read_file.read_to_string(&mut output).ok();
+    // Collect output from the reader thread
+    let output = reader_handle.join().unwrap_or_default();
+
+    // Re-raise panic if the closure panicked
+    let result = match closure_result {
+        Ok(val) => val,
+        Err(panic_payload) => std::panic::resume_unwind(panic_payload),
+    };
 
     (output, result)
 }

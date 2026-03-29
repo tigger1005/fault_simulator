@@ -19,6 +19,8 @@ For fast reproduction of a successful attack, the faults can be setup with the -
 (E.g. *"--faults glitch_1 glitch_10"* -a double attack with 1 and 10 instruction glitches)
 Code examples for main.c are located at: "content\src\examples"
 
+For AI-assisted investigations using the MCP server, see the [AI Investigation Guide](doc/MCP_Investigation_Guide.md).
+
 ## Implemented Attacks
 
 ### 1. Glitch
