@@ -31,6 +31,8 @@ This document catalogs all fault attack mitigation techniques described in the p
     - [2.10 Sentinel Handling](#210-sentinel-handling)
     - [2.11 Data Integrity Protection](#211-data-integrity-protection)
     - [2.12 Pre-Penalization](#212-pre-penalization)
+    - [2.13 Condition-Gated Success](#213-condition-gated-success)
+    - [2.14 Minimum Effective Hardened Comparison](#214-minimum-effective-hardened-comparison)
   - [Summary Matrix](#summary-matrix)
 
 ---
@@ -74,6 +76,7 @@ uint8_t SecureMemCmp(const void *P1, const void *P2, uint16_t wSize)
 
 - The XOR operation itself can leak Hamming weight via DPA — consider combining with Secure Memory Copy or random Hamming weight masking for higher security.
 - Use `volatile` if compiler optimization may remove the constant-time property.
+- **Simulator-tested pitfall — Size Parameter Corruption:** If `memcmp` is used with a size loaded from memory, glitching the size-load instruction to NOP makes `memcmp` compare 0 bytes (always returns 0 = equal). **Fix:** Load the size from memory twice (using `volatile`) and cross-check both loads before calling the comparison function. Or avoid `memcmp` entirely and use redundant field-by-field comparison with branch separation.
 
 ---
 
@@ -456,6 +459,8 @@ PasswordCheck(&fRet);
 
 - Combine with Secure Boolean for the return value type.
 - The pointer should be to a `volatile` variable.
+- **Simulator-tested pitfall — Stale Return Values:** When a non-inlined function returns `bool`, the register `r0` may already contain a non-zero value from argument setup. If the attacker glitches the `bl` (function call) instruction, the function never executes, and the stale register value (which may be truthy) is used as the result. **Fix:** Prefer pointer-based return parameter handling for security-critical results, or use inline comparison chains (see Section 2.5 — Non-Inlined Tail Call pattern).
+- **Simulator-tested pitfall — Pre-Loaded Function Arguments:** When calling a non-inlined function, ALL arguments are loaded into registers (r0–r3) BEFORE the `bl` instruction. A single glitch on one `ldm` or `ldr` instruction can cause the function to receive stale/wrong register values, potentially making all internal checks pass despite the fault. **Fix:** Inline the comparison chain as a macro so arguments are loaded incrementally, one per check. Only the final tail-call function receives pre-loaded arguments.
 
 ---
 
@@ -537,6 +542,73 @@ if (fPassComp == SEC_TRUE)
 
 - Beware of compiler optimizations that may collapse the duplicate check into a single branch. Use `volatile` for the checked variable.
 - The random wait between checks makes it harder for the attacker to glitch both checks with a single fault.
+
+#### Simulator-Tested Pattern: Redundant Comparison Chains
+
+A single comparison compiles to a single branch instruction — trivially bypassed by one glitch. Chain multiple **independent** checks using `&&`, where each check tests a **different aspect** of the data:
+
+```c
+typedef struct {
+    volatile uint32_t val;
+    volatile uint32_t val_copy;  // val XOR MASK
+} secure_uint;
+
+#define MASK 0xA5C35A3C
+
+bool values_equal =
+    (a.val == b.val) &&
+    (a.val_copy == b.val_copy) &&
+    ((a.val ^ MASK) == (b.val ^ MASK));
+```
+
+Each `&&` generates a **separate branch instruction** in compiled assembly. Glitching one branch only skips one check — the others still guard the result. Repeating the same comparison twice is less effective because the compiler may optimize it away or use cached register values. Each check must test a **different field or transformation**.
+
+#### Simulator-Tested Pattern: Branch Separation via Function Calls
+
+If two comparison instructions are adjacent in memory, a single glitch spanning 2–3 instructions can skip both. Insert **non-inlined function calls** between checks to force spatial separation. A `bl` instruction (function call) creates a jump to a different code location, guaranteeing the two checks cannot be covered by a single contiguous NOP glitch:
+
+```c
+__attribute__((noinline)) bool verify_delay(void) {
+    volatile uint32_t r = some_computation();
+    return r != 0;  // Always returns true in normal operation
+}
+
+if ((a.val == b.val) && verify_delay() && (a.val_copy == b.val_copy)) { ... }
+```
+
+**When to use:** Between any two adjacent security-critical comparisons. The function call acts as a code-location barrier that requires an independent glitch to bypass.
+
+#### Simulator-Tested Pattern: Non-Inlined Tail Call
+
+The final check in a comparison chain should be a **non-inlined function call**. This creates a function boundary (via `bl` instruction) that requires an independent glitch to bypass:
+
+```c
+__attribute__((noinline)) bool verify_copies_match(secure_uint *a, secure_uint *b) {
+    return a->val_copy == b->val_copy;
+}
+
+// In the comparison chain:
+if ((a.val == b.val) &&
+    verify_delay() &&
+    (a.val_copy == b.val_copy) &&
+    verify_delay() &&
+    validate_secure(a) &&
+    verify_copies_match(&a, &b))   // Non-inlined tail call
+{
+    // Protected operation
+}
+```
+
+**Why inline checks + non-inlined tail is the strongest pattern:**
+- An **inline macro/check** expands in the caller — each `&&` generates its own branch. Arguments are not pre-loaded into a single register set, so corrupting one load only affects one check.
+- A **non-inlined function** as the final check adds a code boundary. The attacker needs an independent glitch specifically targeting this function call.
+- A **fully non-inlined comparison function** (all checks in one function) is *weaker* because: (a) all arguments must be pre-loaded into registers before the `bl` call, creating a concentrated vulnerability point, and (b) glitching the single `bl` instruction skips all checks at once.
+
+**Simulator-measured pitfall — Stale Return Values:** When a non-inlined function returns `bool`, the register `r0` may contain a non-zero value from argument setup. Glitching the `bl` (function call) instruction means the comparison function never executes, and the stale register value — which may be non-zero (truthy) — is used as the result. **Fix:** Use inline comparison chains with a non-inlined tail call, rather than putting ALL comparison logic in a single non-inlined function.
+
+**Simulator-measured pitfall — Cached Register Values:** The compiler may optimize a "double check" to compare against a cached register instead of re-loading the constant from memory. Both comparisons then use the same corrupt value. **Fix:** Use data redundancy so each check tests a **different field** (`val` vs `val_copy`). Mark fields `volatile` to prevent caching.
+
+**Simulator-measured pitfall — Command Bit-Flip on Comparison + Branch:** A `cmdbf` attack can change the register operand of a `cmp` instruction AND the condition of a `beq`/`bne` branch in the same fault, defeating simple comparisons. **Fix:** Multiple redundant comparisons with branch separation between them.
 
 ---
 
@@ -830,6 +902,57 @@ bool VerifyData(const RedundantData *rd, uint16_t size)
 - Configuration data
 - Any persistent security-critical state
 
+#### Simulator-Tested Pattern: XOR-Masked Redundant Data Type
+
+For runtime comparison hardening against fault injection, store every critical value twice — the original and a transformed copy (XOR with a constant mask). A single fault can corrupt one memory location or register, but not two independent representations simultaneously:
+
+```c
+typedef struct {
+    volatile uint32_t val;       // The actual value
+    volatile uint32_t val_copy;  // val XOR MASK
+} secure_uint;
+
+#define MASK 0xA5C35A3C
+#define secure_init(x) ((secure_uint){ (x), (x) ^ MASK })
+```
+
+**Why it works:** An attacker corrupting `val` cannot simultaneously corrupt `val_copy` in a consistent way. Any single fault creates a detectable mismatch between the two representations. The copy uses XOR (not a plain duplicate) so a single memory/bus fault affecting adjacent bytes doesn't corrupt both identically.
+
+**When to use:** For any decision variable (password check result, signature verification status, comparison operands) that will be used in a security-critical branch.
+
+#### Simulator-Tested Pattern: Self-Consistency Validation
+
+After using XOR-masked redundancy, periodically validate that the two representations are still consistent. Insert this as an additional `&&` check in comparison chains:
+
+```c
+__attribute__((always_inline)) static inline bool validate_secure(secure_uint x) {
+    if (x.val != (x.val_copy ^ MASK)) {
+        while(1);  // Tampered — halt (or SecurityAlert)
+    }
+    return true;
+}
+```
+
+**When to use:** Inside redundant comparison chains, between other checks. Catches cases where a single fault corrupted one field of the `secure_uint` without affecting the comparison result.
+
+#### Simulator-Tested Pattern: Removing Success Reference Data from Memory
+
+If the binary contains the "correct" value in memory (e.g., a password, a comparison target, a decision value), an attacker can potentially corrupt a data pointer to read the success value instead of the failure value. Remove the reference data entirely so it only exists as an immediate value in the instruction stream:
+
+```c
+// INSECURE: Both success and failure values stored in memory
+// An attacker can corrupt the pointer to read success_value instead of failure_value
+DECISION_DATA_STRUCTURE(uint32_t, 0x01234567, 0xFEFEFEFE);
+
+// SECURE: Only the failure value exists in memory
+// The "correct" value is a compile-time constant in the instruction stream only
+#define FAILURE_VAL 0xFEFEFEFE
+DECISION_DATA_STRUCTURE(uint32_t, FAILURE_VAL, FAILURE_VAL);
+// Comparison uses a #define constant, not a memory-stored value
+```
+
+**When to use:** When the decision variable is compared against a known-good reference value. Instead of storing the reference in a data structure, use a compile-time `#define` constant. The constant is encoded directly in the `cmp` or `mov` instructions, never stored as data in memory.
+
 ---
 
 ### 2.12 Pre-Penalization
@@ -884,6 +1007,183 @@ void AuthenticatePassword(const uint8_t *password)
 
 ---
 
+### 2.13 Condition-Gated Success
+
+**Description:**
+Even with hardened comparisons and branch protection, an attacker who can glitch past an `if` check may reach the success handling code. Condition-gated success splits the success signaling into two separate steps: (1) arm a gate variable *inside* the protected `if`-body, and (2) use the gate variable's value as the actual success signal. Bypassing the `if` check alone is insufficient — the attacker would need a second independent fault to also set the gate variable.
+
+**Code Pattern:**
+
+```c
+volatile uint32_t success_condition = 0x22222222; // Initialized to non-success value
+
+void main_check(void)
+{
+    // ... perform hardened comparison ...
+    if (all_checks_passed)
+    {
+        // Step 1: Arm the gate INSIDE the if-body
+        success_condition = 0x11111111;
+        start_success_handling();
+    }
+    else
+    {
+        // Failure path
+        handle_failure();
+    }
+}
+
+void start_success_handling(void)
+{
+    // Step 2: Use the gate variable — only 0x11111111 means actual success
+    if (success_condition == 0x11111111)
+    {
+        // True success
+        perform_privileged_operation();
+    }
+    else
+    {
+        // Gate was not armed — fault attack detected
+        SecurityAlert();
+    }
+}
+```
+
+**When to use:**
+- Any security-critical decision where the success path grants privileges, access, or performs irreversible operations
+- Boot chain validation (the success handler checks that the validation gate was properly armed)
+- Firmware update authorization
+- Cryptographic key release
+
+**How it defeats fault injection:**
+- If an attacker glitches past the `if` check and reaches `start_success_handling()`, the `success_condition` variable was never set to `0x11111111` because the assignment inside the `if`-body was skipped
+- The attacker would need a **second independent fault** to either: (a) set `success_condition` to `0x11111111`, or (b) bypass the gate check in `start_success_handling()`
+- Combined with branch separation and redundant comparisons, this requires an impractical number of simultaneous faults
+
+**Additional notes:**
+- The gate variable must be `volatile` to prevent compiler optimization.
+- The non-success initial value (`0x22222222`) should have maximum Hamming distance from the success value (`0x11111111`).
+- The `start_success_handling()` function should be non-inlined to create a function boundary.
+
+#### Simulator-Tested Pattern: Fall-Through Protection
+
+If the failure and success code paths are adjacent in compiled memory, a glitch at the failure path boundary can cause execution to "fall through" into the success path. Condition-gated success makes this harmless because the gate variable was never armed:
+
+```c
+// Even if attacker falls through from failure handling into success handling,
+// success_condition is still 0x22222222 (never armed), so the gate blocks.
+```
+
+---
+
+### 2.14 Minimum Effective Hardened Comparison
+
+**Description:**
+Based on systematic fault injection testing (single and double fault campaigns across glitch, register bit-flip, register flood, and command bit-flip attack types), a minimum set of combined techniques has been identified that achieves zero successful attacks. Removing any single element re-introduces exploitable vulnerabilities. This is the recommended template for any security-critical comparison.
+
+**Code Pattern — Complete Hardened Comparison Chain:**
+
+```c
+#include <stdint.h>
+#include <stdbool.h>
+
+// --- Data type with XOR-masked redundancy (Section 2.11) ---
+typedef struct {
+    volatile uint32_t val;
+    volatile uint32_t val_copy;  // val ^ MASK
+} secure_uint;
+
+#define MASK 0xA5C35A3C
+#define secure_init(x) ((secure_uint){ (x), (x) ^ MASK })
+
+// --- Self-consistency validation (Section 2.11) ---
+__attribute__((always_inline))
+static inline bool validate_secure(secure_uint x) {
+    if (x.val != (x.val_copy ^ MASK)) {
+        while(1);  // Halt on tamper detection
+    }
+    return true;
+}
+
+// --- Branch separator (Section 2.5) ---
+__attribute__((noinline))
+bool verify_delay(volatile uint32_t *v) {
+    return (*v != 0);  // Always true in normal operation
+}
+
+// --- Non-inlined tail call (Section 2.5) ---
+__attribute__((noinline))
+bool verify_copies_match(secure_uint *a, secure_uint *b) {
+    return a->val_copy == b->val_copy;
+}
+
+// --- Gate variable for condition-gated success (Section 2.13) ---
+volatile uint32_t success_condition = 0x22222222;
+
+// --- The hardened comparison ---
+void hardened_check(secure_uint a, secure_uint b)
+{
+    volatile uint32_t sep = 1;  // Separator variable
+
+    if (
+        (a.val == b.val) &&               // Check 1: Primary comparison
+        verify_delay(&sep) &&             // Separator: non-inlined function call
+        (b.val == (a.val_copy ^ MASK)) && // Check 2: Cross-redundancy validation
+        verify_delay(&sep) &&             // Separator: prevents glitch spanning 2+4
+        validate_secure(a) &&             // Check 3: Self-consistency of 'a'
+        verify_copies_match(&a, &b)       // Check 4: Non-inlined tail call
+    )
+    {
+        success_condition = 0x11111111;   // Arm the gate
+        start_success_handling();
+    }
+    else
+    {
+        handle_failure();
+    }
+}
+
+__attribute__((noinline))
+void start_success_handling(void)
+{
+    if (success_condition == 0x11111111)
+    {
+        // Actual success — perform privileged operation
+    }
+    else
+    {
+        SecurityAlert(); // Gate not armed — fault detected
+    }
+}
+```
+
+**Element Necessity Table:**
+
+| #   | Check                                           | Technique                      | Purpose                                         |
+| --- | ----------------------------------------------- | ------------------------------ | ----------------------------------------------- |
+| 1   | `a.val == b.val`                                | Primary comparison             | Basic equality check                            |
+| 2   | Non-inlined `verify_delay()` call               | Branch Separation (2.5)        | Prevents single glitch spanning checks 1+3      |
+| 3   | `b.val == (a.val_copy ^ MASK)`                  | Cross-redundancy (2.11)        | Validates val against the OTHER variable's copy |
+| 4   | Non-inlined `verify_delay()` call               | Branch Separation (2.5)        | Prevents single glitch spanning checks 3+5      |
+| 5   | `validate_secure(a)`                            | Self-consistency (2.11)        | Catches single-field corruption of secure_uint  |
+| 6   | Non-inlined `verify_copies_match(&a, &b)`       | Non-Inlined Tail Call (2.5)    | Requires independent glitch to bypass           |
+| 7   | `success_condition = 0x11111111` inside if-body | Condition-Gated Success (2.13) | Fall-through and branch-skip produce wrong gate |
+| 8   | Gate check in `start_success_handling()`        | Condition-Gated Success (2.13) | Second barrier requiring independent fault      |
+
+**All elements are independently necessary.** Removing any one has been demonstrated to re-introduce exploitable vulnerabilities in fault injection simulation campaigns (single and double fault, across glitch/regbf/regfld/cmdbf attack types).
+
+**When to use:**
+- As the standard template for any security-critical comparison (password check, signature verification, access control)
+- When the system must withstand both single and double fault attacks
+- As a starting point that can be extended with additional techniques (Secure Loop, Checkpoint Handling, etc.) depending on the threat model
+
+**Additional notes:**
+- This pattern was validated against: NOP glitches (1–10 instructions), single-bit register flips (R0–R12), register floods (0x00000000/0xFFFFFFFF), and single-bit instruction opcode flips.
+- The `volatile` keyword on struct fields and separator variables is critical to prevent compiler optimization from collapsing or reordering checks.
+- For additional protection against `memcmp` size corruption: if using `memcmp`, load the size from memory twice (using `volatile`) and cross-check both loads before calling the comparison function.
+
+---
+
 ## Summary Matrix
 
 | #   | Technique                 | Attack Type  | Protects Against                     | Complexity |
@@ -907,3 +1207,5 @@ void AuthenticatePassword(const uint8_t *password)
 | 17  | Sentinel Handling         | Manipulative | Address bus manipulation             | Medium     |
 | 18  | Data Integrity Protection | Manipulative | Data/key tampering in memory         | Medium     |
 | 19  | Pre-Penalization          | Manipulative | Countermeasure disruption            | Low        |
+| 20  | Condition-Gated Success   | Manipulative | Branch skip reaching success path    | Medium     |
+| 21  | Hardened Comparison       | Manipulative | Single + double fault on comparisons | High       |
