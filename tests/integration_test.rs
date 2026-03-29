@@ -4,6 +4,130 @@ use predicates::prelude::*;
 use std::process::Command; // Used for writing assertions
 use std::sync::Arc;
 
+// --- MCP Server Integration Test Helpers ---
+
+mod mcp_test {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Child, Command, Stdio};
+
+    use assert_cmd::cargo::CommandCargoExt;
+
+    /// A test client that communicates with the MCP server via stdio (newline-delimited JSON-RPC).
+    pub struct McpTestClient {
+        child: Child,
+        reader: BufReader<std::process::ChildStdout>,
+        stdin: std::process::ChildStdin,
+        stderr: std::process::ChildStderr,
+        next_id: u64,
+    }
+
+    impl McpTestClient {
+        /// Spawn the MCP server binary and prepare for JSON-RPC communication.
+        pub fn spawn() -> Self {
+            let mut child = Command::cargo_bin("fault_simulator_mcp")
+                .expect("fault_simulator_mcp binary not found")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("Failed to spawn MCP server");
+
+            let stdout = child.stdout.take().unwrap();
+            let stdin = child.stdin.take().unwrap();
+            let stderr = child.stderr.take().unwrap();
+            let reader = BufReader::new(stdout);
+
+            Self {
+                child,
+                reader,
+                stdin,
+                stderr,
+                next_id: 1,
+            }
+        }
+
+        /// Send a JSON-RPC request and return the parsed response.
+        pub fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
+            let id = self.next_id;
+            self.next_id += 1;
+            let request = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": method,
+                "params": params,
+            });
+            let msg = serde_json::to_string(&request).unwrap();
+            writeln!(self.stdin, "{}", msg).unwrap();
+            self.stdin.flush().unwrap();
+
+            let mut line = String::new();
+            let bytes = self.reader.read_line(&mut line).unwrap();
+            if bytes == 0 {
+                // EOF — server likely crashed. Read stderr for diagnostics.
+                use std::io::Read;
+                let mut err_output = String::new();
+                self.stderr.read_to_string(&mut err_output).ok();
+                panic!("MCP server closed stdout (EOF). Stderr:\n{}", err_output);
+            }
+            let trimmed = line.trim();
+            serde_json::from_str(trimmed)
+                .unwrap_or_else(|e| panic!("Invalid JSON-RPC response: {} | Raw: {:?}", e, trimmed))
+        }
+
+        /// Send a JSON-RPC notification (no response expected).
+        pub fn notify(&mut self, method: &str, params: serde_json::Value) {
+            let notification = serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": params,
+            });
+            let msg = serde_json::to_string(&notification).unwrap();
+            writeln!(self.stdin, "{}", msg).unwrap();
+            self.stdin.flush().unwrap();
+        }
+
+        /// Perform the MCP initialize handshake and return the server info.
+        pub fn initialize(&mut self) -> serde_json::Value {
+            let result = self.request(
+                "initialize",
+                serde_json::json!({
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "integration-test",
+                        "version": "0.1.0"
+                    }
+                }),
+            );
+            self.notify("notifications/initialized", serde_json::json!({}));
+            result
+        }
+
+        /// Call an MCP tool and return the response.
+        pub fn call_tool(&mut self, name: &str, arguments: serde_json::Value) -> serde_json::Value {
+            self.request(
+                "tools/call",
+                serde_json::json!({
+                    "name": name,
+                    "arguments": arguments,
+                }),
+            )
+        }
+
+        /// List available tools.
+        pub fn list_tools(&mut self) -> serde_json::Value {
+            self.request("tools/list", serde_json::json!({}))
+        }
+    }
+
+    impl Drop for McpTestClient {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+}
+
 pub fn get_cpu_cores() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
@@ -610,4 +734,343 @@ fn test_print_analysis_no_attacks() {
     cmd.assert()
         .stdout(predicate::str::contains("No successful attacks!"))
         .success();
+}
+
+// --- MCP Server Integration Tests ---
+
+#[test]
+/// Test MCP server initialization handshake
+///
+/// Spawns the MCP server binary, performs the initialize handshake,
+/// and verifies the server responds with valid capabilities and server info.
+fn mcp_initialize() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    let response = client.initialize();
+
+    // Check server responded with a valid result
+    let result = response
+        .get("result")
+        .expect("Missing 'result' in initialize response");
+    assert!(
+        result.get("capabilities").is_some(),
+        "Missing 'capabilities' in initialize result"
+    );
+    assert!(
+        result.get("serverInfo").is_some(),
+        "Missing 'serverInfo' in initialize result"
+    );
+
+    // Verify tools capability is enabled
+    let capabilities = &result["capabilities"];
+    assert!(
+        capabilities.get("tools").is_some(),
+        "Tools capability not enabled"
+    );
+}
+
+#[test]
+/// Test MCP server tools/list returns all expected tools
+///
+/// Verifies that the server advertises all 9 implemented tools
+/// with proper names and descriptions.
+fn mcp_list_tools() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.list_tools();
+    let tools = response["result"]["tools"]
+        .as_array()
+        .expect("tools/list should return an array");
+
+    let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+
+    let expected_tools = [
+        "list_fault_types",
+        "load_elf",
+        "run_attack",
+        "run_faults",
+        "get_results",
+        "analyze_attack",
+        "get_trace",
+        "get_attack_data",
+        "reset_session",
+    ];
+
+    for expected in &expected_tools {
+        assert!(
+            tool_names.contains(expected),
+            "Missing tool '{}' in tools/list. Found: {:?}",
+            expected,
+            tool_names
+        );
+    }
+    assert_eq!(
+        expected_tools.len(),
+        tools.len(),
+        "Unexpected number of tools"
+    );
+}
+
+#[test]
+/// Test MCP list_fault_types tool
+///
+/// Verifies the list_fault_types tool returns fault group information
+/// including glitch, regbf, regfld, and cmdbf types.
+fn mcp_list_fault_types() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.call_tool("list_fault_types", serde_json::json!({}));
+    let result = &response["result"];
+
+    // Should not be an error
+    assert!(
+        response.get("error").is_none(),
+        "list_fault_types returned error: {:?}",
+        response["error"]
+    );
+
+    let content = result["content"]
+        .as_array()
+        .expect("Expected content array");
+    let text = content[0]["text"].as_str().expect("Expected text content");
+
+    assert!(text.contains("glitch"), "Should contain glitch faults");
+    assert!(text.contains("regbf"), "Should contain regbf faults");
+    assert!(text.contains("regfld"), "Should contain regfld faults");
+    assert!(text.contains("cmdbf"), "Should contain cmdbf faults");
+}
+
+#[test]
+/// Test MCP load_elf and run_attack workflow
+///
+/// Loads victim_.elf via the MCP server, runs a single glitch attack,
+/// and verifies that successful attacks are found and results can be retrieved.
+fn mcp_load_and_attack() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    // Load ELF
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "elf_path": "tests/bin/victim_.elf",
+            "max_instructions": 2000
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "load_elf returned error: {:?}",
+        response["error"]
+    );
+
+    // Run single glitch attack
+    let response = client.call_tool(
+        "run_attack",
+        serde_json::json!({
+            "class": "single",
+            "subclass": ["glitch"]
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "run_attack returned error: {:?}",
+        response["error"]
+    );
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("Successful attacks:"),
+        "Expected attack summary in output"
+    );
+    // victim_.elf should produce successful attacks with single glitch
+    assert!(
+        !text.contains("Successful attacks: 0"),
+        "Expected at least one successful attack on victim_.elf"
+    );
+
+    // Get results
+    let response = client.call_tool("get_results", serde_json::json!({}));
+    assert!(
+        response.get("error").is_none(),
+        "get_results returned error"
+    );
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("Successful attacks:"),
+        "Expected attack count in get_results"
+    );
+
+    // Get structured attack data
+    let response = client.call_tool("get_attack_data", serde_json::json!({}));
+    assert!(
+        response.get("error").is_none(),
+        "get_attack_data returned error"
+    );
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(text).expect("get_attack_data should return valid JSON");
+    assert!(
+        data.as_array().unwrap().len() > 0,
+        "Expected attack data entries"
+    );
+
+    // Analyze first attack
+    let response = client.call_tool("analyze_attack", serde_json::json!({ "attack_number": 1 }));
+    assert!(
+        response.get("error").is_none(),
+        "analyze_attack returned error"
+    );
+}
+
+#[test]
+/// Test MCP get_trace tool
+///
+/// Loads an ELF file and retrieves the baseline execution trace
+/// without any fault injection.
+fn mcp_get_trace() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    // Load ELF first
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "elf_path": "tests/bin/victim_.elf",
+            "max_instructions": 2000
+        }),
+    );
+    assert!(response.get("error").is_none(), "load_elf failed");
+
+    // Get baseline trace
+    let response = client.call_tool("get_trace", serde_json::json!({}));
+    assert!(response.get("error").is_none(), "get_trace returned error");
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    // Trace should contain assembly instructions
+    assert!(!text.is_empty(), "Trace output should not be empty");
+}
+
+#[test]
+/// Test MCP reset_session tool
+///
+/// Verifies that reset_session clears attack data while keeping
+/// the session alive.
+fn mcp_reset_session() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    // Load and attack
+    client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "elf_path": "tests/bin/victim_.elf",
+            "max_instructions": 2000
+        }),
+    );
+    client.call_tool(
+        "run_attack",
+        serde_json::json!({
+            "class": "single",
+            "subclass": ["glitch"]
+        }),
+    );
+
+    // Reset
+    let response = client.call_tool("reset_session", serde_json::json!({}));
+    assert!(
+        response.get("error").is_none(),
+        "reset_session returned error"
+    );
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("Session reset"),
+        "Expected reset confirmation"
+    );
+
+    // Get results after reset — should be empty
+    let response = client.call_tool("get_results", serde_json::json!({}));
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("No successful attacks found"),
+        "Expected no attacks after reset"
+    );
+}
+
+#[test]
+/// Test MCP run_faults tool with specific fault sequence
+///
+/// Loads an ELF and runs a specific fault sequence using the run_faults tool.
+fn mcp_run_faults() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    // Load ELF
+    client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "elf_path": "tests/bin/victim_.elf",
+            "max_instructions": 2000
+        }),
+    );
+
+    // Run specific fault
+    let response = client.call_tool("run_faults", serde_json::json!({ "faults": ["glitch_1"] }));
+    assert!(
+        response.get("error").is_none(),
+        "run_faults returned error: {:?}",
+        response["error"]
+    );
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("Successful attacks:"),
+        "Expected attack summary"
+    );
+    assert!(
+        text.contains("Overall tests executed:"),
+        "Expected test count"
+    );
+}
+
+#[test]
+/// Test MCP error handling — calling tools without loading ELF
+///
+/// Verifies that calling attack tools before load_elf returns appropriate errors.
+fn mcp_error_no_elf_loaded() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    // Attempt run_attack without loading ELF
+    let response = client.call_tool("run_attack", serde_json::json!({ "class": "single" }));
+    // Should return an error
+    assert!(
+        response.get("error").is_some(),
+        "Expected error when running attack without ELF loaded"
+    );
+
+    // Attempt get_results without loading ELF
+    let response = client.call_tool("get_results", serde_json::json!({}));
+    assert!(
+        response.get("error").is_some(),
+        "Expected error for get_results without ELF"
+    );
+
+    // Attempt get_trace without loading ELF
+    let response = client.call_tool("get_trace", serde_json::json!({}));
+    assert!(
+        response.get("error").is_some(),
+        "Expected error for get_trace without ELF"
+    );
 }

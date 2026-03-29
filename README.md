@@ -358,3 +358,80 @@ The Ghidra script you created enhances the visualization of the trace output gen
 
 ![Ghidra Visualization](assets/ghidra_vis.png)
 *Screenshot of the Ghidra visualization with highlighted instructions.*
+
+## MCP Server (AI Integration)
+
+The fault simulator includes an MCP (Model Context Protocol) server that allows AI assistants (e.g., GitHub Copilot, Claude Desktop) to remotely control the simulator. This enables AI-driven fault injection analysis through a standardized tool interface.
+
+### Building
+
+```bash
+cargo build --release --bin fault_simulator_mcp
+```
+
+### Configuration
+
+#### VS Code (GitHub Copilot)
+
+Create or add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "fault-simulator": {
+      "command": "/path/to/fault_simulator/target/release/fault_simulator_mcp"
+    }
+  }
+}
+```
+
+#### Claude Desktop
+
+Add to your Claude Desktop configuration (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "fault-simulator": {
+      "command": "/path/to/fault_simulator/target/release/fault_simulator_mcp"
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool               | Description                                                              |
+| ------------------ | ------------------------------------------------------------------------ |
+| `list_fault_types` | List all available fault types with their parameter variations           |
+| `load_elf`         | Load an ELF file and initialize the simulation environment               |
+| `run_attack`       | Run class-based fault attacks (`single`, `double`, or `all`)             |
+| `run_faults`       | Run specific fault sequences (e.g., `["glitch_1", "regbf_r0_00000001"]`) |
+| `get_results`      | Get a summary of all successful attacks found                            |
+| `analyze_attack`   | Get detailed execution trace for a specific successful attack            |
+| `get_trace`        | Get the baseline execution trace without fault injection                 |
+| `get_attack_data`  | Get structured attack data in JSON format                                |
+| `reset_session`    | Clear attack results and start a fresh campaign                          |
+
+### Typical Workflow
+
+1. **Load a target binary:** The AI calls `load_elf` with the path to an ELF file.
+2. **Run attacks:** The AI calls `run_attack` with class `single` or `double` to find vulnerabilities.
+3. **Inspect results:** The AI calls `get_results` to see a summary and `analyze_attack` for detailed traces.
+4. **Iterate:** The AI can `reset_session` and try different attack classes or fault types.
+
+### Example: `load_elf` Parameters
+
+```json
+{
+  "elf_path": "tests/bin/victim_.elf",
+  "threads": 8,
+  "max_instructions": 2000,
+  "no_check": false,
+  "success_addresses": ["0x8000100"],
+  "failure_addresses": ["0x8000200"],
+  "code_patches": [
+    {"symbol": "check_secret", "data": "0x4770"},
+    {"address": "0x08000200", "offset": "0x10", "data": "0xbf00"}
+  ]
+}
