@@ -12,6 +12,62 @@
 
 use crate::fault_attacks::faults::FaultType;
 use std::hash::{Hash, Hasher};
+use std::ops::Deref;
+
+/// Raw bytes of a single ARM Thumb/Thumb-2 instruction, stored inline.
+///
+/// Instructions are at most four bytes wide, so keeping them inline avoids one
+/// heap allocation per recorded instruction. Traces routinely contain hundreds of
+/// thousands of records, which makes this the difference between a `memcpy` and a
+/// `malloc`/`free` pair per record.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AsmInstruction {
+    bytes: [u8; 4],
+    len: u8,
+}
+
+impl AsmInstruction {
+    /// Maximum encoded width of an ARM Thumb-2 instruction.
+    pub const MAX_LEN: usize = 4;
+
+    /// Creates an instruction buffer from raw bytes, truncating beyond `MAX_LEN`.
+    pub fn new(bytes: &[u8]) -> Self {
+        let len = bytes.len().min(Self::MAX_LEN);
+        let mut buffer = [0u8; Self::MAX_LEN];
+        buffer[..len].copy_from_slice(&bytes[..len]);
+        Self {
+            bytes: buffer,
+            len: len as u8,
+        }
+    }
+
+    /// Creates a zeroed buffer of `len` bytes, ready to be filled in place.
+    pub fn zeroed(len: usize) -> Self {
+        Self {
+            bytes: [0u8; Self::MAX_LEN],
+            len: len.min(Self::MAX_LEN) as u8,
+        }
+    }
+
+    /// Mutable view of the used part of the buffer.
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.bytes[..self.len as usize]
+    }
+}
+
+impl Deref for AsmInstruction {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.bytes[..self.len as usize]
+    }
+}
+
+impl From<&[u8]> for AsmInstruction {
+    fn from(bytes: &[u8]) -> Self {
+        Self::new(bytes)
+    }
+}
 
 /// Specification for a fault injection to be executed at a specific simulation step.
 ///
@@ -68,7 +124,7 @@ pub enum TraceRecord {
         /// Execution step index (0-based) when this instruction was executed.
         index: usize,
         /// Raw instruction bytes as they appear in memory.
-        asm_instruction: Vec<u8>,
+        asm_instruction: AsmInstruction,
         /// Complete processor register state (R0-R15, plus CPSR) if captured.
         registers: Option<[u32; 17]>,
     },
@@ -145,13 +201,13 @@ mod tests {
         let rec1 = TraceRecord::Instruction {
             address: 0x1000,
             index: 0,
-            asm_instruction: vec![0x00, 0xBF],
+            asm_instruction: AsmInstruction::new(&[0x00, 0xBF]),
             registers: None,
         };
         let rec2 = TraceRecord::Instruction {
             address: 0x1000,
             index: 5,
-            asm_instruction: vec![0xFF],
+            asm_instruction: AsmInstruction::new(&[0xFF]),
             registers: Some([0; 17]),
         };
         assert_eq!(rec1, rec2);
@@ -162,13 +218,13 @@ mod tests {
         let rec1 = TraceRecord::Instruction {
             address: 0x1000,
             index: 0,
-            asm_instruction: vec![],
+            asm_instruction: AsmInstruction::default(),
             registers: None,
         };
         let rec2 = TraceRecord::Instruction {
             address: 0x2000,
             index: 0,
-            asm_instruction: vec![],
+            asm_instruction: AsmInstruction::default(),
             registers: None,
         };
         assert_ne!(rec1, rec2);
@@ -184,7 +240,7 @@ mod tests {
         let rec2 = TraceRecord::Instruction {
             address: 0x1000,
             index: 0,
-            asm_instruction: vec![],
+            asm_instruction: AsmInstruction::default(),
             registers: None,
         };
         // Fault and Instruction are never equal
@@ -196,13 +252,13 @@ mod tests {
         let rec1 = TraceRecord::Instruction {
             address: 0x1000,
             index: 0,
-            asm_instruction: vec![0x00],
+            asm_instruction: AsmInstruction::new(&[0x00]),
             registers: None,
         };
         let rec2 = TraceRecord::Instruction {
             address: 0x1000,
             index: 1,
-            asm_instruction: vec![0xFF],
+            asm_instruction: AsmInstruction::new(&[0xFF]),
             registers: None,
         };
         let mut set = HashSet::new();
@@ -216,7 +272,7 @@ mod tests {
         let rec = TraceRecord::Instruction {
             address: 0xABCD,
             index: 0,
-            asm_instruction: vec![],
+            asm_instruction: AsmInstruction::default(),
             registers: None,
         };
         assert_eq!(rec.address(), 0xABCD);

@@ -57,7 +57,7 @@ fn capture_stdout_with_result<F: FnOnce() -> T, T>(f: F) -> (String, T) {
     });
 
     // Run the closure, catching panics to ensure stdout is always restored
-    let closure_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f()));
+    let closure_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
 
     // Flush stdout to ensure all data reaches the pipe
     io::stdout().flush().ok();
@@ -92,6 +92,7 @@ unsafe impl Send for Session {}
 
 /// MCP Server for the Fault Injection Simulator
 struct FaultSimulatorServer {
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     session: Mutex<Option<Session>>,
 }

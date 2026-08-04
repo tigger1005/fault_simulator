@@ -301,11 +301,10 @@ impl<'a> Control<'a> {
             RunType::RecordTrace => {
                 self.emu.start_tracing(false);
             }
-            RunType::Run => {
-                if self.emu.get_state() == RunState::Success {
+            RunType::Run
+                if self.emu.get_state() == RunState::Success => {
                     return Err(SimulatorError::Simulation("Successfull state reached before critical glitch inserted! Maybe failure can be triggered with less glitches".to_string()));
                 }
-            }
             _ => (),
         }
 
@@ -331,7 +330,7 @@ impl<'a> Control<'a> {
                     log::info!(
                         "Execution failed, but returning collected trace data up to error point"
                     );
-                    return Ok(Data::Trace(self.emu.get_trace_data().clone()));
+                    return Ok(Data::Trace(self.emu.take_trace_data()));
                 }
                 RunType::Run => {
                     return Err(SimulatorError::Simulation(error_msg));
@@ -348,12 +347,12 @@ impl<'a> Control<'a> {
                 if !deep_analysis_trace {
                     self.emu.reduce_trace();
                 }
-                Ok(Data::Trace(self.emu.get_trace_data().clone()))
+                Ok(Data::Trace(self.emu.take_trace_data()))
             }
             RunType::Run => {
                 // Check if fault attack was successful if yes return faults
                 if self.emu.get_state() == RunState::Success {
-                    Ok(Data::Fault(self.emu.get_fault_data().clone()))
+                    Ok(Data::Fault(self.emu.take_fault_data()))
                 } else {
                     Ok(Data::None)
                 }

@@ -56,10 +56,10 @@ impl FaultFunctions for CmdBitFlip {
         let (address, original_instruction) = cpu.asm_cmd_read();
 
         // Set original instructions to same as the original read instructions
-        let mut modified_instruction = original_instruction.clone();
+        let mut modified_instruction = original_instruction;
 
         // Manipulate the read command with the xor value
-        for (i, byte) in &mut modified_instruction.iter_mut().enumerate() {
+        for (i, byte) in modified_instruction.as_mut_slice().iter_mut().enumerate() {
             *byte ^= self.xor_value.to_le_bytes()[i];
         }
         cpu.asm_cmd_write(address, &modified_instruction).unwrap();
@@ -80,14 +80,14 @@ impl FaultFunctions for CmdBitFlip {
                     .map(|(i, b)| (*b as u32) << (i * 8) as u32)
                     .sum::<u32>()
             ),
-            data: original_instruction.clone(),
+            data: original_instruction.to_vec(),
         };
         cpu.get_trace_data().push(record.clone());
 
         // Push to fault data vector
         cpu.get_fault_data().push(FaultData {
-            original_instruction,
-            modified_instruction,
+            original_instruction: original_instruction.to_vec(),
+            modified_instruction: modified_instruction.to_vec(),
             record,
             fault: fault.clone(),
         });

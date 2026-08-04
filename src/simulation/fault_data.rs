@@ -106,6 +106,7 @@ impl FaultData {
 mod tests {
     use super::*;
     use crate::fault_attacks::faults::get_fault_from;
+    use crate::simulation::record::AsmInstruction;
 
     fn make_fault_data(addr: u64) -> FaultData {
         FaultData::new(
@@ -114,7 +115,7 @@ mod tests {
             TraceRecord::Instruction {
                 address: addr,
                 index: 0,
-                asm_instruction: vec![0x00, 0xBF],
+                asm_instruction: AsmInstruction::new(&[0x00, 0xBF]),
                 registers: None,
             },
             FaultRecord {

@@ -1,4 +1,5 @@
 use super::{CpuState, RunState, TraceRecord, ARM_REG};
+use crate::simulation::record::AsmInstruction;
 
 use unicorn_engine::unicorn_const::MemType;
 use unicorn_engine::Unicorn;
@@ -73,6 +74,11 @@ pub fn hook_custom_addresses_callback(emu: &mut Unicorn<CpuState>, address: u64,
 /// This hook checks register values at specific addresses
 pub fn hook_result_check_callback(emu: &mut Unicorn<CpuState>, address: u64, _size: u32) {
     let emu_data = emu.get_data();
+
+    // Fast path: this hook runs on every instruction, most of which are not checkpoints
+    if !emu_data.result_check_addresses.contains(&address) {
+        return;
+    }
 
     if let Some(ref checkpoints) = emu_data.result_checks {
         // Check success conditions
@@ -182,8 +188,9 @@ pub fn hook_code_callback(emu: &mut Unicorn<CpuState>, address: u64, size: u32) 
     let emu_data = &emu.get_data();
     // Check if tracing is already started
     if emu_data.start_trace {
-        let mut asm_instruction = vec![0x00; size as usize];
-        emu.mem_read(address, &mut asm_instruction).unwrap();
+        let mut asm_instruction = AsmInstruction::zeroed(size as usize);
+        emu.mem_read(address, asm_instruction.as_mut_slice())
+            .unwrap();
 
         let registers = if emu_data.with_register_data {
             let mut registers: [u32; 17] = [0; 17];

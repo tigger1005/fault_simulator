@@ -21,7 +21,7 @@
 //! * Exception and interrupt handling
 
 use crate::elf_file::{ElfFile, PF_R, PF_W, PF_X};
-use crate::simulation::record::{FaultRecord, TraceRecord};
+use crate::simulation::record::{AsmInstruction, FaultRecord, TraceRecord};
 use crate::simulation::{FaultElement, TraceElement};
 
 mod callback;
@@ -34,7 +34,7 @@ use callback::{
 
 use unicorn_engine::unicorn_const::uc_error;
 use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot};
-use unicorn_engine::{Context, RegisterARM, Unicorn};
+use unicorn_engine::{RegisterARM, Unicorn};
 
 use log::debug;
 use std::collections::{HashMap, HashSet};
@@ -106,12 +106,17 @@ pub enum RunState {
 pub struct Cpu<'a> {
     emu: Unicorn<'a, CpuState<'a>>,
     program_counter: u64,
-    /// Saved CPU context for potential state save/restore operations.
-    #[allow(dead_code)]
-    cpu_context: Context,
     initial_registers: HashMap<RegisterARM, u64>,
     /// Handle for the trace code hook, if registered.
     trace_hook: Option<unicorn_engine::UcHookId>,
+    /// Reusable all-zero buffer used to clear BSS regions.
+    zeros: Vec<u8>,
+    /// Set when instruction memory was patched (e.g. by a command bit flip fault).
+    ///
+    /// Restoring the ELF image via `load_code` does not invalidate the JIT
+    /// translation blocks, so a full flush is required before the next clean run —
+    /// but only if the instruction stream was actually modified.
+    code_modified: bool,
 }
 
 struct CpuState<'a> {
@@ -123,9 +128,14 @@ struct CpuState<'a> {
     trace_data: TraceElement,
     fault_data: FaultElement,
     file_data: &'a ElfFile,
-    success_addresses: Vec<u64>,
-    failure_addresses: Vec<u64>,
+    success_addresses: HashSet<u64>,
+    failure_addresses: HashSet<u64>,
     result_checks: Option<crate::config::ResultChecks>,
+    /// Addresses mentioned by any success or failure check.
+    ///
+    /// The result check hook runs on every instruction, so this set provides an
+    /// O(1) rejection for the overwhelming majority of addresses.
+    result_check_addresses: HashSet<u64>,
 }
 
 impl<'a> Cpu<'a> {
@@ -150,6 +160,18 @@ impl<'a> Cpu<'a> {
         result_checks: Option<crate::config::ResultChecks>,
     ) -> Self {
         // Setup platform -> ARMv8-m.base
+        let result_check_addresses = result_checks
+            .as_ref()
+            .map(|checks| {
+                checks
+                    .success_checks
+                    .iter()
+                    .chain(&checks.failure_checks)
+                    .map(|check| check.address)
+                    .collect()
+            })
+            .unwrap_or_default();
+
         let emu = Unicorn::new_with_data(
             Arch::ARM,
             Mode::LITTLE_ENDIAN | Mode::MCLASS,
@@ -162,23 +184,22 @@ impl<'a> Cpu<'a> {
                 trace_data: Vec::new(),
                 fault_data: Vec::new(),
                 file_data,
-                success_addresses,
-                failure_addresses,
+                success_addresses: success_addresses.into_iter().collect(),
+                failure_addresses: failure_addresses.into_iter().collect(),
                 result_checks,
+                result_check_addresses,
             },
         )
         .expect("failed to initialize Unicorn instance");
-
-        // Get inital context
-        let cpu_context = emu.context_init().unwrap();
 
         debug!("Setup new unicorn instance");
         Self {
             emu,
             program_counter: 0,
-            cpu_context,
             initial_registers,
             trace_hook: None,
+            zeros: Vec::new(),
+            code_modified: false,
         }
     }
 
@@ -222,31 +243,43 @@ impl<'a> Cpu<'a> {
 
     /// Load source code from elf file into simulation
     pub fn load_code(&mut self) {
-        let program_parts = &self.emu.get_data().file_data.program_data;
+        let file_data: &'a ElfFile = self.emu.get_data().file_data;
 
         // Iterate over all program parts and write them to memory
         // Use virtual address (p_vaddr) for ARM Cortex-M flat memory model
-        for part in program_parts {
+        for (header, data) in &file_data.program_data {
             self.emu
-                .mem_write(part.0.p_vaddr, &part.1)
+                .mem_write(header.p_vaddr, data)
                 .expect("failed to write program data");
         }
     }
 
-    /// Zero all segment memory (full p_memsz including BSS) and AUTH_BASE,
-    /// then flush the translation block cache.
-    /// Called before load_code() when a clean memory state is needed.
+    /// Zero the BSS part of every segment (the range between `p_filesz` and
+    /// `p_memsz`) and the AUTH_BASE state.
+    /// Called before load_code() when a clean memory state is needed;
+    /// load_code() restores the file-backed part of each segment afterwards.
     pub fn clear_segment_memory(&mut self) {
-        let program_parts = &self.emu.get_data().file_data.program_data;
-        for part in program_parts {
-            let size = part.0.p_memsz as usize;
-            let zero_buf = vec![0u8; size];
-            let _ = self.emu.mem_write(part.0.p_vaddr, &zero_buf);
+        let file_data: &'a ElfFile = self.emu.get_data().file_data;
+        for (header, data) in &file_data.program_data {
+            let bss_size = (header.p_memsz as usize).saturating_sub(data.len());
+            if bss_size == 0 {
+                continue;
+            }
+            if self.zeros.len() < bss_size {
+                self.zeros.resize(bss_size, 0);
+            }
+            let _ = self
+                .emu
+                .mem_write(header.p_vaddr + data.len() as u64, &self.zeros[..bss_size]);
         }
         // Clear AUTH_BASE state
         let _ = self.emu.mem_write(AUTH_BASE, &[0u8; 4]);
-        // Flush all JIT translation blocks so stale code isn't executed
-        let _ = self.emu.ctl_flush_tb();
+        // Restoring the ELF image does not invalidate translation blocks, so drop the
+        // whole JIT cache if a previous run patched the instruction stream
+        if self.code_modified {
+            let _ = self.emu.ctl_flush_tb();
+            self.code_modified = false;
+        }
     }
 
     /// Function to deactivate printf of c program to
@@ -628,6 +661,11 @@ impl<'a> Cpu<'a> {
         &mut self.emu.get_data_mut().fault_data
     }
 
+    /// Move the collected fault data out of the emulator state
+    pub fn take_fault_data(&mut self) -> FaultElement {
+        std::mem::take(&mut self.emu.get_data_mut().fault_data)
+    }
+
     /// Set code hook for tracing (idempotent — only registers the hook once)
     pub fn set_trace_hook(&mut self) {
         if self.trace_hook.is_some() {
@@ -683,11 +721,19 @@ impl<'a> Cpu<'a> {
         &mut self.emu.get_data_mut().trace_data
     }
 
+    /// Move the collected trace data out of the emulator state
+    pub fn take_trace_data(&mut self) -> TraceElement {
+        std::mem::take(&mut self.emu.get_data_mut().trace_data)
+    }
+
     /// Remove duplicates to speed up testing
     pub fn reduce_trace(&mut self) {
         let trace_data = &mut self.emu.get_data_mut().trace_data;
-        let mut seen = HashSet::new();
-        trace_data.retain(|trace| seen.insert(trace.clone()));
+        let mut seen = HashSet::with_capacity(trace_data.len());
+        trace_data.retain(|trace| match trace {
+            TraceRecord::Instruction { address, .. } => seen.insert(*address),
+            TraceRecord::Fault { .. } => true,
+        });
     }
 
     /// Get Program counter from internal variable
@@ -726,12 +772,13 @@ impl<'a> Cpu<'a> {
 
     /// Read assembler instruction from memory (current programm counter)
     ///
-    pub fn asm_cmd_read(&mut self) -> (u64, Vec<u8>) {
+    pub fn asm_cmd_read(&mut self) -> (u64, AsmInstruction) {
         let address = self.get_program_counter();
         let cmd_size = self.get_asm_cmd_size(address).unwrap();
         // Read assembler instruction from memory
-        let mut instruction = vec![0; cmd_size];
-        self.memory_read(address, &mut instruction).unwrap();
+        let mut instruction = AsmInstruction::zeroed(cmd_size);
+        self.memory_read(address, instruction.as_mut_slice())
+            .unwrap();
         (address, instruction)
     }
 
@@ -740,6 +787,7 @@ impl<'a> Cpu<'a> {
     pub fn asm_cmd_write(&mut self, address: u64, instruction: &[u8]) -> Result<(), uc_error> {
         // Write assembler instruction to memory
         self.memory_write(address, instruction).unwrap();
+        self.code_modified = true;
         // Clear cached instruction
         self.emu
             .ctl_remove_cache(address, address + instruction.len() as u64)
