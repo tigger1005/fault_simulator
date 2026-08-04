@@ -19,6 +19,7 @@
 //! * **Resource Management**: Efficient memory and thread resource usage
 //! * **Scalability**: Adapts to available hardware resources automatically
 
+use std::sync::Arc;
 use std::thread::{/*sleep, */ spawn, JoinHandle};
 use std::vec;
 
@@ -379,9 +380,13 @@ impl SimulationThread {
         // Create a vector to hold the thread handles
         self.handles = Some(vec![]);
 
+        // The ELF image is read-only for the workers, so share a single copy
+        // instead of giving every thread its own deep clone.
+        let file = Arc::new(file_data.clone());
+
         for _ in 0..number_of_threads {
             // Copy data to be moved into threads
-            let file = file_data.clone();
+            let file = Arc::clone(&file);
             let receiver = self.workload_receiver.clone();
             let success_addrs = self.config.success_addresses.clone();
             let failure_addrs = self.config.failure_addresses.clone();
@@ -405,11 +410,11 @@ impl SimulationThread {
                 let mut trace_simulation = Control::new(
                     &file,
                     false,
-                    success_addrs.clone(),
-                    failure_addrs.clone(),
-                    init_regs.clone(),
+                    success_addrs,
+                    failure_addrs,
+                    init_regs,
                     &mem_regions,
-                    result_checks.clone(),
+                    result_checks,
                 );
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {

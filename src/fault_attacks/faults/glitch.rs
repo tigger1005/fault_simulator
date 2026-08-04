@@ -123,9 +123,8 @@ impl FaultFunctions for Glitch {
         }
         cpu.set_program_counter(address + offset);
 
-        // Set to same size as data
-        let mut original_instructions = modified_instructions.clone();
-        // Read original instructions
+        // Read the original instructions that are being skipped
+        let mut original_instructions = vec![0u8; modified_instructions.len()];
         cpu.memory_read(address, &mut original_instructions)
             .unwrap();
 

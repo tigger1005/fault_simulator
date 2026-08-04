@@ -107,11 +107,20 @@ impl Disassembly {
     /// Commonly used to determine if fault injection targeting a specific
     /// register would affect a particular instruction's execution.
     pub fn check_for_register(&self, instruction: &[u8], addr: u64, register: u32) -> bool {
-        let inst = self.cs.disasm_count(instruction, addr, 1).unwrap();
-        inst[0]
-            .op_str()
-            .unwrap()
-            .contains(format!("r{}", register).as_str())
+        const REGISTER_NAMES: [&str; 16] = [
+            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12", "r13",
+            "r14", "r15",
+        ];
+        let Some(name) = REGISTER_NAMES.get(register as usize) else {
+            return false;
+        };
+        let Ok(inst) = self.cs.disasm_count(instruction, addr, 1) else {
+            return false;
+        };
+        inst.as_ref()
+            .first()
+            .and_then(|i| i.op_str())
+            .is_some_and(|op| contains_register(op, name))
     }
 
     /// Disassembles and displays fault injection data with source correlation.
@@ -348,13 +357,30 @@ impl Disassembly {
     }
 }
 
+/// Checks whether `op_str` references register `name` as a whole token.
+///
+/// A plain substring search would report `r1` as used by an instruction that only
+/// touches `r10`..`r12`, which would add injection points the fault cannot affect.
+fn contains_register(op_str: &str, name: &str) -> bool {
+    op_str.match_indices(name).any(|(start, _)| {
+        let preceded_by_name_char = op_str[..start]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_ascii_alphanumeric());
+        let followed_by_digit = op_str[start + name.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit());
+        !preceded_by_name_char && !followed_by_digit
+    })
+}
+
 /// Print opcode of given instruction
 ///
 /// # Arguments
 ///
 /// * `ins` - The instruction to print.
-fn print_opcode(ins: &capstone::Insn) {
-    print!(
+fn print_opcode(ins: &capstone::Insn) {    print!(
         "0x{:X}:  {:6} {:40}     < ",
         ins.address(),
         ins.mnemonic().unwrap(),
@@ -468,4 +494,37 @@ where
 {
     let file = File::open(filename)?;
     Ok(io::BufReader::new(file).lines())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_register;
+
+    #[test]
+    fn matches_standalone_register() {
+        assert!(contains_register("r0, r1, r2", "r1"));
+        assert!(contains_register("r1", "r1"));
+        assert!(contains_register("r0, [r1, #4]", "r1"));
+        assert!(contains_register("{r1, r4, lr}", "r1"));
+    }
+
+    #[test]
+    fn does_not_match_longer_register_number() {
+        assert!(!contains_register("r0, r10", "r1"));
+        assert!(!contains_register("r11, r12", "r1"));
+        assert!(!contains_register("r2, r10, r12", "r1"));
+        assert!(!contains_register("r10, r11", "r0"));
+    }
+
+    #[test]
+    fn matches_two_digit_register() {
+        assert!(contains_register("r0, r10", "r10"));
+        assert!(contains_register("r12, #1", "r12"));
+    }
+
+    #[test]
+    fn does_not_match_register_absent_from_operands() {
+        assert!(!contains_register("r0, r2", "r1"));
+        assert!(!contains_register("", "r0"));
+    }
 }

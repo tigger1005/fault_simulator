@@ -248,7 +248,6 @@ impl FaultAttacks {
         for list in lists {
             // Iterate over all faults in the list
             let iter_list = iproduct!(list.clone(), list)
-                .map(|(a, b)| (a, b))
                 .map(|fault_str| {
                     vec![
                         get_fault_from(&fault_str.0).unwrap(),
