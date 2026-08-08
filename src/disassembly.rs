@@ -380,7 +380,8 @@ fn contains_register(op_str: &str, name: &str) -> bool {
 /// # Arguments
 ///
 /// * `ins` - The instruction to print.
-fn print_opcode(ins: &capstone::Insn) {    print!(
+fn print_opcode(ins: &capstone::Insn) {
+    print!(
         "0x{:X}:  {:6} {:40}     < ",
         ins.address(),
         ins.mnemonic().unwrap(),

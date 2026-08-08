@@ -241,11 +241,13 @@ impl Config {
 
     /// Load configuration from JSON5 file
     pub fn from_file(path: &PathBuf) -> Result<Self, SimulatorError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| SimulatorError::Config(format!("Failed to read config file: {}", e)))?;
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            SimulatorError::config_with(format!("Failed to read config file: {}", e), e)
+        })?;
 
-        json5::from_str(&content)
-            .map_err(|e| SimulatorError::Config(format!("Failed to parse JSON5 config: {}", e)))
+        json5::from_str(&content).map_err(|e| {
+            SimulatorError::config_with(format!("Failed to parse JSON5 config: {}", e), e)
+        })
     }
 
     /// Create Config from command line arguments.

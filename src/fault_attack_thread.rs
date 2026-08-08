@@ -144,8 +144,8 @@ impl FaultAttackThread {
     ) -> Result<(), SimulatorError> {
         // Check that number of threads is greater than 0
         if number_of_threads == 0 {
-            return Err(SimulatorError::Thread(
-                "Number of threads must be greater than 0".to_string(),
+            return Err(SimulatorError::thread(
+                "Number of threads must be greater than 0",
             ));
         }
 
@@ -217,11 +217,12 @@ impl FaultAttackThread {
                 fault_sequence: fault_sequence.to_vec(),
             };
             sender.send(workload).map_err(|e| {
-                SimulatorError::Channel(format!("Failed to send fault attack workload: {}", e))
+                let msg = format!("Failed to send fault attack workload: {}", e);
+                SimulatorError::channel_with(msg, e)
             })
         } else {
-            Err(SimulatorError::Channel(
-                "Fault attack workload sender channel is closed".to_string(),
+            Err(SimulatorError::channel(
+                "Fault attack workload sender channel is closed",
             ))
         }
     }
@@ -264,13 +265,13 @@ impl FaultAttackThread {
                     }
                 }
                 Err(RecvTimeoutError::Timeout) => {
-                    return Err(SimulatorError::Timeout(
-                        "Timeout while receiving fault attack results".to_string(),
+                    return Err(SimulatorError::timeout(
+                        "Timeout while receiving fault attack results",
                     ));
                 }
                 Err(RecvTimeoutError::Disconnected) => {
-                    return Err(SimulatorError::Channel(
-                        "Fault attack result channel disconnected".to_string(),
+                    return Err(SimulatorError::channel(
+                        "Fault attack result channel disconnected",
                     ));
                 }
             }
@@ -368,9 +369,7 @@ fn fault_simulation(
                     &user_thread,
                 )?;
             } else {
-                return Err(SimulatorError::Simulation(
-                    "No instruction record found".to_string(),
-                ));
+                return Err(SimulatorError::simulation("No instruction record found"));
             }
 
             Ok(number)
@@ -390,13 +389,13 @@ fn fault_simulation(
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
-                return Err(SimulatorError::Timeout(
-                    "Timeout while receiving fault simulation results".to_string(),
+                return Err(SimulatorError::timeout(
+                    "Timeout while receiving fault simulation results",
                 ));
             }
             Err(RecvTimeoutError::Disconnected) => {
-                return Err(SimulatorError::Channel(
-                    "Fault simulation result channel disconnected".to_string(),
+                return Err(SimulatorError::channel(
+                    "Fault simulation result channel disconnected",
                 ));
             }
         }
