@@ -551,7 +551,11 @@ mod tests {
 
         let message = error.to_string();
         assert!(matches!(error, SimulatorError::Timeout(_)), "{}", message);
-        assert!(message.contains("No test result arrived within 0 s"), "{}", message);
+        assert!(
+            message.contains("No test result arrived within 0 s"),
+            "{}",
+            message
+        );
         assert!(message.contains("--result-timeout"), "{}", message);
     }
 

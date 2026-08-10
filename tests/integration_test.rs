@@ -1115,7 +1115,10 @@ fn mcp_get_symbols() {
         "get_symbols",
         serde_json::json!({ "elf_path": "tests/bin/victim_.elf", "filter": "main" }),
     );
-    assert!(response.get("error").is_none(), "get_symbols returned error");
+    assert!(
+        response.get("error").is_none(),
+        "get_symbols returned error"
+    );
     let symbols: serde_json::Value =
         serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert!(
@@ -1192,7 +1195,9 @@ fn instruction_limit_statistics_reported() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Instruction limit (300) reached in"))
+        .stdout(predicate::str::contains(
+            "Instruction limit (300) reached in",
+        ))
         .stdout(predicate::str::contains("Increase --max-instructions"));
 }
 

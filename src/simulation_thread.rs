@@ -172,7 +172,10 @@ fn parse_result_timeout(value: Option<&str>) -> Option<Duration> {
         other => match other.parse::<u64>() {
             Ok(seconds) => Some(Duration::from_secs(seconds)),
             Err(_) => {
-                log::warn!("Invalid FAULT_SIM_RESULT_TIMEOUT value '{}', ignored", value);
+                log::warn!(
+                    "Invalid FAULT_SIM_RESULT_TIMEOUT value '{}', ignored",
+                    value
+                );
                 Some(DEFAULT_RESULT_TIMEOUT)
             }
         },
@@ -771,11 +774,20 @@ mod tests {
     #[test]
     fn result_timeout_parsing() {
         assert_eq!(parse_result_timeout(None), Some(DEFAULT_RESULT_TIMEOUT));
-        assert_eq!(parse_result_timeout(Some("30")), Some(Duration::from_secs(30)));
-        assert_eq!(parse_result_timeout(Some(" 30 ")), Some(Duration::from_secs(30)));
+        assert_eq!(
+            parse_result_timeout(Some("30")),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            parse_result_timeout(Some(" 30 ")),
+            Some(Duration::from_secs(30))
+        );
         assert_eq!(parse_result_timeout(Some("0")), None);
         assert_eq!(parse_result_timeout(Some("off")), None);
         assert_eq!(parse_result_timeout(Some("NONE")), None);
-        assert_eq!(parse_result_timeout(Some("abc")), Some(DEFAULT_RESULT_TIMEOUT));
+        assert_eq!(
+            parse_result_timeout(Some("abc")),
+            Some(DEFAULT_RESULT_TIMEOUT)
+        );
     }
 }

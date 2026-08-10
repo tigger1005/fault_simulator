@@ -293,7 +293,9 @@ impl Config {
             memory_regions: Vec::new(),
             log_level: "off".to_string(),
             result_checks: None,
-            result_timeout: args.result_timeout.unwrap_or_else(Self::default_result_timeout),
+            result_timeout: args
+                .result_timeout
+                .unwrap_or_else(Self::default_result_timeout),
         }
     }
 

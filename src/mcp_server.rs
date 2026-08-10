@@ -534,25 +534,27 @@ impl FaultSimulatorServer {
             &[]
         };
 
-        let (output, run_result) = capture_stdout_with_result(|| {
-            match class_vec.first().map(|s| s.as_str()) {
-                Some("all") | None => session.attack_sim.single(subclass, run_through).and_then(
-                    |result| {
-                        if result.0 {
-                            Ok(())
-                        } else {
-                            session.attack_sim.double(subclass, run_through).map(|_| ())
-                        }
-                    },
-                ),
+        let (output, run_result) =
+            capture_stdout_with_result(|| match class_vec.first().map(|s| s.as_str()) {
+                Some("all") | None => {
+                    session
+                        .attack_sim
+                        .single(subclass, run_through)
+                        .and_then(|result| {
+                            if result.0 {
+                                Ok(())
+                            } else {
+                                session.attack_sim.double(subclass, run_through).map(|_| ())
+                            }
+                        })
+                }
                 Some("single") => session.attack_sim.single(subclass, run_through).map(|_| ()),
                 Some("double") => session.attack_sim.double(subclass, run_through).map(|_| ()),
                 Some(other) => Err(SimulatorError::config(format!(
                     "Unknown attack class '{}'. Use \"single\", \"double\" or \"all\".",
                     other
                 ))),
-            }
-        });
+            });
 
         run_result.map_err(|e| {
             McpError::internal_error(format!("Attack campaign failed: {}", e), None)
@@ -600,7 +602,10 @@ impl FaultSimulatorServer {
         }
 
         let (output, run_result) = capture_stdout_with_result(|| {
-            session.attack_sim.fault_simulation(&fault_types).map(|_| ())
+            session
+                .attack_sim
+                .fault_simulation(&fault_types)
+                .map(|_| ())
         });
 
         run_result.map_err(|e| {
@@ -679,12 +684,10 @@ impl FaultSimulatorServer {
         }
 
         let attack_number = params.attack_number;
-        let (output, trace_result) = capture_stdout_with_result(|| {
-            session.attack_sim.print_trace_for_fault(attack_number)
-        });
+        let (output, trace_result) =
+            capture_stdout_with_result(|| session.attack_sim.print_trace_for_fault(attack_number));
 
-        trace_result
-            .map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
+        trace_result.map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             truncate_output(&output, params.max_lines),
@@ -706,8 +709,7 @@ impl FaultSimulatorServer {
         let (output, trace_result) =
             capture_stdout_with_result(|| session.attack_sim.print_trace());
 
-        trace_result
-            .map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
+        trace_result.map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(
             truncate_output(&output, params.max_lines),
@@ -912,9 +914,9 @@ impl FaultSimulatorServer {
     ) -> Result<CallToolResult, McpError> {
         let directory = params.directory.unwrap_or_else(|| "content".to_string());
         let clean = params.clean.unwrap_or(true);
-        let expected_elf = params
-            .expected_elf
-            .unwrap_or_else(|| format!("{}/bin/aarch32/victim.elf", directory.trim_end_matches('/')));
+        let expected_elf = params.expected_elf.unwrap_or_else(|| {
+            format!("{}/bin/aarch32/victim.elf", directory.trim_end_matches('/'))
+        });
 
         let mut report = String::new();
 
