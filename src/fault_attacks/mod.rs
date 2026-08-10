@@ -291,7 +291,9 @@ impl FaultAttacks {
         let fault_attack_thread = match &self.fault_attack_thread {
             Some(thread) => thread,
             None => {
-                return Err(SimulatorError::Thread("Fault attack threads not initialized. Call start_fault_attack_threads() first.".to_string()));
+                return Err(SimulatorError::thread(
+                    "Fault attack threads not initialized. Call start_fault_attack_threads() first.",
+                ));
             }
         };
 
@@ -428,7 +430,7 @@ impl FaultAttacks {
             self.user_thread.config.initial_registers.clone(),
             &self.user_thread.config.memory_regions,
             self.user_thread.config.result_checks.clone(),
-        );
+        )?;
         simulation.check_program(self.user_thread.config.cycles)
     }
 }

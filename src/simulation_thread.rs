@@ -372,8 +372,8 @@ impl SimulationThread {
     ) -> Result<(), SimulatorError> {
         // Check that number of threads is greater than 0
         if number_of_threads == 0 {
-            return Err(SimulatorError::Thread(
-                "Number of threads must be greater than 0".to_string(),
+            return Err(SimulatorError::thread(
+                "Number of threads must be greater than 0",
             ));
         }
 
@@ -383,6 +383,19 @@ impl SimulationThread {
         // The ELF image is read-only for the workers, so share a single copy
         // instead of giving every thread its own deep clone.
         let file = Arc::new(file_data.clone());
+
+        // Validate the configuration once on the calling thread (e.g. catches invalid
+        // memory regions) so a bad config surfaces as a clean error here instead of
+        // panicking inside every worker thread.
+        Control::new(
+            &file,
+            false,
+            self.config.success_addresses.clone(),
+            self.config.failure_addresses.clone(),
+            self.config.initial_registers.clone(),
+            &self.config.memory_regions,
+            self.config.result_checks.clone(),
+        )?;
 
         for _ in 0..number_of_threads {
             // Copy data to be moved into threads
@@ -397,7 +410,7 @@ impl SimulationThread {
             let handle = spawn(move || {
                 // Wait for workload
                 // Create simulation instance for Run mode (reused across all runs)
-                let mut simulation = Control::new(
+                let mut simulation = match Control::new(
                     &file,
                     false,
                     success_addrs.clone(),
@@ -405,9 +418,15 @@ impl SimulationThread {
                     init_regs.clone(),
                     &mem_regions,
                     result_checks.clone(),
-                );
+                ) {
+                    Ok(simulation) => simulation,
+                    Err(e) => {
+                        log::error!("Failed to initialize simulation worker: {}", e);
+                        return;
+                    }
+                };
                 // Create a separate simulation instance for trace recordings (reused)
-                let mut trace_simulation = Control::new(
+                let mut trace_simulation = match Control::new(
                     &file,
                     false,
                     success_addrs,
@@ -415,7 +434,13 @@ impl SimulationThread {
                     init_regs,
                     &mem_regions,
                     result_checks,
-                );
+                ) {
+                    Ok(simulation) => simulation,
+                    Err(e) => {
+                        log::error!("Failed to initialize trace simulation worker: {}", e);
+                        return;
+                    }
+                };
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
                     let WorkloadMessage {
@@ -512,13 +537,12 @@ impl SimulationThread {
                 trace_sender,
                 fault_sender,
             };
-            sender
-                .send(msg)
-                .map_err(|e| SimulatorError::Channel(format!("Failed to send workload: {}", e)))
+            sender.send(msg).map_err(|e| {
+                let msg = format!("Failed to send workload: {}", e);
+                SimulatorError::channel_with(msg, e)
+            })
         } else {
-            Err(SimulatorError::Channel(
-                "Workload sender channel is closed".to_string(),
-            ))
+            Err(SimulatorError::channel("Workload sender channel is closed"))
         }
     }
 
@@ -552,9 +576,10 @@ impl SimulationThread {
             Some(trace_sender),
             None,
         )?;
-        trace_receiver
-            .recv()
-            .map_err(|e| SimulatorError::Channel(format!("Unable to receive trace data: {}", e)))
+        trace_receiver.recv().map_err(|e| {
+            let msg = format!("Unable to receive trace data: {}", e);
+            SimulatorError::channel_with(msg, e)
+        })
     }
 }
 
