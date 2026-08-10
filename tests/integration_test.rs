@@ -771,7 +771,7 @@ fn mcp_initialize() {
 #[test]
 /// Test MCP server tools/list returns all expected tools
 ///
-/// Verifies that the server advertises all 9 implemented tools
+/// Verifies that the server advertises all implemented tools
 /// with proper names and descriptions.
 fn mcp_list_tools() {
     let mut client = mcp_test::McpTestClient::spawn();
@@ -794,6 +794,10 @@ fn mcp_list_tools() {
         "get_trace",
         "get_attack_data",
         "reset_session",
+        "get_status",
+        "check_behavior",
+        "get_symbols",
+        "compile_target",
     ];
 
     for expected in &expected_tools {
@@ -1073,4 +1077,78 @@ fn mcp_error_no_elf_loaded() {
         response.get("error").is_some(),
         "Expected error for get_trace without ELF"
     );
+}
+
+#[test]
+/// Test MCP get_status tool before and after loading an ELF
+fn mcp_get_status() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.call_tool("get_status", serde_json::json!({}));
+    assert!(response.get("error").is_none(), "get_status returned error");
+    let status: serde_json::Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(status["loaded"], false);
+
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({ "elf_path": "tests/bin/victim_.elf", "max_instructions": 2000 }),
+    );
+    assert!(response.get("error").is_none(), "load_elf failed");
+
+    let response = client.call_tool("get_status", serde_json::json!({}));
+    let status: serde_json::Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(status["loaded"], true);
+    assert_eq!(status["behavior_check"], "OK");
+    assert_eq!(status["successful_attacks"], 0);
+}
+
+#[test]
+/// Test MCP get_symbols tool on an ELF file without an active session
+fn mcp_get_symbols() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.call_tool(
+        "get_symbols",
+        serde_json::json!({ "elf_path": "tests/bin/victim_.elf", "filter": "main" }),
+    );
+    assert!(response.get("error").is_none(), "get_symbols returned error");
+    let symbols: serde_json::Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert!(
+        symbols["total"].as_u64().unwrap() > 0,
+        "Expected at least one symbol matching 'main'"
+    );
+}
+
+#[test]
+/// Test MCP load_elf with an inline JSON5 configuration (result_checks based detection)
+fn mcp_load_elf_with_config_json5() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "config_json5": "{ elf: 'tests/bin/victim_.elf', max_instructions: 2000, threads: 1 }"
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "load_elf with config_json5 failed: {:?}",
+        response
+    );
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(text.contains("Behavior check: OK"), "Got: {}", text);
+
+    let response = client.call_tool("check_behavior", serde_json::json!({}));
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(text.contains("Behavior check: OK"), "Got: {}", text);
 }

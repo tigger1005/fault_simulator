@@ -458,15 +458,27 @@ Add to your Claude Desktop configuration (`claude_desktop_config.json`):
 | `get_results`      | Get a summary of all successful attacks found                            |
 | `analyze_attack`   | Get detailed execution trace for a specific successful attack            |
 | `get_trace`        | Get the baseline execution trace without fault injection                 |
-| `get_attack_data`  | Get structured attack data in JSON format                                |
+| `get_attack_data`  | Get structured attack data (incl. source locations) in JSON format       |
+| `get_status`       | Report session state, success-detection mode and behavior check result   |
+| `check_behavior`   | Re-run the baseline behavior check of the loaded target                  |
+| `get_symbols`      | List ELF symbols with addresses (also before `load_elf`)                 |
+| `compile_target`   | Build the target program with `make`                                     |
 | `reset_session`    | Clear attack results and start a fresh campaign                          |
+
+`load_elf` accepts either explicit parameters or a JSON5 configuration
+(`config_file` / `config_json5`, same schema as the CLI `--config` option). The
+configuration route enables `initial_registers`, `memory_regions` and `result_checks`,
+which allow analysis of **uninstrumented binaries** — no `__SET_SIM_*` markers or other
+source adaptation required.
 
 ### Typical Workflow
 
-1. **Load a target binary:** The AI calls `load_elf` with the path to an ELF file.
-2. **Run attacks:** The AI calls `run_attack` with class `single` or `double` to find vulnerabilities.
-3. **Inspect results:** The AI calls `get_results` to see a summary and `analyze_attack` for detailed traces.
-4. **Iterate:** The AI can `reset_session` and try different attack classes or fault types.
+1. **Build the target:** The AI calls `compile_target` after editing the C source.
+2. **Load a target binary:** The AI calls `load_elf` with the path to an ELF file (or a JSON5 configuration).
+3. **Validate the setup:** `get_status` / `check_behavior` confirm the baseline behavior check passes.
+4. **Run attacks:** The AI calls `run_attack` with class `single` or `double` to find vulnerabilities.
+5. **Inspect results:** The AI calls `get_results` to see a summary and `analyze_attack` for detailed traces.
+6. **Iterate:** Harden the source, recompile, reload and re-attack until no attack succeeds.
 
 ### Example: `load_elf` Parameters
 

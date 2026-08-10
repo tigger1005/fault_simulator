@@ -9,6 +9,12 @@ description: "Use when: investigating fault attacks on C code, hardening C code 
 
 This skill guides a complete fault injection investigation cycle: insert C code into the simulator, compile it, run attacks via the MCP server, analyze results, apply mitigation techniques, and iterate until the code is fully hardened — or until it is proven that no solution exists. The investigation ends with a written report.
 
+Run the cycle **autonomously**: compile, load, attack, analyze, edit the C source, repeat —
+without asking for confirmation between iterations. Phase 6 defines the mandatory stop
+conditions (solved, no progress, budget exhausted, blocked, provably impossible) so the
+loop always terminates. Targets without simulator instrumentation are supported — see
+"Investigating a Binary Without Simulator Instrumentation" near the end of this document.
+
 **MCP server prefix:** `mcp_fault-simulat_` (all tool calls use this prefix)  
 **Project root:** The directory containing `content/` and `src/` (the workspace root)  
 **Target file:** `<project_root>/content/src/main.c` — this is the only file to edit  
@@ -96,7 +102,13 @@ int main(void)
 
 ### 1.2 Compile
 
-Run from the project root:
+Use the MCP tool:
+
+```
+mcp_fault-simulat_compile_target()          // make clean && make in content/
+```
+
+or run from the project root:
 
 ```bash
 cd content && make clean && make
@@ -104,7 +116,7 @@ cd content && make clean && make
 
 - Success: `content/bin/aarch32/victim.elf` is produced.
 - On compiler error: fix `main.c` and retry.
-- **Verify the ELF exists** before loading it into the simulator.
+- **Verify the ELF exists** before loading it into the simulator (`compile_target` reports this).
 
 **Compiler flags used (important for understanding generated assembly):**
 - `-O3` — Aggressive optimization; redundant checks WILL be removed unless `volatile` is used correctly.
@@ -125,6 +137,16 @@ mcp_fault-simulat_load_elf(
 ```
 
 Use `no_check: true` only when the `DECISION_DATA_STRUCTURE` has identical success and failure values (§6.6).
+
+Then confirm the setup:
+
+```
+mcp_fault-simulat_get_status()
+```
+
+The `behavior_check` field must be `OK` (or `SKIPPED (no_check)`). If it reports `FAILED`,
+the baseline is broken and attack results are meaningless — fix the target or the success
+criteria first (`check_behavior` re-runs the check).
 
 ### 2.2 Get the Baseline Trace
 
@@ -347,26 +369,34 @@ void security_panic(void) {
 
 After each hardening iteration:
 
-1. Recompile: `cd content && make clean && make`
+1. Recompile: `mcp_fault-simulat_compile_target()` (or `cd content && make clean && make`)
 2. Verify ELF exists.
 3. Load new ELF: `mcp_fault-simulat_load_elf(...)` (this also resets session)  
    OR: `mcp_fault-simulat_reset_session()` then `mcp_fault-simulat_load_elf(...)`
-4. Re-run single attacks: `mcp_fault-simulat_run_attack(class="single", run_through=true)`
-5. If single = 0: re-run double attacks.
-6. If still > 0: go back to Phase 3 for analysis, then Phase 4 for more hardening.
+4. Check `mcp_fault-simulat_get_status()` — `behavior_check` must still be `OK`.
+5. Re-run single attacks: `mcp_fault-simulat_run_attack(class="single", run_through=true)`
+6. If single = 0: re-run double attacks.
+7. If still > 0: go back to Phase 3 for analysis, then Phase 4 for more hardening.
 
 ---
 
 ## Phase 6 — Iteration Decision Logic
 
+Run this loop autonomously — no user confirmation is needed between iterations. Keep a
+running table of `iteration -> single count / double count / change applied`; it is the
+evidence for the report and the basis for the stop decision.
+
 ```
+budget        = 10 iterations (default; adjust only if the user states one)
+no_progress   = 0
+
 LOOP:
   Run single attacks
   IF single > 0:
     Analyze each attack → identify root cause
     Apply targeted hardening
-    Recompile
-    Reset + Reload ELF
+    Recompile (compile_target)
+    Reset + Reload ELF, verify get_status.behavior_check == OK
     CONTINUE LOOP
   
   Run double attacks
@@ -379,14 +409,24 @@ LOOP:
   
   IF single = 0 AND double = 0:
     DONE → Write report
-
-  IF same attacks persist after 3 hardening attempts with no improvement:
-    ASSESS whether a solution is theoretically possible:
-    - Is the entire comparison reducible to a single bit? (mathematical impossibility)
-    - Is the compiler defeating ALL volatile protections? (verify with get_trace)
-    - Has every element of the minimum effective hardened comparison (§2.14) been applied?
-    If all elements applied and attacks remain: conclude with "no pure-C solution found" + explanation
 ```
+
+### Stop Conditions (Mandatory Breakpoints)
+
+Stop the loop and write the report as soon as one of these holds:
+
+| Condition | Detection | Report outcome |
+|---|---|---|
+| Solved | single = 0 and double = 0 | Solution found |
+| No progress | 3 consecutive iterations with no reduction in attack count **and** the same root-cause set | No solution found — stalled |
+| Budget exhausted | iteration count > budget (default 10) | No solution found — budget |
+| Build blocked | the same compiler error persists after 3 fix attempts | Blocked — build |
+| Baseline blocked | `get_status.behavior_check` stays `FAILED` after 3 setup corrections | Blocked — setup |
+| Provably impossible | all elements of §2.14 present and confirmed in the assembly via `get_trace`, attacks remain | No pure-C solution exists — with explanation |
+
+Never loop indefinitely and never keep applying the same hardening that already failed
+twice. When stopping without a solution, characterize every remaining attack with
+`get_attack_data` and `analyze_attack` and state the reason explicitly (see Phase 8).
 
 ### 6.1 Signs That More Hardening Is Needed (Double Fault)
 
@@ -554,11 +594,15 @@ If after applying all elements from §2.14 (Minimum Effective Hardened Compariso
 ## Quick Reference — MCP Tool Calls
 
 ```
-mcp_fault-simulat_load_elf(elf_path, [max_instructions], [no_check])
-mcp_fault-simulat_get_trace()
+mcp_fault-simulat_compile_target([directory], [clean], [expected_elf])
+mcp_fault-simulat_load_elf(elf_path | config_file | config_json5, [max_instructions], [no_check], ...)
+mcp_fault-simulat_get_status()
+mcp_fault-simulat_check_behavior()
+mcp_fault-simulat_get_symbols([elf_path], [filter], [limit])
+mcp_fault-simulat_get_trace([max_lines])
 mcp_fault-simulat_run_attack(class, [subclass], [run_through])
-mcp_fault-simulat_get_results()
-mcp_fault-simulat_analyze_attack(attack_number)
+mcp_fault-simulat_get_results([max_lines])
+mcp_fault-simulat_analyze_attack(attack_number, [max_lines])
 mcp_fault-simulat_get_attack_data()
 mcp_fault-simulat_list_fault_types()
 mcp_fault-simulat_reset_session()
@@ -567,6 +611,42 @@ mcp_fault-simulat_run_faults(faults)
 
 **Attack classes:** `"single"`, `"double"`, `"all"`  
 **Subclass filters:** `"glitch"`, `"regbf"`, `"regfld"`, `"cmdbf"`
+
+Use `max_lines` on trace-producing tools to keep long traces manageable.
+
+---
+
+## Investigating a Binary Without Simulator Instrumentation
+
+The target does **not** need `__SET_SIM_*` markers or any other adaptation. For a
+production binary (with or without matching source), define the verdict externally:
+
+1. `mcp_fault-simulat_get_symbols(elf_path="...", filter="verify")` — locate the security
+   decision function. Use `entry_address` (Thumb bit cleared).
+2. Load with a JSON5 configuration describing the environment and the verdict:
+
+```
+mcp_fault-simulat_load_elf(config_json5: "{ \
+  elf: '/abs/path/firmware.elf', \
+  max_instructions: 20000, \
+  initial_registers: { SP: '0x20010000', R0: '0x20000100' }, \
+  memory_regions: [ { address: '0x20000100', size: '0x100', data: '0x00112233' } ], \
+  result_checks: { \
+    success_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000000' } } ], \
+    failure_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000001' } } ] \
+  } }")
+```
+
+   - **Address based** (`success_addresses` / `failure_addresses`): reaching an address is
+     the verdict — use when the paths end in distinct handlers.
+   - **Register based** (`result_checks`): register values at one address decide — use when
+     both paths converge on a common return.
+   - `initial_registers` / `memory_regions` supply the context earlier boot stages would
+     normally create; `code_patches` stub out unavailable peripherals.
+3. `mcp_fault-simulat_check_behavior()` — both outcomes must be detected before attacking.
+4. Continue with Phase 3 onwards unchanged. If the source of the binary is available,
+   hardening iterations work exactly as for the instrumented target: edit the source,
+   rebuild, reload, re-attack.
 
 ---
 

@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use fault_simulator::prelude::*;
+
+use addr2line::fallible_iterator::FallibleIterator;
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -81,9 +84,79 @@ fn capture_stdout_with_result<F: FnOnce() -> T, T>(f: F) -> (String, T) {
     (output, result)
 }
 
+/// Truncates captured output to a maximum number of lines.
+fn truncate_output(text: &str, max_lines: Option<usize>) -> String {
+    match max_lines {
+        Some(max) if text.lines().count() > max => {
+            let total = text.lines().count();
+            let kept: Vec<&str> = text.lines().take(max).collect();
+            format!(
+                "{}\n... [truncated: {} of {} lines shown]",
+                kept.join("\n"),
+                max,
+                total
+            )
+        }
+        _ => text.to_string(),
+    }
+}
+
+/// Parses a hex string with optional "0x" prefix into an address.
+fn parse_hex_u64(value: &str) -> Option<u64> {
+    let cleaned = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    u64::from_str_radix(cleaned, 16).ok()
+}
+
+/// Resolves an address to "file:line" using the ELF DWARF debug information.
+fn source_location(file_data: &ElfFile, address: u64) -> Option<String> {
+    let debug_context = file_data.get_debug_context();
+    let frames = debug_context.find_frames(address).skip_all_loads().ok()?;
+    for frame in frames.iterator().flatten() {
+        if let Some(location) = frame.location {
+            if let (Some(file), Some(line)) = (location.file, location.line) {
+                return Some(format!("{}:{}", file, line));
+            }
+        }
+    }
+    None
+}
+
+/// Static description of a loaded session, used by `get_status`.
+struct SessionInfo {
+    elf_path: String,
+    threads: usize,
+    max_instructions: usize,
+    deep_analysis: bool,
+    no_check: bool,
+    success_addresses: Vec<u64>,
+    failure_addresses: Vec<u64>,
+    result_checks: bool,
+    initial_registers: usize,
+    memory_regions: usize,
+    code_patches: usize,
+    behavior_check: String,
+}
+
+impl SessionInfo {
+    /// Describes how attack success is detected for the loaded target.
+    fn detection_mode(&self) -> &'static str {
+        if self.result_checks {
+            "result_checks (register values at address)"
+        } else if !self.success_addresses.is_empty() || !self.failure_addresses.is_empty() {
+            "success/failure addresses"
+        } else {
+            "MMIO marker writes to 0x0AA01000 (instrumented target)"
+        }
+    }
+}
+
 /// State for a loaded simulation session
 struct Session {
     attack_sim: FaultAttacks,
+    info: SessionInfo,
 }
 
 // SAFETY: FaultAttacks contains raw pointers from unicorn-engine and capstone.
@@ -101,8 +174,17 @@ struct FaultSimulatorServer {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 struct LoadElfParams {
-    /// Path to the ELF file to load
-    elf_path: String,
+    /// Path to the ELF file to load. Optional when `config_file`/`config_json5` sets `elf`.
+    #[serde(default)]
+    elf_path: Option<String>,
+    /// Path to a JSON5 configuration file (same schema as the CLI `--config` option).
+    /// Use it for advanced setups: initial_registers, memory_regions, result_checks, code_patches.
+    #[serde(default)]
+    config_file: Option<String>,
+    /// Inline JSON5 configuration content (same schema as `config_file`).
+    /// Enables analysis of uninstrumented binaries without writing a file to disk.
+    #[serde(default)]
+    config_json5: Option<String>,
     /// Number of parallel threads (default: number of CPU cores)
     #[serde(default)]
     threads: Option<usize>,
@@ -148,6 +230,51 @@ struct RunFaultsParams {
 struct AnalyzeAttackParams {
     /// 1-based attack number to analyze
     attack_number: usize,
+    /// Maximum number of output lines to return (default: unlimited)
+    #[serde(default)]
+    max_lines: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct GetTraceParams {
+    /// Maximum number of output lines to return (default: unlimited)
+    #[serde(default)]
+    max_lines: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct GetResultsParams {
+    /// Maximum number of output lines to return (default: unlimited)
+    #[serde(default)]
+    max_lines: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct CompileParams {
+    /// Directory containing the Makefile (default: "content")
+    #[serde(default)]
+    directory: Option<String>,
+    /// Run `make clean` before building (default: true)
+    #[serde(default)]
+    clean: Option<bool>,
+    /// Path of the ELF that is expected after a successful build
+    /// (default: "<directory>/bin/aarch32/victim.elf")
+    #[serde(default)]
+    expected_elf: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct GetSymbolsParams {
+    /// ELF file to inspect. Defaults to the ELF of the current session.
+    /// Provide it to inspect a binary before calling load_elf.
+    #[serde(default)]
+    elf_path: Option<String>,
+    /// Case-insensitive substring filter on the symbol name
+    #[serde(default)]
+    filter: Option<String>,
+    /// Maximum number of symbols to return (default: 200)
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 #[tool_router]
@@ -177,121 +304,118 @@ impl FaultSimulatorServer {
 
     /// Load an ELF file and initialize the simulation environment.
     /// This must be called before running any attacks.
+    ///
+    /// Supports instrumented targets (MMIO success markers) as well as untouched
+    /// production binaries via `success_addresses`/`failure_addresses` or via the
+    /// `result_checks` mechanism of a JSON5 configuration.
     #[tool(name = "load_elf")]
     async fn load_elf(
         &self,
         Parameters(params): Parameters<LoadElfParams>,
     ) -> Result<CallToolResult, McpError> {
-        let threads = params.threads.unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1)
-        });
-        let max_instructions = params.max_instructions.unwrap_or(2000);
-        let deep_analysis = params.deep_analysis.unwrap_or(false);
-        let no_check = params.no_check.unwrap_or(false);
+        // Start from a JSON5 configuration (file or inline) so that all advanced
+        // options (initial_registers, memory_regions, result_checks, code_patches,
+        // log_level) are available, then apply the explicit tool parameters on top.
+        let mut config: Config = if let Some(path) = &params.config_file {
+            Config::from_file(&PathBuf::from(path)).map_err(|e| {
+                McpError::invalid_request(format!("Failed to load config file: {}", e), None)
+            })?
+        } else if let Some(text) = &params.config_json5 {
+            json5::from_str::<Config>(text).map_err(|e| {
+                McpError::invalid_request(format!("Failed to parse config_json5: {}", e), None)
+            })?
+        } else {
+            json5::from_str::<Config>("{}").map_err(|e| {
+                McpError::internal_error(format!("Failed to build default config: {}", e), None)
+            })?
+        };
 
-        let success_addresses: Vec<u64> = params
-            .success_addresses
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|s| {
-                let cleaned = s
-                    .strip_prefix("0x")
-                    .or_else(|| s.strip_prefix("0X"))
-                    .unwrap_or(s);
-                u64::from_str_radix(cleaned, 16).ok()
-            })
-            .collect();
-
-        let failure_addresses: Vec<u64> = params
-            .failure_addresses
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|s| {
-                let cleaned = s
-                    .strip_prefix("0x")
-                    .or_else(|| s.strip_prefix("0X"))
-                    .unwrap_or(s);
-                u64::from_str_radix(cleaned, 16).ok()
-            })
-            .collect();
-
-        // Parse code patches
-        let code_patches: Vec<CodePatch> = params
-            .code_patches
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|patch| {
-                let data_str = patch.get("data")?;
-                let data_hex = data_str.strip_prefix("0x").unwrap_or(data_str);
-                let data = (0..data_hex.len())
-                    .step_by(2)
-                    .filter_map(|i| u8::from_str_radix(&data_hex[i..i + 2], 16).ok())
-                    .collect::<Vec<u8>>();
-                if let Some(addr_str) = patch.get("address") {
-                    let cleaned = addr_str
-                        .strip_prefix("0x")
-                        .or_else(|| addr_str.strip_prefix("0X"))
-                        .unwrap_or(addr_str);
-                    let address = u64::from_str_radix(cleaned, 16).ok()?;
+        if let Some(elf_path) = &params.elf_path {
+            config.elf = Some(PathBuf::from(elf_path));
+        }
+        if let Some(threads) = params.threads {
+            config.threads = threads;
+        }
+        if let Some(max_instructions) = params.max_instructions {
+            config.max_instructions = max_instructions;
+        }
+        if let Some(deep_analysis) = params.deep_analysis {
+            config.deep_analysis = deep_analysis;
+        }
+        if let Some(no_check) = params.no_check {
+            config.no_check = no_check;
+        }
+        if let Some(addresses) = &params.success_addresses {
+            config.success_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
+        }
+        if let Some(addresses) = &params.failure_addresses {
+            config.failure_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
+        }
+        if let Some(patches) = &params.code_patches {
+            config.code_patches = patches
+                .iter()
+                .filter_map(|patch| {
+                    let data_str = patch.get("data")?;
+                    let data_hex = data_str.strip_prefix("0x").unwrap_or(data_str);
+                    let data = (0..data_hex.len())
+                        .step_by(2)
+                        .filter_map(|i| u8::from_str_radix(&data_hex[i..i + 2], 16).ok())
+                        .collect::<Vec<u8>>();
                     let offset = patch
                         .get("offset")
-                        .and_then(|o| {
-                            let cleaned = o.strip_prefix("0x").unwrap_or(o);
-                            u64::from_str_radix(cleaned, 16).ok()
-                        })
+                        .and_then(|o| parse_hex_u64(o))
                         .unwrap_or(0);
-                    Some(CodePatch {
-                        address: Some(address),
-                        symbol: None,
-                        offset,
-                        data,
-                    })
-                } else if let Some(symbol) = patch.get("symbol") {
-                    let offset = patch
-                        .get("offset")
-                        .and_then(|o| {
-                            let cleaned = o.strip_prefix("0x").unwrap_or(o);
-                            u64::from_str_radix(cleaned, 16).ok()
+                    if let Some(addr_str) = patch.get("address") {
+                        Some(CodePatch {
+                            address: Some(parse_hex_u64(addr_str)?),
+                            symbol: None,
+                            offset,
+                            data,
                         })
-                        .unwrap_or(0);
-                    Some(CodePatch {
-                        address: None,
-                        symbol: Some(symbol.clone()),
-                        offset,
-                        data,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
+                    } else {
+                        patch.get("symbol").map(|symbol| CodePatch {
+                            address: None,
+                            symbol: Some(symbol.clone()),
+                            offset,
+                            data,
+                        })
+                    }
+                })
+                .collect();
+        }
 
-        let path = std::path::PathBuf::from(&params.elf_path);
+        let path = config.elf.clone().ok_or_else(|| {
+            McpError::invalid_request(
+                "No ELF file specified. Provide `elf_path` or an `elf` entry in the configuration.",
+                None,
+            )
+        })?;
 
         // Load ELF file
-        let mut file_data = ElfFile::new(path)
+        let mut file_data = ElfFile::new(path.clone())
             .map_err(|e| McpError::internal_error(format!("Failed to load ELF: {}", e), None))?;
 
         // Apply code patches
-        if !code_patches.is_empty() {
-            file_data.apply_patches(&code_patches).map_err(|e| {
+        if !config.code_patches.is_empty() {
+            file_data.apply_patches(&config.code_patches).map_err(|e| {
                 McpError::internal_error(format!("Failed to apply patches: {}", e), None)
             })?;
         }
 
         // Create simulation config
         let sim_config = SimulationConfig::new(
-            max_instructions,
-            deep_analysis,
-            success_addresses,
-            failure_addresses,
-            HashMap::new(),
-            vec![],
-            "off".to_string(),
-            None,
+            config.max_instructions,
+            config.deep_analysis,
+            config.success_addresses.clone(),
+            config.failure_addresses.clone(),
+            config.initial_registers.clone(),
+            config.memory_regions.clone(),
+            config.log_level.clone(),
+            config.result_checks.clone(),
         );
+
+        let threads = config.threads;
+        let no_check = config.no_check;
 
         // Create threads and run behavior check — capture all stdout output
         // to prevent library println! calls from corrupting the JSON-RPC stream.
@@ -304,29 +428,69 @@ impl FaultSimulatorServer {
                 FaultAttacks::new_with_threads(&file_data, Arc::clone(&user_thread), threads)?;
 
             // Check behavior
-            if !no_check {
-                let _ = attack_sim.check_for_correct_behavior();
-            }
+            let behavior = if no_check {
+                None
+            } else {
+                Some(attack_sim.check_for_correct_behavior())
+            };
 
-            Ok::<_, SimulatorError>(attack_sim)
+            Ok::<_, SimulatorError>((attack_sim, behavior))
         });
 
-        let attack_sim = init_result.map_err(|e| {
+        let (attack_sim, behavior) = init_result.map_err(|e| {
             McpError::internal_error(format!("Failed to initialize simulation: {}", e), None)
         })?;
 
-        *self.session.lock().unwrap() = Some(Session { attack_sim });
+        let behavior_check = match behavior {
+            None => "SKIPPED (no_check)".to_string(),
+            Some(Ok(())) => "OK".to_string(),
+            Some(Err(e)) => format!("FAILED: {}", e),
+        };
 
-        let check_info = if no_check {
-            "Behavior check skipped."
+        let info = SessionInfo {
+            elf_path: path.display().to_string(),
+            threads,
+            max_instructions: config.max_instructions,
+            deep_analysis: config.deep_analysis,
+            no_check,
+            success_addresses: config.success_addresses.clone(),
+            failure_addresses: config.failure_addresses.clone(),
+            result_checks: config.result_checks.is_some(),
+            initial_registers: config.initial_registers.len(),
+            memory_regions: config.memory_regions.len(),
+            code_patches: config.code_patches.len(),
+            behavior_check: behavior_check.clone(),
+        };
+        let detection_mode = info.detection_mode();
+
+        let warning = if behavior_check.starts_with("FAILED") {
+            "\nWARNING: the baseline behavior check failed. Attack results are not meaningful \
+             until the success/failure criteria and the target setup are correct. \
+             Use get_trace and get_symbols to diagnose.\n"
         } else {
             ""
         };
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
-            "ELF loaded: {}\nThreads: {}\nMax instructions: {}\n{}{}\n",
-            params.elf_path, threads, max_instructions, init_output, check_info
-        ))]))
+        let summary = format!(
+            "ELF loaded: {}\nThreads: {}\nMax instructions: {}\nDeep analysis: {}\n\
+             Success detection: {}\nCode patches applied: {}\nInitial registers: {}\n\
+             Memory regions: {}\nBehavior check: {}\n{}{}",
+            info.elf_path,
+            info.threads,
+            info.max_instructions,
+            info.deep_analysis,
+            detection_mode,
+            info.code_patches,
+            info.initial_registers,
+            info.memory_regions,
+            behavior_check,
+            warning,
+            init_output
+        );
+
+        *self.session.lock().unwrap() = Some(Session { attack_sim, info });
+
+        Ok(CallToolResult::success(vec![Content::text(summary)]))
     }
 
     /// Run class-based fault attacks (single or double).
@@ -356,22 +520,29 @@ impl FaultSimulatorServer {
             &[]
         };
 
-        let output = capture_stdout(|| match class_vec.first().map(|s| s.as_str()) {
-            Some("all") | None => {
-                if let Ok(result) = session.attack_sim.single(subclass, run_through) {
-                    if !result.0 {
-                        let _ = session.attack_sim.double(subclass, run_through);
-                    }
-                }
+        let (output, run_result) = capture_stdout_with_result(|| {
+            match class_vec.first().map(|s| s.as_str()) {
+                Some("all") | None => session.attack_sim.single(subclass, run_through).and_then(
+                    |result| {
+                        if result.0 {
+                            Ok(())
+                        } else {
+                            session.attack_sim.double(subclass, run_through).map(|_| ())
+                        }
+                    },
+                ),
+                Some("single") => session.attack_sim.single(subclass, run_through).map(|_| ()),
+                Some("double") => session.attack_sim.double(subclass, run_through).map(|_| ()),
+                Some(other) => Err(SimulatorError::config(format!(
+                    "Unknown attack class '{}'. Use \"single\", \"double\" or \"all\".",
+                    other
+                ))),
             }
-            Some("single") => {
-                let _ = session.attack_sim.single(subclass, run_through);
-            }
-            Some("double") => {
-                let _ = session.attack_sim.double(subclass, run_through);
-            }
-            _ => println!("Unknown attack class!"),
         });
+
+        run_result.map_err(|e| {
+            McpError::internal_error(format!("Attack campaign failed: {}", e), None)
+        })?;
 
         let num_attacks = session.attack_sim.fault_data.len();
         let count = session.attack_sim.count_sum;
@@ -409,9 +580,13 @@ impl FaultSimulatorServer {
             )]));
         }
 
-        let output = capture_stdout(|| {
-            let _ = session.attack_sim.fault_simulation(&fault_types);
+        let (output, run_result) = capture_stdout_with_result(|| {
+            session.attack_sim.fault_simulation(&fault_types).map(|_| ())
         });
+
+        run_result.map_err(|e| {
+            McpError::internal_error(format!("Fault simulation failed: {}", e), None)
+        })?;
 
         let num_attacks = session.attack_sim.fault_data.len();
         let count = session.attack_sim.count_sum;
@@ -425,7 +600,10 @@ impl FaultSimulatorServer {
     /// Get a summary of all successful attacks found so far.
     /// Returns the disassembled fault data for each successful attack.
     #[tool(name = "get_results")]
-    async fn get_results(&self) -> Result<CallToolResult, McpError> {
+    async fn get_results(
+        &self,
+        Parameters(params): Parameters<GetResultsParams>,
+    ) -> Result<CallToolResult, McpError> {
         let session_guard = self.session.lock().unwrap();
         let session = session_guard.as_ref().ok_or_else(|| {
             McpError::invalid_request("No ELF loaded. Call load_elf first.", None)
@@ -444,7 +622,9 @@ impl FaultSimulatorServer {
 
         Ok(CallToolResult::success(vec![Content::text(format!(
             "Successful attacks: {}\nOverall tests executed: {}\n\n{}",
-            num_attacks, session.attack_sim.count_sum, output
+            num_attacks,
+            session.attack_sim.count_sum,
+            truncate_output(&output, params.max_lines)
         ))]))
     }
 
@@ -475,27 +655,39 @@ impl FaultSimulatorServer {
         }
 
         let attack_number = params.attack_number;
-        let output = capture_stdout(|| {
-            let _ = session.attack_sim.print_trace_for_fault(attack_number);
+        let (output, trace_result) = capture_stdout_with_result(|| {
+            session.attack_sim.print_trace_for_fault(attack_number)
         });
 
-        Ok(CallToolResult::success(vec![Content::text(output)]))
+        trace_result
+            .map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            truncate_output(&output, params.max_lines),
+        )]))
     }
 
     /// Get the baseline execution trace without any fault injection.
     /// Useful for understanding normal program flow before analyzing attacks.
     #[tool(name = "get_trace")]
-    async fn get_trace(&self) -> Result<CallToolResult, McpError> {
+    async fn get_trace(
+        &self,
+        Parameters(params): Parameters<GetTraceParams>,
+    ) -> Result<CallToolResult, McpError> {
         let session_guard = self.session.lock().unwrap();
         let session = session_guard.as_ref().ok_or_else(|| {
             McpError::invalid_request("No ELF loaded. Call load_elf first.", None)
         })?;
 
-        let output = capture_stdout(|| {
-            let _ = session.attack_sim.print_trace();
-        });
+        let (output, trace_result) =
+            capture_stdout_with_result(|| session.attack_sim.print_trace());
 
-        Ok(CallToolResult::success(vec![Content::text(output)]))
+        trace_result
+            .map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(
+            truncate_output(&output, params.max_lines),
+        )]))
     }
 
     /// Get structured data about successful attacks in JSON format.
@@ -516,8 +708,10 @@ impl FaultSimulatorServer {
         for (i, element) in fault_data.iter().enumerate() {
             let mut faults = Vec::new();
             for fd in element {
+                let address = fd.record.address();
                 let fault_info = serde_json::json!({
-                    "address": format!("0x{:08X}", fd.record.address()),
+                    "address": format!("0x{:08X}", address),
+                    "source": source_location(&session.attack_sim.file_data, address),
                     "fault_type": format!("{:?}", fd.fault.fault_type),
                     "fault_index": fd.fault.index,
                     "original_instruction": format!("{:02X?}", fd.original_instruction),
@@ -555,6 +749,184 @@ impl FaultSimulatorServer {
             "Session reset. Attack data cleared.",
         )]))
     }
+
+    /// Report the state of the current session: loaded ELF, success detection mode,
+    /// baseline behavior check result and the number of attacks found so far.
+    #[tool(name = "get_status")]
+    async fn get_status(&self) -> Result<CallToolResult, McpError> {
+        let session_guard = self.session.lock().unwrap();
+        let Some(session) = session_guard.as_ref() else {
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::json!({ "loaded": false }).to_string(),
+            )]));
+        };
+
+        let info = &session.info;
+        let status = serde_json::json!({
+            "loaded": true,
+            "elf_path": info.elf_path,
+            "threads": info.threads,
+            "max_instructions": info.max_instructions,
+            "deep_analysis": info.deep_analysis,
+            "no_check": info.no_check,
+            "detection_mode": info.detection_mode(),
+            "success_addresses": info.success_addresses.iter().map(|a| format!("0x{:08X}", a)).collect::<Vec<_>>(),
+            "failure_addresses": info.failure_addresses.iter().map(|a| format!("0x{:08X}", a)).collect::<Vec<_>>(),
+            "result_checks": info.result_checks,
+            "initial_registers": info.initial_registers,
+            "memory_regions": info.memory_regions,
+            "code_patches": info.code_patches,
+            "behavior_check": info.behavior_check,
+            "successful_attacks": session.attack_sim.fault_data.len(),
+            "tests_executed": session.attack_sim.count_sum,
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&status).unwrap_or_default(),
+        )]))
+    }
+
+    /// Re-run the baseline behavior check of the loaded target without fault injection.
+    /// Confirms that the configured success/failure criteria detect both outcomes.
+    #[tool(name = "check_behavior")]
+    async fn check_behavior(&self) -> Result<CallToolResult, McpError> {
+        let session_guard = self.session.lock().unwrap();
+        let session = session_guard.as_ref().ok_or_else(|| {
+            McpError::invalid_request("No ELF loaded. Call load_elf first.", None)
+        })?;
+
+        let (output, result) =
+            capture_stdout_with_result(|| session.attack_sim.check_for_correct_behavior());
+
+        let verdict = match result {
+            Ok(()) => "Behavior check: OK".to_string(),
+            Err(e) => format!("Behavior check: FAILED: {}", e),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "{}\n{}",
+            verdict, output
+        ))]))
+    }
+
+    /// List the global symbols of an ELF file with their addresses.
+    /// Use it to locate success/failure addresses in binaries that carry no
+    /// simulator instrumentation, and to pick symbols for code patches.
+    #[tool(name = "get_symbols")]
+    async fn get_symbols(
+        &self,
+        Parameters(params): Parameters<GetSymbolsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = params.limit.unwrap_or(200);
+        let filter = params.filter.map(|f| f.to_lowercase());
+
+        let collect = |file_data: &ElfFile| {
+            let mut symbols: Vec<_> = file_data
+                .symbol_map
+                .iter()
+                .filter(|(name, _)| {
+                    !name.is_empty()
+                        && filter
+                            .as_ref()
+                            .is_none_or(|f| name.to_lowercase().contains(f))
+                })
+                .map(|(name, symbol)| {
+                    serde_json::json!({
+                        "name": name,
+                        "address": format!("0x{:08X}", symbol.st_value),
+                        "entry_address": format!("0x{:08X}", symbol.st_value & !1),
+                        "size": symbol.st_size,
+                    })
+                })
+                .collect();
+            symbols.sort_by_key(|s| s["address"].as_str().unwrap_or("").to_string());
+            symbols
+        };
+
+        let symbols = if let Some(elf_path) = &params.elf_path {
+            let file_data = ElfFile::new(PathBuf::from(elf_path)).map_err(|e| {
+                McpError::invalid_request(format!("Failed to load ELF: {}", e), None)
+            })?;
+            collect(&file_data)
+        } else {
+            let session_guard = self.session.lock().unwrap();
+            let session = session_guard.as_ref().ok_or_else(|| {
+                McpError::invalid_request(
+                    "No ELF loaded. Call load_elf first or pass `elf_path`.",
+                    None,
+                )
+            })?;
+            collect(&session.attack_sim.file_data)
+        };
+
+        let total = symbols.len();
+        let result = serde_json::json!({
+            "total": total,
+            "shown": total.min(limit),
+            "symbols": symbols.into_iter().take(limit).collect::<Vec<_>>(),
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&result).unwrap_or_default(),
+        )]))
+    }
+
+    /// Build the target program with `make`, so the investigation loop
+    /// (edit C source -> compile -> load -> attack) runs without a shell.
+    #[tool(name = "compile_target")]
+    async fn compile_target(
+        &self,
+        Parameters(params): Parameters<CompileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let directory = params.directory.unwrap_or_else(|| "content".to_string());
+        let clean = params.clean.unwrap_or(true);
+        let expected_elf = params
+            .expected_elf
+            .unwrap_or_else(|| format!("{}/bin/aarch32/victim.elf", directory.trim_end_matches('/')));
+
+        let mut report = String::new();
+
+        if clean {
+            let output = std::process::Command::new("make")
+                .arg("clean")
+                .current_dir(&directory)
+                .output()
+                .map_err(|e| {
+                    McpError::internal_error(format!("Failed to run 'make clean': {}", e), None)
+                })?;
+            report.push_str(&format!(
+                "make clean: {}\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        let output = std::process::Command::new("make")
+            .current_dir(&directory)
+            .output()
+            .map_err(|e| McpError::internal_error(format!("Failed to run 'make': {}", e), None))?;
+
+        report.push_str(&format!(
+            "make: {}\nstdout:\n{}\nstderr:\n{}\n",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+
+        let elf_exists = std::path::Path::new(&expected_elf).exists();
+        report.push_str(&format!(
+            "Build {}. ELF '{}' {}.\n",
+            if output.status.success() {
+                "succeeded"
+            } else {
+                "FAILED"
+            },
+            expected_elf,
+            if elf_exists { "exists" } else { "is MISSING" }
+        ));
+
+        Ok(CallToolResult::success(vec![Content::text(report)]))
+    }
 }
 
 #[tool_handler]
@@ -564,10 +936,14 @@ impl ServerHandler for FaultSimulatorServer {
             .with_server_info(Implementation::from_build_env())
             .with_instructions(
                 "Fault Injection Simulator for ARM Cortex-M processors. \
-                 Use load_elf to load a target binary, then run_attack or run_faults \
-                 to execute fault injection campaigns. Use get_results, analyze_attack, \
-                 and get_attack_data to inspect results. Use get_trace for baseline \
-                 program flow analysis.",
+                 Typical autonomous loop: compile_target (build the C target) -> \
+                 load_elf (optionally with a JSON5 config providing initial_registers, \
+                 memory_regions or result_checks for uninstrumented binaries) -> \
+                 get_status/check_behavior (validate the baseline) -> get_trace \
+                 (baseline program flow) -> run_attack or run_faults -> get_results, \
+                 analyze_attack and get_attack_data to inspect results -> harden the \
+                 source and repeat. get_symbols resolves addresses in binaries without \
+                 simulator instrumentation.",
             )
     }
 }
@@ -595,7 +971,9 @@ mod tests {
     fn test_load_elf_params_deserialize_defaults() {
         let json = r#"{"elf_path": "test.elf"}"#;
         let params: LoadElfParams = serde_json::from_str(json).unwrap();
-        assert_eq!(params.elf_path, "test.elf");
+        assert_eq!(params.elf_path.as_deref(), Some("test.elf"));
+        assert!(params.config_file.is_none());
+        assert!(params.config_json5.is_none());
         assert!(params.threads.is_none());
         assert!(params.max_instructions.is_none());
         assert!(params.deep_analysis.is_none());
@@ -621,7 +999,7 @@ mod tests {
             ]
         }"#;
         let params: LoadElfParams = serde_json::from_str(json).unwrap();
-        assert_eq!(params.elf_path, "firmware.elf");
+        assert_eq!(params.elf_path.as_deref(), Some("firmware.elf"));
         assert_eq!(params.threads, Some(4));
         assert_eq!(params.max_instructions, Some(5000));
         assert_eq!(params.deep_analysis, Some(true));
@@ -662,6 +1040,39 @@ mod tests {
         let json = r#"{"attack_number": 5}"#;
         let params: AnalyzeAttackParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.attack_number, 5);
+        assert!(params.max_lines.is_none());
+    }
+
+    #[test]
+    fn test_config_json5_params_deserialize() {
+        let json = r#"{"config_json5": "{ elf: 'firmware.elf', max_instructions: 500 }"}"#;
+        let params: LoadElfParams = serde_json::from_str(json).unwrap();
+        let config: Config = json5::from_str(params.config_json5.as_ref().unwrap()).unwrap();
+        assert_eq!(config.max_instructions, 500);
+        assert_eq!(config.elf, Some(PathBuf::from("firmware.elf")));
+    }
+
+    #[test]
+    fn test_default_config_parses() {
+        let config: Config = json5::from_str("{}").unwrap();
+        assert_eq!(config.max_instructions, 2000);
+        assert!(config.elf.is_none());
+        assert!(config.result_checks.is_none());
+    }
+
+    #[test]
+    fn test_truncate_output() {
+        let text = "a\nb\nc\nd";
+        assert_eq!(truncate_output(text, None), text);
+        assert!(truncate_output(text, Some(2)).starts_with("a\nb\n..."));
+        assert_eq!(truncate_output(text, Some(10)), text);
+    }
+
+    #[test]
+    fn test_parse_hex_u64() {
+        assert_eq!(parse_hex_u64("0x08000100"), Some(0x0800_0100));
+        assert_eq!(parse_hex_u64("08000100"), Some(0x0800_0100));
+        assert_eq!(parse_hex_u64("zzz"), None);
     }
 
     #[test]
