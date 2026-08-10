@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use fault_simulator::config::Config;
+use fault_simulator::cli_args::Config;
 use fault_simulator::error::SimulatorError;
 use fault_simulator::prelude::*;
 
@@ -23,7 +23,11 @@ pub fn run(config: Config, file_data: &ElfFile) -> Result<Option<FaultAttacks>, 
         config.memory_regions,
         config.log_level.clone(),
         config.result_checks,
-    );
+    )
+    .with_result_timeout(match config.result_timeout {
+        0 => None,
+        seconds => Some(std::time::Duration::from_secs(seconds)),
+    });
 
     // Create user thread for simulation
     let user_thread = Arc::new(SimulationThread::new_with_threads(

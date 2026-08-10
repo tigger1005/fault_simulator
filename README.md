@@ -164,6 +164,7 @@ CLI arguments always override values from the config file.
 | `--print-analysis <NUMBER>`                    | Print analysis trace for a specific attack number and exit. Useful for automated analysis of successful attacks                                                                                                                                                                                                    |
 | `--success-addresses [<SUCCESS_ADDRESSES>...]` | List of memory addresses that indicate success when accessed Format: --success-addresses 0x8000123 0x8000456                                                                                                                                                                                                       |
 | `--failure-addresses [<FAILURE_ADDRESSES>...]` | List of memory addresses that indicate failure when accessed Format: --failure-addresses 0x8000789 0x8000abc                                                                                                                                                                                                       |
+| `--result-timeout <SECONDS>`                   | Seconds to wait for a worker result before aborting a campaign (0 = wait forever). Defaults to `FAULT_SIM_RESULT_TIMEOUT`, or 120                                                                                                                                                                                  |
 | `-h, --help`                                   | Print help                                                                                                                                                                                                                                                                                                         |
 | `-V, --version`                                | Print version                                                                                                                                                                                                                                                                                                      |
 
@@ -186,6 +187,27 @@ of the program image, or when `--max-instructions` is used up. The last case is 
   A few percent are normal — faults that break the control flow leave the program in an
   endless loop. The diagnostic compares the limit against the instruction count of the
   unfaulted program to tell that case apart from a limit that is simply set too low.
+
+### Worker Result Timeout
+
+A campaign aborts when no worker result arrives within 120 s, which protects against a
+hung worker. On slow or heavily loaded machines a single fault sequence can legitimately
+exceed that, so the limit is configurable (`0` waits indefinitely):
+
+```bash
+cargo run --release -- --class double --result-timeout 600
+```
+
+```json5
+{ result_timeout: 600 }
+```
+
+The environment variable `FAULT_SIM_RESULT_TIMEOUT` (seconds; `0`, `off` or `none` waits
+indefinitely) provides the default when neither is given.
+
+If the limit is hit, the run stops with an explicit error naming the limit and the option.
+Worker failures are never silently dropped — they abort the campaign instead of reporting
+an incomplete attack count.
 
 ### Examples
 

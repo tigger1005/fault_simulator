@@ -137,6 +137,7 @@ struct SessionInfo {
     initial_registers: usize,
     memory_regions: usize,
     code_patches: usize,
+    result_timeout: Option<std::time::Duration>,
     behavior_check: String,
 }
 
@@ -203,6 +204,10 @@ struct LoadElfParams {
     /// Skip program behavior validation
     #[serde(default)]
     no_check: Option<bool>,
+    /// Seconds to wait for a worker result before aborting a campaign (0 = wait forever).
+    /// Raise it on slow or heavily loaded machines. Default: 120 s.
+    #[serde(default)]
+    result_timeout_seconds: Option<u64>,
     /// Code patches to apply: list of {address: "0x...", data: "0x..."} or {symbol: "name", data: "0x..."}
     #[serde(default)]
     code_patches: Option<Vec<HashMap<String, String>>>,
@@ -345,6 +350,9 @@ impl FaultSimulatorServer {
         if let Some(no_check) = params.no_check {
             config.no_check = no_check;
         }
+        if let Some(result_timeout) = params.result_timeout_seconds {
+            config.result_timeout = result_timeout;
+        }
         if let Some(addresses) = &params.success_addresses {
             config.success_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
         }
@@ -412,7 +420,12 @@ impl FaultSimulatorServer {
             config.memory_regions.clone(),
             config.log_level.clone(),
             config.result_checks.clone(),
-        );
+        )
+        .with_result_timeout(match config.result_timeout {
+            0 => None,
+            seconds => Some(std::time::Duration::from_secs(seconds)),
+        });
+        let result_timeout = sim_config.result_timeout;
 
         let threads = config.threads;
         let no_check = config.no_check;
@@ -459,6 +472,7 @@ impl FaultSimulatorServer {
             initial_registers: config.initial_registers.len(),
             memory_regions: config.memory_regions.len(),
             code_patches: config.code_patches.len(),
+            result_timeout,
             behavior_check: behavior_check.clone(),
         };
         let detection_mode = info.detection_mode();
@@ -788,6 +802,7 @@ impl FaultSimulatorServer {
             "initial_registers": info.initial_registers,
             "memory_regions": info.memory_regions,
             "code_patches": info.code_patches,
+            "result_timeout_seconds": info.result_timeout.map(|t| t.as_secs()),
             "behavior_check": info.behavior_check,
             "successful_attacks": session.attack_sim.fault_data.len(),
             "tests_executed": session.attack_sim.count_sum,

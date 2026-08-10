@@ -22,6 +22,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{/*sleep, */ spawn, JoinHandle};
+use std::time::Duration;
 use std::vec;
 
 //use crate::disassembly::Disassembly;
@@ -141,11 +142,41 @@ pub struct SimulationConfig {
     /// Initial CPU register values to set before each simulation.
     pub initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
     /// Custom memory regions to initialize.
-    pub memory_regions: Vec<crate::config::MemoryRegion>,
+    pub memory_regions: Vec<crate::cli_args::MemoryRegion>,
     /// Log level: "off", "error", "warn", "info", "debug", "trace".
     pub log_level: String,
     /// Register-based success/failure checking configuration.
-    pub result_checks: Option<crate::config::ResultChecks>,
+    pub result_checks: Option<crate::cli_args::ResultChecks>,
+    /// Maximum time to wait for a single worker result before aborting the campaign.
+    ///
+    /// `None` waits indefinitely. Raise it on slow or heavily loaded machines where a
+    /// single fault sequence legitimately takes longer than the default.
+    pub result_timeout: Option<Duration>,
+}
+
+/// Default time to wait for a worker result, overridable via `FAULT_SIM_RESULT_TIMEOUT`
+/// (seconds; `0`, `off` or `none` disables the timeout).
+pub fn default_result_timeout() -> Option<Duration> {
+    parse_result_timeout(std::env::var("FAULT_SIM_RESULT_TIMEOUT").ok().as_deref())
+}
+
+/// Timeout fallback used when the environment does not specify one.
+const DEFAULT_RESULT_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn parse_result_timeout(value: Option<&str>) -> Option<Duration> {
+    let Some(value) = value else {
+        return Some(DEFAULT_RESULT_TIMEOUT);
+    };
+    match value.trim().to_lowercase().as_str() {
+        "0" | "off" | "none" => None,
+        other => match other.parse::<u64>() {
+            Ok(seconds) => Some(Duration::from_secs(seconds)),
+            Err(_) => {
+                log::warn!("Invalid FAULT_SIM_RESULT_TIMEOUT value '{}', ignored", value);
+                Some(DEFAULT_RESULT_TIMEOUT)
+            }
+        },
+    }
 }
 
 impl SimulationConfig {
@@ -168,9 +199,9 @@ impl SimulationConfig {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-        memory_regions: Vec<crate::config::MemoryRegion>,
+        memory_regions: Vec<crate::cli_args::MemoryRegion>,
         log_level: String,
-        result_checks: Option<crate::config::ResultChecks>,
+        result_checks: Option<crate::cli_args::ResultChecks>,
     ) -> Self {
         Self {
             cycles,
@@ -181,7 +212,14 @@ impl SimulationConfig {
             memory_regions,
             log_level,
             result_checks,
+            result_timeout: default_result_timeout(),
         }
+    }
+
+    /// Overrides the time to wait for a single worker result (`None` waits indefinitely).
+    pub fn with_result_timeout(mut self, result_timeout: Option<Duration>) -> Self {
+        self.result_timeout = result_timeout;
+        self
     }
 }
 
@@ -728,5 +766,16 @@ mod tests {
         stats.reset();
         assert_eq!(stats.snapshot(), RunStatisticsSnapshot::default());
         assert_eq!(stats.snapshot().instruction_limit_ratio(), 0.0);
+    }
+
+    #[test]
+    fn result_timeout_parsing() {
+        assert_eq!(parse_result_timeout(None), Some(DEFAULT_RESULT_TIMEOUT));
+        assert_eq!(parse_result_timeout(Some("30")), Some(Duration::from_secs(30)));
+        assert_eq!(parse_result_timeout(Some(" 30 ")), Some(Duration::from_secs(30)));
+        assert_eq!(parse_result_timeout(Some("0")), None);
+        assert_eq!(parse_result_timeout(Some("off")), None);
+        assert_eq!(parse_result_timeout(Some("NONE")), None);
+        assert_eq!(parse_result_timeout(Some("abc")), Some(DEFAULT_RESULT_TIMEOUT));
     }
 }

@@ -35,6 +35,7 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 | `success_addresses` | string[] | no       | []        | Hex addresses indicating attack success (e.g. `"0x8000123"`)                             |
 | `failure_addresses` | string[] | no       | []        | Hex addresses indicating attack failure                                                  |
 | `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
+| `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
 | `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data: "0x..."}` or `{symbol: "name", data: "0x..."}` |
 
 Explicit parameters override the values coming from `config_file` / `config_json5`.
@@ -88,6 +89,12 @@ Returns the instruction-by-instruction trace of normal program execution (no fau
 The response ends with the attack counters and, if any run used up its instruction budget,
 an instruction limit diagnostic (see Section 2.10). Treat a large share of budget-exhausted
 runs as a signal to raise `max_instructions` — those runs test nothing.
+
+If a worker produces no result within the configured timeout (`result_timeout_seconds` of
+`load_elf` / `result_timeout` in the JSON5 configuration, default 120 s, also settable
+through the `FAULT_SIM_RESULT_TIMEOUT` environment variable), the call fails with an
+explicit timeout error instead of returning an incomplete result. Raise the value on slow
+machines or for long double-fault campaigns.
 
 **Subclass filters:**
 - `"glitch"` — NOP 1–10 instructions (simulates voltage/clock glitches)

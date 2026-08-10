@@ -195,7 +195,7 @@ impl ElfFile {
     /// Apply patches to the program data
     pub fn apply_patches(
         &mut self,
-        patches: &[crate::config::CodePatch],
+        patches: &[crate::cli_args::CodePatch],
     ) -> Result<(), SimulatorError> {
         if patches.is_empty() {
             return Ok(());

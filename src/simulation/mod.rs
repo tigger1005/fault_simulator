@@ -129,8 +129,8 @@ impl<'a> Control<'a> {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-        memory_regions: &[crate::config::MemoryRegion],
-        result_checks: Option<crate::config::ResultChecks>,
+        memory_regions: &[crate::cli_args::MemoryRegion],
+        result_checks: Option<crate::cli_args::ResultChecks>,
     ) -> Result<Self, SimulatorError> {
         // Setup cpu emulation
         let mut emu = Cpu::new(

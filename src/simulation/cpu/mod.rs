@@ -131,7 +131,7 @@ struct CpuState<'a> {
     file_data: &'a ElfFile,
     success_addresses: HashSet<u64>,
     failure_addresses: HashSet<u64>,
-    result_checks: Option<crate::config::ResultChecks>,
+    result_checks: Option<crate::cli_args::ResultChecks>,
     /// Addresses mentioned by any success or failure check.
     ///
     /// The result check hook runs on every instruction, so this set provides an
@@ -159,7 +159,7 @@ impl<'a> Cpu<'a> {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: HashMap<RegisterARM, u64>,
-        result_checks: Option<crate::config::ResultChecks>,
+        result_checks: Option<crate::cli_args::ResultChecks>,
     ) -> Result<Self, SimulatorError> {
         // Setup platform -> ARMv8-m.base
         let result_check_addresses = result_checks
@@ -404,7 +404,7 @@ impl<'a> Cpu<'a> {
     /// Setup memory mapping, stack, io mapping
     pub fn setup_mmio(
         &mut self,
-        memory_regions: &[crate::config::MemoryRegion],
+        memory_regions: &[crate::cli_args::MemoryRegion],
     ) -> Result<(), SimulatorError> {
         const MINIMUM_MEMORY_SIZE: u64 = 0x1000;
 
@@ -543,7 +543,7 @@ impl<'a> Cpu<'a> {
     }
 
     /// Setup custom memory regions from configuration
-    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::config::MemoryRegion]) {
+    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::cli_args::MemoryRegion]) {
         for region in memory_regions {
             // Try to map the memory region
             match self.emu.mem_map(
