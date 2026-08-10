@@ -167,6 +167,26 @@ CLI arguments always override values from the config file.
 | `-h, --help`                                   | Print help                                                                                                                                                                                                                                                                                                         |
 | `-V, --version`                                | Print version                                                                                                                                                                                                                                                                                                      |
 
+### Instruction Limit Reporting
+
+A simulation run ends when it reaches a success/failure verdict, when it runs past the end
+of the program image, or when `--max-instructions` is used up. The last case is reported:
+
+- **Baseline check:** if the unfaulted program does not reach a verdict within the limit,
+  the program flow check fails with an explicit message naming the limit.
+- **After a campaign:** the share of runs that used up the budget is printed, e.g.
+
+  ```text
+  Overall tests executed 280
+  Instruction limit (300) reached in 20 of 280 runs (7.1%), emulation errors: 82
+    -> The unfaulted program needs 155 instructions, so the limit leaves almost no headroom.
+       Increase --max-instructions to at least 620.
+  ```
+
+  A few percent are normal — faults that break the control flow leave the program in an
+  endless loop. The diagnostic compares the limit against the instruction count of the
+  unfaulted program to tell that case apart from a limit that is simply set too low.
+
 ### Examples
 
 1. **Single glitch attack with trace analysis (CLI):**

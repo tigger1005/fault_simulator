@@ -16,6 +16,10 @@ pub fn print_results(
     println!("Successful attacks {}", attack_sim.fault_data.len());
     println!("Overall tests executed {}", attack_sim.count_sum);
 
+    if let Some(report) = attack_sim.instruction_limit_report() {
+        println!("{}", report);
+    }
+
     // Print analysis for a specific attack number and exit
     if let Some(number) = print_analysis {
         if attack_sim.fault_data.is_empty() {

@@ -181,6 +181,13 @@ mcp_fault-simulat_get_results()
 If 0 attacks found → proceed to double fault campaign (§3.4).  
 If attacks found → analyze each one before hardening.
 
+**Check the instruction limit diagnostic** printed by `run_attack` (also available as
+`instruction_limit_report` in `get_status`). Runs that use up `max_instructions` never
+reach a verdict and therefore test nothing. A few percent are normal — faults that break
+the control flow leave the program looping. If the diagnostic recommends a higher limit
+(or the share exceeds ~50%), raise `max_instructions` and re-run the campaign before
+drawing conclusions from "0 successful attacks".
+
 ### 3.3 Analyze Each Attack
 
 For each successful attack (1-based index):
@@ -683,6 +690,7 @@ mcp_fault-simulat_load_elf(config_json5: "{ \
 | `while(1)` escapable | Single NOP glitch exits the loop | Hardened failure loop with multiple `asm volatile ("b .")` |
 | Success value in memory | Pointer redirect fault reads success value | Remove success data: identical failure values + `no_check` |
 | Missing `volatile` | Compiler eliminates "redundant" checks | Declare all security-critical variables `volatile` |
+| Instruction limit too small | Behavior check fails naming the limit, or a large share of runs is reported as inconclusive | Raise `max_instructions` (the diagnostic suggests a value) and re-run |
 
 ---
 

@@ -209,17 +209,37 @@ impl<'a> Control<'a> {
         // Deactivate io print
         self.emu.deactivate_printf_function();
         if self.run(cycles, true)? != RunState::Success {
-            return Err(SimulatorError::simulation(
-                "Program function check failed. Success path is not working properly!",
-            ));
+            return Err(SimulatorError::simulation(format!(
+                "Program function check failed. Success path is not working properly!{}",
+                self.instruction_limit_hint(cycles)
+            )));
         }
         if self.run(cycles, false)? != RunState::Failed {
-            return Err(SimulatorError::simulation(
-                "Program function check failed. Failure path is not working properly!",
-            ));
+            return Err(SimulatorError::simulation(format!(
+                "Program function check failed. Failure path is not working properly!{}",
+                self.instruction_limit_hint(cycles)
+            )));
         }
         println!("Program checked successfully");
         Ok(())
+    }
+
+    /// True when the last run used up its instruction budget without reaching a verdict.
+    pub fn instruction_limit_reached(&self) -> bool {
+        self.emu.instruction_limit_reached()
+    }
+
+    /// Explanatory suffix for error messages when the instruction budget was the cause.
+    fn instruction_limit_hint(&self, cycles: usize) -> String {
+        if self.instruction_limit_reached() {
+            format!(
+                " The instruction limit of {} was reached before a success or failure \
+                 marker was hit — increase --max-instructions.",
+                cycles
+            )
+        } else {
+            String::new()
+        }
     }
 
     /// Runs the simulation with the specified fault injection sequence.

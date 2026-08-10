@@ -546,10 +546,15 @@ impl FaultSimulatorServer {
 
         let num_attacks = session.attack_sim.fault_data.len();
         let count = session.attack_sim.count_sum;
+        let limit_report = session
+            .attack_sim
+            .instruction_limit_report()
+            .map(|r| format!("\n{}", r))
+            .unwrap_or_default();
 
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "{}\nSuccessful attacks: {}\nOverall tests executed: {}",
-            output, num_attacks, count
+            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}",
+            output, num_attacks, count, limit_report
         ))]))
     }
 
@@ -590,10 +595,15 @@ impl FaultSimulatorServer {
 
         let num_attacks = session.attack_sim.fault_data.len();
         let count = session.attack_sim.count_sum;
+        let limit_report = session
+            .attack_sim
+            .instruction_limit_report()
+            .map(|r| format!("\n{}", r))
+            .unwrap_or_default();
 
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "{}\nSuccessful attacks: {}\nOverall tests executed: {}",
-            output, num_attacks, count
+            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}",
+            output, num_attacks, count, limit_report
         ))]))
     }
 
@@ -743,6 +753,7 @@ impl FaultSimulatorServer {
         if let Some(session) = session_guard.as_mut() {
             session.attack_sim.fault_data.clear();
             session.attack_sim.count_sum = 0;
+            session.attack_sim.reset_run_statistics();
         }
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -762,6 +773,7 @@ impl FaultSimulatorServer {
         };
 
         let info = &session.info;
+        let stats = session.attack_sim.run_statistics();
         let status = serde_json::json!({
             "loaded": true,
             "elf_path": info.elf_path,
@@ -779,6 +791,11 @@ impl FaultSimulatorServer {
             "behavior_check": info.behavior_check,
             "successful_attacks": session.attack_sim.fault_data.len(),
             "tests_executed": session.attack_sim.count_sum,
+            "runs_completed": stats.runs,
+            "runs_instruction_limit": stats.instruction_limit,
+            "runs_instruction_limit_percent": (stats.instruction_limit_ratio() * 10.0).round() / 10.0,
+            "runs_emulation_errors": stats.errors,
+            "instruction_limit_report": session.attack_sim.instruction_limit_report(),
         });
 
         Ok(CallToolResult::success(vec![Content::text(

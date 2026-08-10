@@ -48,5 +48,7 @@ pub mod prelude {
     pub use crate::fault_attack_thread::FaultAttackThread;
     pub use crate::fault_attacks::{faults::*, FaultAttacks};
     pub use crate::simulation::record::TraceRecord;
-    pub use crate::simulation_thread::{SimulationConfig, SimulationThread, WorkloadMessage};
+    pub use crate::simulation_thread::{
+        RunStatistics, RunStatisticsSnapshot, SimulationConfig, SimulationThread, WorkloadMessage,
+    };
 }

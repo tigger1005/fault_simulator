@@ -652,8 +652,7 @@ impl<'a> Cpu<'a> {
                 }
             }
         } else {
-            let end_address = self.emu.get_data().file_data.program_data[0].0.p_paddr
-                + self.emu.get_data().file_data.program_data[0].0.p_memsz;
+            let end_address = self.end_address();
 
             // Start from last PC
             ret_val = self.emu.emu_start(
@@ -667,6 +666,24 @@ impl<'a> Cpu<'a> {
         self.program_counter = self.emu.pc_read().unwrap();
 
         ret_val
+    }
+
+    /// Address at which emulation stops (end of the loaded program image).
+    fn end_address(&self) -> u64 {
+        let segment = &self.emu.get_data().file_data.program_data[0].0;
+        segment.p_paddr + segment.p_memsz
+    }
+
+    /// True when the last run ended without a success/failure verdict while the
+    /// program counter is still inside the program image.
+    ///
+    /// Emulation stops either on a verdict (marker write, checked address, register
+    /// check), at the end of the program image, or when the instruction budget is
+    /// used up. Only the last case leaves the state uninitialized with the program
+    /// counter somewhere inside the image — typically an endless loop caused by a fault.
+    pub fn instruction_limit_reached(&self) -> bool {
+        self.emu.get_data().state == RunState::Init
+            && (self.program_counter | 1) != (self.end_address() | 1)
     }
 
     /// Returns the size of the assembler command at the specified address.

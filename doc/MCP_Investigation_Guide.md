@@ -85,6 +85,10 @@ Returns the instruction-by-instruction trace of normal program execution (no fau
 - `"double"` — Two faults per simulation (tests against coordinated attacks)
 - `"all"` — Run single first; if vulnerabilities found, also run double
 
+The response ends with the attack counters and, if any run used up its instruction budget,
+an instruction limit diagnostic (see Section 2.10). Treat a large share of budget-exhausted
+runs as a signal to raise `max_instructions` — those runs test nothing.
+
 **Subclass filters:**
 - `"glitch"` — NOP 1–10 instructions (simulates voltage/clock glitches)
 - `"regbf"` — Single-bit flip in registers R0–R12
@@ -153,6 +157,16 @@ Returns JSON describing the current session: loaded ELF, thread count, instructi
 success-detection mode, number of applied patches / initial registers / memory regions,
 the baseline behavior check result, and the attack counters. Use it to verify the setup
 before trusting campaign results and to track progress across hardening iterations.
+
+It also reports how the executed runs ended:
+
+| Field                             | Meaning                                                        |
+| --------------------------------- | -------------------------------------------------------------- |
+| `runs_completed`                   | Fault injection runs executed since the last reset             |
+| `runs_instruction_limit`           | Runs that used up `max_instructions` without reaching a verdict |
+| `runs_instruction_limit_percent`   | Share of those runs                                            |
+| `runs_emulation_errors`            | Runs aborted by an emulation error                             |
+| `instruction_limit_report`         | Human readable diagnostic, or `null` when no run hit the limit |
 
 **No parameters.**
 

@@ -1,7 +1,7 @@
 pub mod faults;
 
 use crate::simulation::TraceElement;
-use crate::simulation_thread::SimulationThread;
+use crate::simulation_thread::{RunStatisticsSnapshot, SimulationThread};
 use crate::{fault_attack_thread::FaultAttackThread, simulation::FaultElement};
 
 use super::simulation::{fault_data::FaultData, record::FaultRecord, Control, RunType};
@@ -79,6 +79,76 @@ impl FaultAttacks {
     ///
     pub fn get_fault_data(&self) -> &[FaultElement] {
         &self.fault_data
+    }
+
+    /// Returns the outcome counters of all fault injection runs executed so far.
+    pub fn run_statistics(&self) -> RunStatisticsSnapshot {
+        self.user_thread.statistics().snapshot()
+    }
+
+    /// Clears the run outcome counters, e.g. when starting a fresh campaign.
+    pub fn reset_run_statistics(&self) {
+        self.user_thread.statistics().reset();
+    }
+
+    /// Number of instructions the unfaulted program executes before it reaches a verdict.
+    ///
+    /// A value equal to the configured instruction limit means the clean program does not
+    /// even finish within the budget.
+    pub fn baseline_instruction_count(&self) -> Result<usize, SimulatorError> {
+        Ok(self
+            .get_trace_data(RunType::RecordFullTrace, true, vec![])?
+            .len())
+    }
+
+    /// Human readable diagnostic about runs that used up the instruction budget.
+    ///
+    /// Returns `None` when no run hit the limit. Otherwise it reports the share of
+    /// affected runs and compares the limit against the instruction count of the
+    /// unfaulted program to judge whether `max_instructions` is set too low.
+    pub fn instruction_limit_report(&self) -> Option<String> {
+        let stats = self.run_statistics();
+        if stats.instruction_limit == 0 {
+            return None;
+        }
+
+        let limit = self.user_thread.config.cycles;
+        let ratio = stats.instruction_limit_ratio();
+        let mut report = format!(
+            "Instruction limit ({}) reached in {} of {} runs ({:.1}%)",
+            limit, stats.instruction_limit, stats.runs, ratio
+        );
+        if stats.errors != 0 {
+            report.push_str(&format!(", emulation errors: {}", stats.errors));
+        }
+
+        let baseline = self.baseline_instruction_count().ok();
+        match baseline {
+            Some(baseline) if baseline >= limit => report.push_str(&format!(
+                "\n  -> The unfaulted program alone does not finish within the limit \
+                 ({} instructions traced). Increase --max-instructions.",
+                baseline
+            )),
+            Some(baseline) if limit < 2 * baseline => report.push_str(&format!(
+                "\n  -> The unfaulted program needs {} instructions, so the limit leaves \
+                 almost no headroom. Increase --max-instructions to at least {}.",
+                baseline,
+                4 * baseline
+            )),
+            Some(baseline) if ratio > 50.0 => report.push_str(&format!(
+                "\n  -> More than half of all runs were inconclusive while the unfaulted \
+                 program needs only {} instructions. This is usually caused by faults that \
+                 break the control flow (endless loops), but re-running with a higher \
+                 --max-instructions confirms whether the limit is the cause.",
+                baseline
+            )),
+            _ => report.push_str(
+                "\n  -> Expected for faults that break the control flow (endless loops). \
+                 Increase --max-instructions if the share grows.",
+            ),
+        }
+
+        Some(report)
     }
 
     /// Initializes dedicated fault attack worker threads.

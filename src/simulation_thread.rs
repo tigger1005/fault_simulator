@@ -19,6 +19,7 @@
 //! * **Resource Management**: Efficient memory and thread resource usage
 //! * **Scalability**: Adapts to available hardware resources automatically
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{/*sleep, */ spawn, JoinHandle};
 use std::vec;
@@ -32,6 +33,75 @@ use crate::simulation::{FaultElement, TraceElement};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use crate::simulation::{record::FaultRecord, Control, Data, RunType};
+
+/// Counters shared by all simulation workers, tracking how fault injection runs ended.
+///
+/// A run either reaches a verdict (success or failure marker), uses up its instruction
+/// budget, or aborts with an emulation error. A high share of budget-exhausted runs is
+/// the indicator that `max_instructions` may be set too low.
+#[derive(Debug, Default)]
+pub struct RunStatistics {
+    runs: AtomicUsize,
+    instruction_limit: AtomicUsize,
+    errors: AtomicUsize,
+}
+
+/// Immutable copy of [`RunStatistics`] for reporting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunStatisticsSnapshot {
+    /// Number of completed fault injection runs.
+    pub runs: usize,
+    /// Runs that used up the instruction budget without reaching a verdict.
+    pub instruction_limit: usize,
+    /// Runs that aborted with an emulation error.
+    pub errors: usize,
+}
+
+impl RunStatisticsSnapshot {
+    /// Share of runs that used up the instruction budget, in percent.
+    pub fn instruction_limit_ratio(&self) -> f64 {
+        if self.runs == 0 {
+            0.0
+        } else {
+            100.0 * self.instruction_limit as f64 / self.runs as f64
+        }
+    }
+}
+
+impl RunStatistics {
+    /// Records a run that reached a success or failure verdict.
+    pub fn record_verdict(&self) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records a run that used up its instruction budget without a verdict.
+    pub fn record_instruction_limit(&self) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        self.instruction_limit.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records a run that aborted with an emulation error.
+    pub fn record_error(&self) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Returns a consistent-enough copy of the counters for reporting.
+    pub fn snapshot(&self) -> RunStatisticsSnapshot {
+        RunStatisticsSnapshot {
+            runs: self.runs.load(Ordering::Relaxed),
+            instruction_limit: self.instruction_limit.load(Ordering::Relaxed),
+            errors: self.errors.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Clears all counters.
+    pub fn reset(&self) {
+        self.runs.store(0, Ordering::Relaxed);
+        self.instruction_limit.store(0, Ordering::Relaxed);
+        self.errors.store(0, Ordering::Relaxed);
+    }
+}
 
 /// Configuration parameters for fault injection simulation execution.
 ///
@@ -221,6 +291,8 @@ pub struct SimulationThread {
     /// complete their current work and terminate gracefully before the
     /// coordinator is destroyed.
     handles: Option<Vec<JoinHandle<()>>>,
+    /// Outcome counters of all fault injection runs, shared with the workers.
+    statistics: Arc<RunStatistics>,
 }
 
 impl SimulationThread {
@@ -273,7 +345,13 @@ impl SimulationThread {
             workload_sender: Some(workload_sender),
             workload_receiver,
             handles: None,
+            statistics: Arc::new(RunStatistics::default()),
         })
+    }
+
+    /// Returns the shared outcome counters of all executed fault injection runs.
+    pub fn statistics(&self) -> &Arc<RunStatistics> {
+        &self.statistics
     }
 
     pub fn new_with_threads(
@@ -407,6 +485,7 @@ impl SimulationThread {
             let mem_regions = self.config.memory_regions.clone();
             let result_checks = self.config.result_checks.clone();
             let cycles = self.config.cycles;
+            let statistics = Arc::clone(&self.statistics);
             let handle = spawn(move || {
                 // Wait for workload
                 // Create simulation instance for Run mode (reused across all runs)
@@ -477,8 +556,22 @@ impl SimulationThread {
                             );
 
                             let fault = match result {
-                                Ok(Data::Fault(fault)) => fault,
-                                _ => vec![],
+                                Ok(Data::Fault(fault)) => {
+                                    statistics.record_verdict();
+                                    fault
+                                }
+                                Ok(_) => {
+                                    if simulation.instruction_limit_reached() {
+                                        statistics.record_instruction_limit();
+                                    } else {
+                                        statistics.record_verdict();
+                                    }
+                                    vec![]
+                                }
+                                Err(_) => {
+                                    statistics.record_error();
+                                    vec![]
+                                }
                             };
                             if let Some(sender) = fault_sender {
                                 let _ = sender.send(fault);
@@ -611,5 +704,29 @@ impl Drop for SimulationThread {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_statistics_counts_outcomes() {
+        let stats = RunStatistics::default();
+        stats.record_verdict();
+        stats.record_verdict();
+        stats.record_instruction_limit();
+        stats.record_error();
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.runs, 4);
+        assert_eq!(snapshot.instruction_limit, 1);
+        assert_eq!(snapshot.errors, 1);
+        assert_eq!(snapshot.instruction_limit_ratio(), 25.0);
+
+        stats.reset();
+        assert_eq!(stats.snapshot(), RunStatisticsSnapshot::default());
+        assert_eq!(stats.snapshot().instruction_limit_ratio(), 0.0);
     }
 }

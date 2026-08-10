@@ -1152,3 +1152,80 @@ fn mcp_load_elf_with_config_json5() {
         .unwrap_or("");
     assert!(text.contains("Behavior check: OK"), "Got: {}", text);
 }
+
+#[test]
+/// A too small instruction limit is reported explicitly by the baseline behavior check
+fn instruction_limit_reported_in_behavior_check() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--elf",
+        "tests/bin/victim_.elf",
+        "--max-instructions",
+        "50",
+        "--class",
+        "single",
+        "glitch",
+    ]);
+
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("instruction limit of 50"));
+}
+
+#[test]
+/// Runs that use up the instruction budget are counted and diagnosed after a campaign
+fn instruction_limit_statistics_reported() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--elf",
+        "tests/bin/victim_.elf",
+        "--no-check",
+        "--max-instructions",
+        "300",
+        "--class",
+        "single",
+        "glitch",
+        "-r",
+    ]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Instruction limit (300) reached in"))
+        .stdout(predicate::str::contains("Increase --max-instructions"));
+}
+
+#[test]
+/// MCP get_status exposes the instruction limit counters
+fn mcp_status_reports_instruction_limit() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "elf_path": "tests/bin/victim_.elf",
+            "max_instructions": 300,
+            "no_check": true,
+            "threads": 2
+        }),
+    );
+    assert!(response.get("error").is_none(), "load_elf failed");
+
+    let response = client.call_tool(
+        "run_attack",
+        serde_json::json!({ "class": "single", "subclass": ["glitch"], "run_through": true }),
+    );
+    assert!(response.get("error").is_none(), "run_attack failed");
+
+    let response = client.call_tool("get_status", serde_json::json!({}));
+    let status: serde_json::Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert!(status["runs_completed"].as_u64().unwrap() > 0);
+    assert!(status["runs_instruction_limit"].as_u64().unwrap() > 0);
+    assert!(status["instruction_limit_report"]
+        .as_str()
+        .unwrap()
+        .contains("Instruction limit (300) reached in"));
+}
