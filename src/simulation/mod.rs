@@ -121,16 +121,17 @@ impl<'a> Control<'a> {
     ///
     /// # Returns
     ///
-    /// * `Self` - Returns a new `Control` instance.
+    /// * `Ok(Self)` - Returns a new `Control` instance.
+    /// * `Err(SimulatorError)` - If CPU/memory setup fails (e.g. invalid memory regions).
     pub fn new(
         program_data: &'a ElfFile,
         decision_activation_active: bool,
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-        memory_regions: &[crate::config::MemoryRegion],
-        result_checks: Option<crate::config::ResultChecks>,
-    ) -> Self {
+        memory_regions: &[crate::cli_args::MemoryRegion],
+        result_checks: Option<crate::cli_args::ResultChecks>,
+    ) -> Result<Self, SimulatorError> {
         // Setup cpu emulation
         let mut emu = Cpu::new(
             program_data,
@@ -138,15 +139,15 @@ impl<'a> Control<'a> {
             failure_addresses,
             initial_registers,
             result_checks,
-        );
+        )?;
         // Cpu setup
-        emu.setup_mmio(memory_regions);
+        emu.setup_mmio(memory_regions)?;
         emu.setup_memory_regions(memory_regions);
-        emu.setup_breakpoints(decision_activation_active);
+        emu.setup_breakpoints(decision_activation_active)?;
         // Write code to memory area
-        emu.load_code();
+        emu.load_code()?;
 
-        Self { emu }
+        Ok(Self { emu })
     }
 
     /// Setup system state to a successful or failed state
@@ -160,33 +161,34 @@ impl<'a> Control<'a> {
     /// # Returns
     ///
     /// * `RunState` - Returns the state of the program after running.
-    fn run(&mut self, cycles: usize, run_successful: bool) -> RunState {
+    fn run(&mut self, cycles: usize, run_successful: bool) -> Result<RunState, SimulatorError> {
         // Initial and load program
-        self.init(run_successful, false);
+        self.init(run_successful, false)?;
         // Start execution with the given amount of instructions
         let ret_info = self.emu.run_steps(cycles, false);
 
         info!("Program stopped successful {:?}", ret_info);
         // Return emulation state
-        self.emu.get_state()
+        Ok(self.emu.get_state())
     }
 
     /// Initialize cpu state and load the program code into the cpu
     /// and set the initial state.
     /// When `clean_memory` is true, all segment memory is zeroed before
     /// loading code to ensure a pristine state (needed for trace recordings).
-    fn init(&mut self, run_successful: bool, clean_memory: bool) {
-        self.emu.init_register();
+    fn init(&mut self, run_successful: bool, clean_memory: bool) -> Result<(), SimulatorError> {
+        self.emu.init_register()?;
         // Zero memory for clean state when required (trace recordings)
         if clean_memory {
             self.emu.clear_segment_memory();
         }
         // Write code to memory area
-        self.emu.load_code();
+        self.emu.load_code()?;
         // Set initial state
         self.emu.init_cpu_state();
         // Init state
         self.emu.init_states(run_successful);
+        Ok(())
     }
 
     /// Validates correct program behavior by testing both success and failure paths.
@@ -206,18 +208,38 @@ impl<'a> Control<'a> {
     pub fn check_program(&mut self, cycles: usize) -> Result<(), SimulatorError> {
         // Deactivate io print
         self.emu.deactivate_printf_function();
-        if self.run(cycles, true) != RunState::Success {
-            return Err(SimulatorError::Simulation(
-                "Program function check failed. Success path is not working properly!".to_string(),
-            ));
+        if self.run(cycles, true)? != RunState::Success {
+            return Err(SimulatorError::simulation(format!(
+                "Program function check failed. Success path is not working properly!{}",
+                self.instruction_limit_hint(cycles)
+            )));
         }
-        if self.run(cycles, false) != RunState::Failed {
-            return Err(SimulatorError::Simulation(
-                "Program function check failed. Failure path is not working properly!".to_string(),
-            ));
+        if self.run(cycles, false)? != RunState::Failed {
+            return Err(SimulatorError::simulation(format!(
+                "Program function check failed. Failure path is not working properly!{}",
+                self.instruction_limit_hint(cycles)
+            )));
         }
         println!("Program checked successfully");
         Ok(())
+    }
+
+    /// True when the last run used up its instruction budget without reaching a verdict.
+    pub fn instruction_limit_reached(&self) -> bool {
+        self.emu.instruction_limit_reached()
+    }
+
+    /// Explanatory suffix for error messages when the instruction budget was the cause.
+    fn instruction_limit_hint(&self, cycles: usize) -> String {
+        if self.instruction_limit_reached() {
+            format!(
+                " The instruction limit of {} was reached before a success or failure \
+                 marker was hit — increase --max-instructions.",
+                cycles
+            )
+        } else {
+            String::new()
+        }
     }
 
     /// Runs the simulation with the specified fault injection sequence.
@@ -249,7 +271,7 @@ impl<'a> Control<'a> {
         let mut restore_required = false;
         // Initialize and load — use clean memory for trace recordings
         let clean_memory = matches!(run_type, RunType::RecordTrace | RunType::RecordFullTrace);
-        self.init(false, clean_memory);
+        self.init(false, clean_memory)?;
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
@@ -275,7 +297,7 @@ impl<'a> Control<'a> {
                 // One single step
                 if let Err(e) = self.emu.run_steps(1, false) {
                     let error_msg = self.report_unicorn_error(e, "fault injection step 1");
-                    return Err(SimulatorError::Simulation(error_msg));
+                    return Err(SimulatorError::simulation(error_msg));
                 }
                 // Restore instruction if required
                 if restore_required {
@@ -286,7 +308,7 @@ impl<'a> Control<'a> {
                 if fault.index != 1 {
                     if let Err(e) = self.emu.run_steps(fault.index - 1, false) {
                         let error_msg = self.report_unicorn_error(e, "Unicorn Error");
-                        return Err(SimulatorError::Simulation(error_msg));
+                        return Err(SimulatorError::simulation(error_msg));
                     }
                 }
                 // Read instruction for later restore
@@ -301,10 +323,9 @@ impl<'a> Control<'a> {
             RunType::RecordTrace => {
                 self.emu.start_tracing(false);
             }
-            RunType::Run
-                if self.emu.get_state() == RunState::Success => {
-                    return Err(SimulatorError::Simulation("Successfull state reached before critical glitch inserted! Maybe failure can be triggered with less glitches".to_string()));
-                }
+            RunType::Run if self.emu.get_state() == RunState::Success => {
+                return Err(SimulatorError::simulation("Successfull state reached before critical glitch inserted! Maybe failure can be triggered with less glitches"));
+            }
             _ => (),
         }
 
@@ -312,7 +333,7 @@ impl<'a> Control<'a> {
         if restore_required {
             if let Err(e) = self.emu.run_steps(1, false) {
                 let error_msg = self.report_unicorn_error(e, "Unicorn Error");
-                return Err(SimulatorError::Simulation(error_msg));
+                return Err(SimulatorError::simulation(error_msg));
             }
             self.emu.asm_cmd_write(address, &instruction).unwrap();
         }
@@ -333,7 +354,7 @@ impl<'a> Control<'a> {
                     return Ok(Data::Trace(self.emu.take_trace_data()));
                 }
                 RunType::Run => {
-                    return Err(SimulatorError::Simulation(error_msg));
+                    return Err(SimulatorError::simulation(error_msg));
                 }
             }
         }

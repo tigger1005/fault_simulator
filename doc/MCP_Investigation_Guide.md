@@ -26,14 +26,26 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 
 | Parameter           | Type     | Required | Default   | Description                                                                              |
 | ------------------- | -------- | -------- | --------- | ---------------------------------------------------------------------------------------- |
-| `elf_path`          | string   | **yes**  | —         | Absolute path to the ELF file                                                            |
+| `elf_path`          | string   | no\*     | —         | Path to the ELF file (\*required unless the configuration supplies `elf`)                 |
+| `config_file`       | string   | no       | —         | Path to a JSON5 configuration file (same schema as the CLI `--config` option)             |
+| `config_json5`      | string   | no       | —         | Inline JSON5 configuration content (same schema as `config_file`)                         |
 | `threads`           | number   | no       | CPU cores | Parallel simulation threads                                                              |
 | `max_instructions`  | number   | no       | 2000      | Max instructions per simulation run                                                      |
 | `deep_analysis`     | boolean  | no       | false     | Enable deep analysis of loops                                                            |
 | `success_addresses` | string[] | no       | []        | Hex addresses indicating attack success (e.g. `"0x8000123"`)                             |
 | `failure_addresses` | string[] | no       | []        | Hex addresses indicating attack failure                                                  |
 | `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
+| `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
 | `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data: "0x..."}` or `{symbol: "name", data: "0x..."}` |
+
+Explicit parameters override the values coming from `config_file` / `config_json5`.
+The configuration route additionally unlocks `initial_registers`, `memory_regions`,
+`result_checks` and `log_level`, which have no dedicated tool parameter.
+
+The response reports the resolved setup and the result of the baseline behavior check
+(`Behavior check: OK | SKIPPED (no_check) | FAILED: <reason>`). A failed behavior check
+is not fatal — the session stays loaded so `get_trace` and `get_symbols` can be used to
+diagnose it — but attack results are meaningless until it passes.
 
 **When to use `no_check`:** When the `DECISION_DATA_STRUCTURE` does not contain a SUCCESS value (e.g. both values are identical failure values). Without `no_check`, the simulator verifies that the program can reach both the success and failure paths. This is useful when your hardening removes the success reference data from memory entirely (see Section 7.6).
 
@@ -45,11 +57,21 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 }
 ```
 
+**Example for an uninstrumented binary** (no simulator macros in the source, success/failure
+derived from register values at a return address):
+```json
+{
+  "config_json5": "{ elf: '/path/to/firmware.elf', max_instructions: 5000, initial_registers: { SP: '0x20010000' }, result_checks: { success_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000000' } } ], failure_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000001' } } ] } }"
+}
+```
+
 ### 2.2 `get_trace` — Get Baseline Execution Trace
 
 Returns the instruction-by-instruction trace of normal program execution (no faults). Use this to understand the program flow, identify security-critical instructions (comparisons, branches), and map source lines to assembly addresses.
 
-**No parameters.**
+| Parameter   | Type   | Required | Default   | Description                          |
+| ----------- | ------ | -------- | --------- | ------------------------------------ |
+| `max_lines` | number | no       | unlimited | Truncate the output to N lines       |
 
 ### 2.3 `run_attack` — Run Fault Attack Campaign
 
@@ -63,6 +85,16 @@ Returns the instruction-by-instruction trace of normal program execution (no fau
 - `"single"` — One fault per simulation (fastest, tests basic resilience)
 - `"double"` — Two faults per simulation (tests against coordinated attacks)
 - `"all"` — Run single first; if vulnerabilities found, also run double
+
+The response ends with the attack counters and, if any run used up its instruction budget,
+an instruction limit diagnostic (see Section 2.10). Treat a large share of budget-exhausted
+runs as a signal to raise `max_instructions` — those runs test nothing.
+
+If a worker produces no result within the configured timeout (`result_timeout_seconds` of
+`load_elf` / `result_timeout` in the JSON5 configuration, default 120 s, also settable
+through the `FAULT_SIM_RESULT_TIMEOUT` environment variable), the call fails with an
+explicit timeout error instead of returning an incomplete result. Raise the value on slow
+machines or for long double-fault campaigns.
 
 **Subclass filters:**
 - `"glitch"` — NOP 1–10 instructions (simulates voltage/clock glitches)
@@ -94,19 +126,23 @@ Returns the instruction-by-instruction trace of normal program execution (no fau
 
 Returns a disassembly-annotated summary of all successful attacks found. Each result shows the fault type, target address, and affected instructions.
 
-**No parameters.**
+| Parameter   | Type   | Required | Default   | Description                    |
+| ----------- | ------ | -------- | --------- | ------------------------------ |
+| `max_lines` | number | no       | unlimited | Truncate the output to N lines |
 
 ### 2.6 `analyze_attack` — Get Detailed Attack Trace
 
 | Parameter       | Type   | Required | Description                            |
 | --------------- | ------ | -------- | -------------------------------------- |
 | `attack_number` | number | **yes**  | 1-based index of the attack to analyze |
+| `max_lines`     | number | no       | Truncate the output to N lines         |
 
 Returns a full instruction-by-instruction execution trace with fault injection points marked. This is the primary tool for understanding **why** an attack succeeds.
 
 ### 2.7 `get_attack_data` — Get Machine-Readable Attack Data
 
-Returns JSON with structured data about each successful attack: addresses, fault types, original/modified instructions.
+Returns JSON with structured data about each successful attack: addresses, resolved
+source location (`file:line` from DWARF), fault types, original/modified instructions.
 
 **No parameters.**
 
@@ -121,6 +157,58 @@ Returns all available fault specifications grouped by type.
 Clears all attack data while keeping the ELF loaded. Use before running a new campaign on the same binary.
 
 **No parameters.**
+
+### 2.10 `get_status` — Session State
+
+Returns JSON describing the current session: loaded ELF, thread count, instruction limit,
+success-detection mode, number of applied patches / initial registers / memory regions,
+the baseline behavior check result, and the attack counters. Use it to verify the setup
+before trusting campaign results and to track progress across hardening iterations.
+
+It also reports how the executed runs ended:
+
+| Field                             | Meaning                                                        |
+| --------------------------------- | -------------------------------------------------------------- |
+| `runs_completed`                   | Fault injection runs executed since the last reset             |
+| `runs_instruction_limit`           | Runs that used up `max_instructions` without reaching a verdict |
+| `runs_instruction_limit_percent`   | Share of those runs                                            |
+| `runs_emulation_errors`            | Runs aborted by an emulation error                             |
+| `instruction_limit_report`         | Human readable diagnostic, or `null` when no run hit the limit |
+
+**No parameters.**
+
+### 2.11 `check_behavior` — Re-run the Baseline Check
+
+Runs the target twice without faults (success path and failure path) and reports whether
+the configured success/failure criteria detect both outcomes. Use it when tuning
+`success_addresses`, `failure_addresses` or `result_checks` for an uninstrumented binary.
+
+**No parameters.**
+
+### 2.12 `get_symbols` — List ELF Symbols
+
+| Parameter  | Type   | Required | Default         | Description                                            |
+| ---------- | ------ | -------- | --------------- | ------------------------------------------------------ |
+| `elf_path` | string | no       | session ELF     | Inspect a binary **before** `load_elf`                 |
+| `filter`   | string | no       | —               | Case-insensitive substring filter on the symbol name   |
+| `limit`    | number | no       | 200             | Maximum number of symbols returned                     |
+
+Returns name, `address` (raw symbol value) and `entry_address` (Thumb bit cleared) plus
+the symbol size. This is the entry point for analyzing binaries that carry **no**
+simulator instrumentation: locate the function that decides authentication, then derive
+`success_addresses` / `failure_addresses` or `result_checks` from it.
+
+### 2.13 `compile_target` — Build the Target
+
+| Parameter      | Type    | Required | Default                                | Description                              |
+| -------------- | ------- | -------- | -------------------------------------- | ---------------------------------------- |
+| `directory`    | string  | no       | `content`                              | Directory containing the Makefile        |
+| `clean`        | boolean | no       | true                                   | Run `make clean` before building         |
+| `expected_elf` | string  | no       | `<directory>/bin/aarch32/victim.elf`   | ELF whose existence is verified          |
+
+Runs `make` and returns the exit status, stdout, stderr and whether the expected ELF
+exists. This closes the autonomous loop *edit C source → compile → load → attack* without
+requiring shell access.
 
 ---
 
@@ -235,6 +323,46 @@ When using `no_check: true` in `load_elf`:
 
 This is an advanced pattern — use it when your hardening design intentionally removes success reference data from the binary.
 
+### 5.4 Investigating Binaries Without Simulator Instrumentation
+
+A target does **not** have to contain `__SET_SIM_*` markers. For production firmware or any
+third-party binary, define the verdict externally:
+
+1. `get_symbols(elf_path=..., filter="verify")` — locate the security-relevant function and
+   its caller. `entry_address` is the Thumb-corrected address to use.
+2. Choose one of two detection mechanisms:
+   - **Address based** — `success_addresses` / `failure_addresses`: reaching an address is
+     the verdict (e.g. the "access granted" branch target vs. the "access denied" handler).
+   - **Register based** (`result_checks` in a JSON5 configuration) — at a given address the
+     register values decide, e.g. `R0 == 0` at the return of `verify_image()` means success.
+     This is the right choice when both paths converge on a common return instruction.
+3. Supply the execution context the ELF alone does not provide via the configuration:
+   `initial_registers` (e.g. `SP`, or arguments in `R0..R3` when starting inside a function)
+   and `memory_regions` (input buffers, keys, RAM that is normally set up by earlier boot
+   stages). `code_patches` can stub out unavailable peripherals.
+4. `check_behavior` — confirm the simulator observes both the success and the failure path
+   with these criteria. Only then are campaign results meaningful.
+5. From here the workflow is identical to an instrumented target. Source-level hardening is
+   still possible whenever the source of the binary is available: edit it, rebuild with
+   `compile_target` (or the project's own build), reload, re-attack.
+
+Example configuration for a register-based verdict:
+
+```json5
+{
+  elf: "/path/to/firmware.elf",
+  max_instructions: 20000,
+  initial_registers: { SP: "0x20010000", R0: "0x20000100" },
+  memory_regions: [
+    { address: "0x20000100", size: "0x100", data: "0x00112233" },
+  ],
+  result_checks: {
+    success_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000000" } } ],
+    failure_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000001" } } ],
+  },
+}
+```
+
 ---
 
 ## 6. Step-by-Step Investigation Workflow
@@ -250,9 +378,8 @@ Read `content/src/main.c` to understand the security logic. Identify:
 
 ### Step 2: Compile the Code
 
-```bash
-cd content && make clean && make
-```
+Use `compile_target` (`{}` builds `content/` with `make clean && make`), or run
+`cd content && make clean && make` in a shell.
 
 Verify the build succeeds and `content/bin/aarch32/victim.elf` is produced.
 
@@ -266,6 +393,9 @@ Use `load_elf`:
 ```
 
 Add `"no_check": true` if the code uses the `--no-check` pattern (no success reference data stored in DECISION_DATA).
+
+For an uninstrumented binary, pass `config_file` / `config_json5` instead (see Section 5.4)
+and confirm the setup with `get_status` and `check_behavior` before attacking.
 
 ### Step 4: Get the Baseline Trace
 
@@ -333,16 +463,35 @@ Based on the attack analysis, modify `content/src/main.c`. See Section 7 for har
 ### Step 9: Recompile and Re-test
 
 After each modification:
-1. Recompile: `cd content && make clean && make`
+1. Recompile: `compile_target` (or `cd content && make clean && make`)
 2. Load the new ELF: `load_elf` (or `reset_session` + `load_elf`)
-3. Re-run the same attack campaign
-4. Compare results — were vulnerabilities eliminated?
+3. Verify with `get_status` that the behavior check is still `OK`
+4. Re-run the same attack campaign
+5. Compare results — were vulnerabilities eliminated?
 
 ### Step 10: Iterate Until Secure
 
 Repeat Steps 5–9 until:
 - **Single attacks:** 0 successful across all fault types
 - **Double attacks:** 0 successful across all fault types (or all tested combinations)
+
+### Step 11: Termination Policy (Autonomous Runs)
+
+An autonomous investigation must also be able to stop without a solution. Stop and report
+when any of the following holds:
+
+- **Success:** single and double campaigns both report 0 successful attacks.
+- **No progress:** 3 consecutive hardening iterations do not reduce the number of successful
+  attacks and do not change the set of root causes.
+- **Budget exhausted:** the agreed iteration budget (default: 10 hardening iterations) is used up.
+- **Blocked:** the build fails repeatedly for the same reason, or the baseline behavior check
+  cannot be made to pass (`get_status` keeps reporting `FAILED`).
+- **Provably impossible:** every element of the minimum effective hardened comparison
+  (Section 7.8) is present and verified in the assembly via `get_trace`, yet attacks remain.
+
+In all non-success cases, write the report with the remaining attacks fully characterized
+(`get_attack_data` + `analyze_attack`), the hardening already applied, and the reason for
+stopping.
 
 ---
 
@@ -565,8 +714,9 @@ When documenting an investigation, include:
 
 ```
 1. Read content/src/main.c                      → Understand the code
-2. cd content && make clean && make              → Compile
+2. compile_target()                              → Compile
 3. load_elf(elf_path="..victim.elf")             → Load into simulator
+   get_status()                                  → Verify behavior check == OK
 4. get_trace()                                   → Study normal execution
 5. run_attack(class="single", run_through=true)  → Find single-fault vulns
 6. get_results()                                 → Summary of attacks
@@ -575,11 +725,20 @@ When documenting an investigation, include:
 9. run_attack(class="double", run_through=true)  → Find double-fault vulns
 10. [Analyze double attacks similarly]
 11. Edit content/src/main.c                      → Apply hardening
-12. cd content && make clean && make             → Recompile
+12. compile_target()                             → Recompile
 13. load_elf(elf_path="..victim.elf")            → Reload
 14. run_attack(class="single", run_through=true) → Re-test single
 15. run_attack(class="double", run_through=true) → Re-test double
-16. Repeat 11–15 until 0 successful attacks
+16. Repeat 11–15 until 0 successful attacks or a stop condition
+    from Section 6, Step 11 is reached
+```
+
+For an uninstrumented binary, replace steps 1–3 with:
+
+```
+1. get_symbols(elf_path="firmware.elf", filter="verify")  → Locate the decision function
+2. load_elf(config_json5="{ ... result_checks ... }")     → Define the verdict externally
+3. check_behavior()                                       → Confirm both paths are detected
 ```
 
 ---

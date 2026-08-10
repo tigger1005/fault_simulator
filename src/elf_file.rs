@@ -92,14 +92,16 @@ impl ElfFile {
     /// * ELF format is unsupported or corrupted
     pub fn new(path: std::path::PathBuf) -> Result<Self, SimulatorError> {
         let file_data = std::fs::read(&path).map_err(|e| {
-            SimulatorError::Elf(format!("Could not read file '{}': {}", path.display(), e))
+            SimulatorError::elf_with(
+                format!("Could not read file '{}': {}", path.display(), e),
+                e,
+            )
         })?;
         let elf_data = ElfBytes::<AnyEndian>::minimal_parse(file_data.as_ref()).map_err(|e| {
-            SimulatorError::Elf(format!(
-                "Failed to parse ELF file '{}': {}",
-                path.display(),
-                e
-            ))
+            SimulatorError::elf_with(
+                format!("Failed to parse ELF file '{}': {}", path.display(), e),
+                e,
+            )
         })?;
 
         // Get all program headers and the linked program data into a vector
@@ -122,9 +124,7 @@ impl ElfFile {
                 (Some(shdrs), Some(strtab)) => (shdrs, strtab),
                 _ => {
                     // If we don't have shdrs, or don't have a strtab, we can't find a section by its name
-                    return Err(SimulatorError::Elf(
-                        "Missing strtab or section headers".to_string(),
-                    ));
+                    return Err(SimulatorError::elf("Missing strtab or section headers"));
                 }
             };
 
@@ -195,7 +195,7 @@ impl ElfFile {
     /// Apply patches to the program data
     pub fn apply_patches(
         &mut self,
-        patches: &[crate::config::CodePatch],
+        patches: &[crate::cli_args::CodePatch],
     ) -> Result<(), SimulatorError> {
         if patches.is_empty() {
             return Ok(());
@@ -207,7 +207,7 @@ impl ElfFile {
             // Resolve address from symbol if needed, otherwise use direct address
             let address = if let Some(sym_name) = &patch.symbol {
                 let symbol = self.symbol_map.get(sym_name).ok_or_else(|| {
-                    SimulatorError::Elf(format!("Symbol '{}' not found in ELF file", sym_name))
+                    SimulatorError::elf(format!("Symbol '{}' not found in ELF file", sym_name))
                 })?;
 
                 // Clear LSB for Thumb mode indicator - actual code is at even address
@@ -233,8 +233,8 @@ impl ElfFile {
             } else if let Some(addr) = patch.address {
                 addr
             } else {
-                return Err(SimulatorError::Elf(
-                    "Code patch must specify either 'address' or 'symbol'".to_string(),
+                return Err(SimulatorError::elf(
+                    "Code patch must specify either 'address' or 'symbol'",
                 ));
             };
 
@@ -256,7 +256,7 @@ impl ElfFile {
 
                     // Check if patch fits within segment
                     if offset + patch.data.len() > data.len() {
-                        return Err(SimulatorError::Elf(format!(
+                        return Err(SimulatorError::elf(format!(
                             "Code patch at 0x{:08X} extends beyond segment boundary",
                             address
                         )));
@@ -270,7 +270,7 @@ impl ElfFile {
             }
 
             if !found {
-                return Err(SimulatorError::Elf(format!(
+                return Err(SimulatorError::elf(format!(
                     "Address 0x{:08X} not found in any loadable segment",
                     address
                 )));

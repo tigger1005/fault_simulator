@@ -6,7 +6,7 @@
 //!
 //! ## Core Modules
 //!
-//! * `config` - Configuration management and command-line argument parsing
+//! * `cli_args` - Configuration management and command-line argument parsing
 //! * `disassembly` - ARM instruction disassembly using Capstone engine
 //! * `elf_file` - ELF file parsing and analysis
 //! * `fault_attack_thread` - Multi-threaded fault attack execution
@@ -19,7 +19,7 @@
 //! The library is designed to be used both as a standalone application and as a library
 //! for embedding fault injection capabilities into other tools.
 
-pub mod config;
+pub mod cli_args;
 pub mod disassembly;
 pub mod elf_file;
 pub mod error;
@@ -42,11 +42,14 @@ pub mod simulation_thread;
 /// * Fault types: All fault implementations (glitch, register operations, etc.)
 /// * Simulation core: `SimulationThread`, `WorkloadMessage`, `TraceRecord`
 pub mod prelude {
-    pub use crate::config::{CodePatch, Config, MemoryRegion, RegisterCheck, ResultChecks};
+    pub use crate::cli_args::{CodePatch, Config, MemoryRegion, RegisterCheck, ResultChecks};
     pub use crate::elf_file::*;
     pub use crate::error::SimulatorError;
     pub use crate::fault_attack_thread::FaultAttackThread;
     pub use crate::fault_attacks::{faults::*, FaultAttacks};
     pub use crate::simulation::record::TraceRecord;
-    pub use crate::simulation_thread::{SimulationConfig, SimulationThread, WorkloadMessage};
+    pub use crate::simulation_thread::{
+        default_result_timeout, RunStatistics, RunStatisticsSnapshot, SimulationConfig,
+        SimulationThread, WorkloadMessage,
+    };
 }

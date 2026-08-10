@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use fault_simulator::config::{Args, Config};
+use fault_simulator::cli_args::{Args, Config};
 use fault_simulator::error::SimulatorError;
 use fault_simulator::prelude::*;
 

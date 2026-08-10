@@ -25,6 +25,40 @@ pub struct FaultAttackWorkload {
     pub fault_sequence: Vec<FaultType>,
 }
 
+/// Result of one fault attack workload: the successful attacks and the number of
+/// executed runs, or the error that aborted it.
+type WorkloadResult = Result<(Vec<FaultElement>, usize), SimulatorError>;
+
+/// Receives one message, honouring an optional timeout.
+///
+/// A timeout means no worker produced any result within the window, which on a slow or
+/// heavily loaded machine usually means the limit is simply too tight.
+fn recv_result<T>(
+    receiver: &Receiver<T>,
+    timeout: Option<Duration>,
+    context: &str,
+) -> Result<T, SimulatorError> {
+    let result = match timeout {
+        Some(timeout) => receiver.recv_timeout(timeout),
+        None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+    };
+
+    match result {
+        Ok(value) => Ok(value),
+        Err(RecvTimeoutError::Timeout) => Err(SimulatorError::timeout(format!(
+            "No {} arrived within {} s. Raise the limit with --result-timeout (or the \
+             FAULT_SIM_RESULT_TIMEOUT environment variable, 0 waits forever) if the machine \
+             is slow or heavily loaded.",
+            context,
+            timeout.unwrap_or_default().as_secs()
+        ))),
+        Err(RecvTimeoutError::Disconnected) => Err(SimulatorError::channel(format!(
+            "{} channel disconnected",
+            context
+        ))),
+    }
+}
+
 /// Manages dedicated worker threads for parallel fault attack execution.
 ///
 /// This structure coordinates the execution of fault injection attacks across
@@ -67,14 +101,16 @@ pub struct FaultAttackThread {
     ///
     /// Worker threads use this to report successful fault injection results
     /// back to the main analysis thread for aggregation and reporting.
-    result_sender: Sender<(Vec<FaultElement>, usize)>,
+    result_sender: Sender<WorkloadResult>,
     /// Channel receiver for collecting successful attack results from workers.
-    result_receiver: Receiver<(Vec<FaultElement>, usize)>,
+    result_receiver: Receiver<WorkloadResult>,
     /// Thread handles for spawned worker processes.
     ///
     /// Maintained for proper cleanup during drop, ensuring all worker threads
     /// terminate gracefully before the manager is destroyed.
     handles: Option<Vec<JoinHandle<()>>>,
+    /// Maximum time to wait for a single workload result, taken from the simulation config.
+    result_timeout: Option<Duration>,
 }
 
 impl FaultAttackThread {
@@ -109,6 +145,7 @@ impl FaultAttackThread {
             result_sender,
             result_receiver,
             handles: None,
+            result_timeout: crate::simulation_thread::default_result_timeout(),
         })
     }
 
@@ -144,13 +181,15 @@ impl FaultAttackThread {
     ) -> Result<(), SimulatorError> {
         // Check that number of threads is greater than 0
         if number_of_threads == 0 {
-            return Err(SimulatorError::Thread(
-                "Number of threads must be greater than 0".to_string(),
+            return Err(SimulatorError::thread(
+                "Number of threads must be greater than 0",
             ));
         }
 
         // Create a vector to hold the thread handles
         self.handles = Some(vec![]);
+
+        self.result_timeout = user_thread.config.result_timeout;
 
         // Get initial trace data
         let initial_trace = get_initial_trace_data(Arc::clone(&user_thread))?;
@@ -171,20 +210,16 @@ impl FaultAttackThread {
                     let FaultAttackWorkload { fault_sequence } = msg;
 
                     // Execute fault simulation for the given fault sequence
-                    match fault_simulation(
+                    let result = fault_simulation(
                         &fault_sequence,
                         initial_trace.clone(),
                         &cs,
                         Arc::clone(&user_thread),
-                    ) {
-                        Ok((result, n)) => {
-                            let _ = result_sender.send((result, n));
-                        }
-                        Err(e) => {
-                            log::error!("Fault simulation error: {}", e);
-                            let _ = result_sender.send((vec![], 0));
-                        }
+                    );
+                    if let Err(e) = &result {
+                        log::error!("Fault simulation error: {}", e);
                     }
+                    let _ = result_sender.send(result);
                 }
             });
 
@@ -217,11 +252,12 @@ impl FaultAttackThread {
                 fault_sequence: fault_sequence.to_vec(),
             };
             sender.send(workload).map_err(|e| {
-                SimulatorError::Channel(format!("Failed to send fault attack workload: {}", e))
+                let msg = format!("Failed to send fault attack workload: {}", e);
+                SimulatorError::channel_with(msg, e)
             })
         } else {
-            Err(SimulatorError::Channel(
-                "Fault attack workload sender channel is closed".to_string(),
+            Err(SimulatorError::channel(
+                "Fault attack workload sender channel is closed",
             ))
         }
     }
@@ -238,11 +274,15 @@ impl FaultAttackThread {
     /// # Returns
     ///
     /// * `Ok((data, count))` - Successful attack results and total execution count.
-    /// * `Err(String)` - Error if sending fails or a result times out.
+    /// * `Err(SimulatorError)` - A worker failed, a result timed out, or sending failed.
     pub fn run_batch(
         &self,
         chunks: &[Vec<FaultType>],
     ) -> Result<(Vec<FaultElement>, usize), SimulatorError> {
+        // Discard results left over from an aborted batch so they cannot be
+        // counted towards this one.
+        while self.result_receiver.try_recv().is_ok() {}
+
         let mut n_workload = 0;
         for faults in chunks {
             self.send_fault_attack_workload(faults)?;
@@ -253,26 +293,22 @@ impl FaultAttackThread {
         let mut total_count = 0;
 
         for _ in 0..n_workload {
-            match self
-                .result_receiver
-                .recv_timeout(Duration::from_millis(60000))
-            {
+            let result = recv_result(
+                &self.result_receiver,
+                self.result_timeout,
+                "fault attack result",
+            )?;
+
+            match result {
                 Ok((data, n)) => {
                     total_count += n;
                     if !data.is_empty() {
                         all_data.extend(data);
                     }
                 }
-                Err(RecvTimeoutError::Timeout) => {
-                    return Err(SimulatorError::Timeout(
-                        "Timeout while receiving fault attack results".to_string(),
-                    ));
-                }
-                Err(RecvTimeoutError::Disconnected) => {
-                    return Err(SimulatorError::Channel(
-                        "Fault attack result channel disconnected".to_string(),
-                    ));
-                }
+                // A failed worker makes the campaign result incomplete, so abort
+                // instead of silently reporting fewer attacks.
+                Err(e) => return Err(e),
             }
         }
 
@@ -368,9 +404,7 @@ fn fault_simulation(
                     &user_thread,
                 )?;
             } else {
-                return Err(SimulatorError::Simulation(
-                    "No instruction record found".to_string(),
-                ));
+                return Err(SimulatorError::simulation("No instruction record found"));
             }
 
             Ok(number)
@@ -383,22 +417,13 @@ fn fault_simulation(
     let mut data = Vec::new();
     // Collect results from worker threads
     for _ in 0..n {
-        match fault_response_receiver.recv_timeout(Duration::from_millis(60000)) {
-            Ok(faults) => {
-                if !faults.is_empty() {
-                    data.push(faults);
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                return Err(SimulatorError::Timeout(
-                    "Timeout while receiving fault simulation results".to_string(),
-                ));
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                return Err(SimulatorError::Channel(
-                    "Fault simulation result channel disconnected".to_string(),
-                ));
-            }
+        let faults = recv_result(
+            &fault_response_receiver,
+            user_thread.config.result_timeout,
+            "fault simulation result",
+        )?;
+        if !faults.is_empty() {
+            data.push(faults);
         }
     }
     // TODO: Remove print or make optional
@@ -512,4 +537,43 @@ fn get_initial_trace_data(
         user_thread.config.deep_analysis,
         vec![],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recv_result_reports_timeout_with_hint() {
+        let (_sender, receiver) = unbounded::<u32>();
+        let error = recv_result(&receiver, Some(Duration::from_millis(10)), "test result")
+            .expect_err("expected a timeout");
+
+        let message = error.to_string();
+        assert!(matches!(error, SimulatorError::Timeout(_)), "{}", message);
+        assert!(
+            message.contains("No test result arrived within 0 s"),
+            "{}",
+            message
+        );
+        assert!(message.contains("--result-timeout"), "{}", message);
+    }
+
+    #[test]
+    fn recv_result_reports_disconnect() {
+        let (sender, receiver) = unbounded::<u32>();
+        drop(sender);
+        let error = recv_result(&receiver, None, "test result").expect_err("expected a disconnect");
+        assert!(matches!(error, SimulatorError::Channel(_)));
+    }
+
+    #[test]
+    fn recv_result_passes_value_through() {
+        let (sender, receiver) = unbounded();
+        sender.send(42u32).unwrap();
+        assert_eq!(
+            recv_result(&receiver, Some(Duration::from_secs(1)), "test result").unwrap(),
+            42
+        );
+    }
 }

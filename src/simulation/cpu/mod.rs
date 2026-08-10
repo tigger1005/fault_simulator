@@ -21,6 +21,7 @@
 //! * Exception and interrupt handling
 
 use crate::elf_file::{ElfFile, PF_R, PF_W, PF_X};
+use crate::error::SimulatorError;
 use crate::simulation::record::{AsmInstruction, FaultRecord, TraceRecord};
 use crate::simulation::{FaultElement, TraceElement};
 
@@ -130,7 +131,7 @@ struct CpuState<'a> {
     file_data: &'a ElfFile,
     success_addresses: HashSet<u64>,
     failure_addresses: HashSet<u64>,
-    result_checks: Option<crate::config::ResultChecks>,
+    result_checks: Option<crate::cli_args::ResultChecks>,
     /// Addresses mentioned by any success or failure check.
     ///
     /// The result check hook runs on every instruction, so this set provides an
@@ -151,14 +152,15 @@ impl<'a> Cpu<'a> {
     ///
     /// # Returns
     ///
-    /// * `Self` - Returns a `Cpu` instance.
+    /// * `Ok(Self)` - Returns a `Cpu` instance.
+    /// * `Err(SimulatorError)` - If the Unicorn engine instance could not be created.
     pub fn new(
         file_data: &'a ElfFile,
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: HashMap<RegisterARM, u64>,
-        result_checks: Option<crate::config::ResultChecks>,
-    ) -> Self {
+        result_checks: Option<crate::cli_args::ResultChecks>,
+    ) -> Result<Self, SimulatorError> {
         // Setup platform -> ARMv8-m.base
         let result_check_addresses = result_checks
             .as_ref()
@@ -190,17 +192,19 @@ impl<'a> Cpu<'a> {
                 result_check_addresses,
             },
         )
-        .expect("failed to initialize Unicorn instance");
+        .map_err(|e| {
+            SimulatorError::simulation(format!("Failed to initialize Unicorn instance: {:?}", e))
+        })?;
 
         debug!("Setup new unicorn instance");
-        Self {
+        Ok(Self {
             emu,
             program_counter: 0,
             initial_registers,
             trace_hook: None,
             zeros: Vec::new(),
             code_modified: false,
-        }
+        })
     }
 
     /// Initialize all ARM registers to zero or custom initial values.
@@ -212,17 +216,21 @@ impl<'a> Cpu<'a> {
     /// # Note
     ///
     /// Custom register values from `initial_registers` HashMap take precedence over defaults.
-    pub fn init_register(&mut self) {
+    pub fn init_register(&mut self) -> Result<(), SimulatorError> {
         // Clear all registers first
-        ARM_REG
-            .iter()
-            .for_each(|reg| self.emu.reg_write(*reg, 0x00).unwrap());
+        for reg in ARM_REG.iter() {
+            self.emu.reg_write(*reg, 0x00).map_err(|e| {
+                SimulatorError::simulation(format!("Failed to clear register {:?}: {:?}", reg, e))
+            })?;
+        }
 
         // Setup stack pointer (if .stack section exists)
         if let Some(stack) = self.emu.get_data().file_data.section_map.get(".stack") {
             self.emu
                 .reg_write(RegisterARM::SP, stack.sh_addr + stack.sh_size)
-                .expect("failed to set register");
+                .map_err(|e| {
+                    SimulatorError::simulation(format!("Failed to set stack pointer: {:?}", e))
+                })?;
         }
 
         // Set initial program start address (default from ELF)
@@ -230,28 +238,36 @@ impl<'a> Cpu<'a> {
 
         // Apply custom register values (these can override the defaults above)
         for (&register, &value) in &self.initial_registers {
-            self.emu
-                .reg_write(register, value)
-                .unwrap_or_else(|_| panic!("Failed to set register {:?}", register));
+            self.emu.reg_write(register, value).map_err(|e| {
+                SimulatorError::simulation(format!(
+                    "Failed to set register {:?}: {:?}",
+                    register, e
+                ))
+            })?;
 
             // If PC is being set via initial_registers, update our internal program_counter too
             if register == RegisterARM::PC {
                 self.program_counter = value;
             }
         }
+        Ok(())
     }
 
     /// Load source code from elf file into simulation
-    pub fn load_code(&mut self) {
+    pub fn load_code(&mut self) -> Result<(), SimulatorError> {
         let file_data: &'a ElfFile = self.emu.get_data().file_data;
 
         // Iterate over all program parts and write them to memory
         // Use virtual address (p_vaddr) for ARM Cortex-M flat memory model
         for (header, data) in &file_data.program_data {
-            self.emu
-                .mem_write(header.p_vaddr, data)
-                .expect("failed to write program data");
+            self.emu.mem_write(header.p_vaddr, data).map_err(|e| {
+                SimulatorError::simulation(format!(
+                    "Failed to write program data at 0x{:08X}: {:?}",
+                    header.p_vaddr, e
+                ))
+            })?;
         }
+        Ok(())
     }
 
     /// Zero the BSS part of every segment (the range between `p_filesz` and
@@ -298,7 +314,10 @@ impl<'a> Cpu<'a> {
     ///
     /// BreakPoints
     /// { binInfo.Symbols["decision_activation"].Address }
-    pub fn setup_breakpoints(&mut self, decision_activation_active: bool) {
+    pub fn setup_breakpoints(
+        &mut self,
+        decision_activation_active: bool,
+    ) -> Result<(), SimulatorError> {
         // Setup decision_activation code hook
         if decision_activation_active {
             if let Some(decision_activation) = self
@@ -314,7 +333,12 @@ impl<'a> Cpu<'a> {
                         decision_activation.st_value + 1,
                         hook_code_decision_activation_callback,
                     )
-                    .expect("failed to set decision_activation code hook");
+                    .map_err(|e| {
+                        SimulatorError::simulation(format!(
+                            "Failed to set decision_activation code hook: {:?}",
+                            e
+                        ))
+                    })?;
             }
         }
 
@@ -335,7 +359,12 @@ impl<'a> Cpu<'a> {
                         segment.0.p_vaddr + segment.0.p_memsz,
                         hook_result_check_callback,
                     )
-                    .expect("failed to set result check code hook");
+                    .map_err(|e| {
+                        SimulatorError::simulation(format!(
+                            "Failed to set result check code hook: {:?}",
+                            e
+                        ))
+                    })?;
             }
         } else if has_custom_addresses {
             // Use address-based checking (backward compatibility)
@@ -348,7 +377,12 @@ impl<'a> Cpu<'a> {
                         segment.0.p_vaddr + segment.0.p_memsz,
                         hook_custom_addresses_callback,
                     )
-                    .expect("failed to set custom address code hook");
+                    .map_err(|e| {
+                        SimulatorError::simulation(format!(
+                            "Failed to set custom address code hook: {:?}",
+                            e
+                        ))
+                    })?;
             }
         } else {
             // Only set up the MMIO hook when NOT using custom addresses or result checks
@@ -360,12 +394,18 @@ impl<'a> Cpu<'a> {
                     AUTH_BASE + 4,
                     mmio_auth_write_callback,
                 )
-                .expect("failed to set memory hook");
+                .map_err(|e| {
+                    SimulatorError::simulation(format!("Failed to set memory hook: {:?}", e))
+                })?;
         }
+        Ok(())
     }
 
     /// Setup memory mapping, stack, io mapping
-    pub fn setup_mmio(&mut self, memory_regions: &[crate::config::MemoryRegion]) {
+    pub fn setup_mmio(
+        &mut self,
+        memory_regions: &[crate::cli_args::MemoryRegion],
+    ) -> Result<(), SimulatorError> {
         const MINIMUM_MEMORY_SIZE: u64 = 0x1000;
 
         let segments = &self.emu.get_data().file_data.program_data;
@@ -468,20 +508,25 @@ impl<'a> Cpu<'a> {
                 size,
                 permission
             );
-            self.emu
-                .mem_map(addr, size, permission)
-                .expect("failed to map code page");
+            self.emu.mem_map(addr, size, permission).map_err(|e| {
+                SimulatorError::simulation(format!(
+                    "Failed to map memory region 0x{:08X}-0x{:08X}: {:?}",
+                    addr, end, e
+                ))
+            })?;
         }
 
         // Auth success / failed trigger
         self.emu
             .mem_map(AUTH_BASE, MINIMUM_MEMORY_SIZE, Prot::WRITE)
-            .expect("failed to map mmio replacement");
+            .map_err(|e| {
+                SimulatorError::simulation(format!("Failed to map mmio replacement: {:?}", e))
+            })?;
 
         // IO address space
         self.emu
             .mmio_map_wo(0x11000000, MINIMUM_MEMORY_SIZE, mmio_serial_write_callback)
-            .expect("failed to map serial IO");
+            .map_err(|e| SimulatorError::simulation(format!("Failed to map serial IO: {:?}", e)))?;
 
         // Hook to capture memory errors (unmapped and protection violations only)
         self.emu
@@ -491,11 +536,14 @@ impl<'a> Cpu<'a> {
                 u64::MAX,
                 capture_memory_errors,
             )
-            .expect("failed to add unmapped mem hook");
+            .map_err(|e| {
+                SimulatorError::simulation(format!("Failed to add unmapped mem hook: {:?}", e))
+            })?;
+        Ok(())
     }
 
     /// Setup custom memory regions from configuration
-    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::config::MemoryRegion]) {
+    pub fn setup_memory_regions(&mut self, memory_regions: &[crate::cli_args::MemoryRegion]) {
         for region in memory_regions {
             // Try to map the memory region
             match self.emu.mem_map(
@@ -604,8 +652,7 @@ impl<'a> Cpu<'a> {
                 }
             }
         } else {
-            let end_address = self.emu.get_data().file_data.program_data[0].0.p_paddr
-                + self.emu.get_data().file_data.program_data[0].0.p_memsz;
+            let end_address = self.end_address();
 
             // Start from last PC
             ret_val = self.emu.emu_start(
@@ -619,6 +666,24 @@ impl<'a> Cpu<'a> {
         self.program_counter = self.emu.pc_read().unwrap();
 
         ret_val
+    }
+
+    /// Address at which emulation stops (end of the loaded program image).
+    fn end_address(&self) -> u64 {
+        let segment = &self.emu.get_data().file_data.program_data[0].0;
+        segment.p_paddr + segment.p_memsz
+    }
+
+    /// True when the last run ended without a success/failure verdict while the
+    /// program counter is still inside the program image.
+    ///
+    /// Emulation stops either on a verdict (marker write, checked address, register
+    /// check), at the end of the program image, or when the instruction budget is
+    /// used up. Only the last case leaves the state uninitialized with the program
+    /// counter somewhere inside the image — typically an endless loop caused by a fault.
+    pub fn instruction_limit_reached(&self) -> bool {
+        self.emu.get_data().state == RunState::Init
+            && (self.program_counter | 1) != (self.end_address() | 1)
     }
 
     /// Returns the size of the assembler command at the specified address.

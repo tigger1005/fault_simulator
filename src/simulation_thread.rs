@@ -19,8 +19,10 @@
 //! * **Resource Management**: Efficient memory and thread resource usage
 //! * **Scalability**: Adapts to available hardware resources automatically
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::{/*sleep, */ spawn, JoinHandle};
+use std::time::Duration;
 use std::vec;
 
 //use crate::disassembly::Disassembly;
@@ -32,6 +34,75 @@ use crate::simulation::{FaultElement, TraceElement};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use crate::simulation::{record::FaultRecord, Control, Data, RunType};
+
+/// Counters shared by all simulation workers, tracking how fault injection runs ended.
+///
+/// A run either reaches a verdict (success or failure marker), uses up its instruction
+/// budget, or aborts with an emulation error. A high share of budget-exhausted runs is
+/// the indicator that `max_instructions` may be set too low.
+#[derive(Debug, Default)]
+pub struct RunStatistics {
+    runs: AtomicUsize,
+    instruction_limit: AtomicUsize,
+    errors: AtomicUsize,
+}
+
+/// Immutable copy of [`RunStatistics`] for reporting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RunStatisticsSnapshot {
+    /// Number of completed fault injection runs.
+    pub runs: usize,
+    /// Runs that used up the instruction budget without reaching a verdict.
+    pub instruction_limit: usize,
+    /// Runs that aborted with an emulation error.
+    pub errors: usize,
+}
+
+impl RunStatisticsSnapshot {
+    /// Share of runs that used up the instruction budget, in percent.
+    pub fn instruction_limit_ratio(&self) -> f64 {
+        if self.runs == 0 {
+            0.0
+        } else {
+            100.0 * self.instruction_limit as f64 / self.runs as f64
+        }
+    }
+}
+
+impl RunStatistics {
+    /// Records a run that reached a success or failure verdict.
+    pub fn record_verdict(&self) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records a run that used up its instruction budget without a verdict.
+    pub fn record_instruction_limit(&self) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        self.instruction_limit.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Records a run that aborted with an emulation error.
+    pub fn record_error(&self) {
+        self.runs.fetch_add(1, Ordering::Relaxed);
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Returns a consistent-enough copy of the counters for reporting.
+    pub fn snapshot(&self) -> RunStatisticsSnapshot {
+        RunStatisticsSnapshot {
+            runs: self.runs.load(Ordering::Relaxed),
+            instruction_limit: self.instruction_limit.load(Ordering::Relaxed),
+            errors: self.errors.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Clears all counters.
+    pub fn reset(&self) {
+        self.runs.store(0, Ordering::Relaxed);
+        self.instruction_limit.store(0, Ordering::Relaxed);
+        self.errors.store(0, Ordering::Relaxed);
+    }
+}
 
 /// Configuration parameters for fault injection simulation execution.
 ///
@@ -71,11 +142,44 @@ pub struct SimulationConfig {
     /// Initial CPU register values to set before each simulation.
     pub initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
     /// Custom memory regions to initialize.
-    pub memory_regions: Vec<crate::config::MemoryRegion>,
+    pub memory_regions: Vec<crate::cli_args::MemoryRegion>,
     /// Log level: "off", "error", "warn", "info", "debug", "trace".
     pub log_level: String,
     /// Register-based success/failure checking configuration.
-    pub result_checks: Option<crate::config::ResultChecks>,
+    pub result_checks: Option<crate::cli_args::ResultChecks>,
+    /// Maximum time to wait for a single worker result before aborting the campaign.
+    ///
+    /// `None` waits indefinitely. Raise it on slow or heavily loaded machines where a
+    /// single fault sequence legitimately takes longer than the default.
+    pub result_timeout: Option<Duration>,
+}
+
+/// Default time to wait for a worker result, overridable via `FAULT_SIM_RESULT_TIMEOUT`
+/// (seconds; `0`, `off` or `none` disables the timeout).
+pub fn default_result_timeout() -> Option<Duration> {
+    parse_result_timeout(std::env::var("FAULT_SIM_RESULT_TIMEOUT").ok().as_deref())
+}
+
+/// Timeout fallback used when the environment does not specify one.
+const DEFAULT_RESULT_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn parse_result_timeout(value: Option<&str>) -> Option<Duration> {
+    let Some(value) = value else {
+        return Some(DEFAULT_RESULT_TIMEOUT);
+    };
+    match value.trim().to_lowercase().as_str() {
+        "0" | "off" | "none" => None,
+        other => match other.parse::<u64>() {
+            Ok(seconds) => Some(Duration::from_secs(seconds)),
+            Err(_) => {
+                log::warn!(
+                    "Invalid FAULT_SIM_RESULT_TIMEOUT value '{}', ignored",
+                    value
+                );
+                Some(DEFAULT_RESULT_TIMEOUT)
+            }
+        },
+    }
 }
 
 impl SimulationConfig {
@@ -98,9 +202,9 @@ impl SimulationConfig {
         success_addresses: Vec<u64>,
         failure_addresses: Vec<u64>,
         initial_registers: std::collections::HashMap<unicorn_engine::RegisterARM, u64>,
-        memory_regions: Vec<crate::config::MemoryRegion>,
+        memory_regions: Vec<crate::cli_args::MemoryRegion>,
         log_level: String,
-        result_checks: Option<crate::config::ResultChecks>,
+        result_checks: Option<crate::cli_args::ResultChecks>,
     ) -> Self {
         Self {
             cycles,
@@ -111,7 +215,14 @@ impl SimulationConfig {
             memory_regions,
             log_level,
             result_checks,
+            result_timeout: default_result_timeout(),
         }
+    }
+
+    /// Overrides the time to wait for a single worker result (`None` waits indefinitely).
+    pub fn with_result_timeout(mut self, result_timeout: Option<Duration>) -> Self {
+        self.result_timeout = result_timeout;
+        self
     }
 }
 
@@ -221,6 +332,8 @@ pub struct SimulationThread {
     /// complete their current work and terminate gracefully before the
     /// coordinator is destroyed.
     handles: Option<Vec<JoinHandle<()>>>,
+    /// Outcome counters of all fault injection runs, shared with the workers.
+    statistics: Arc<RunStatistics>,
 }
 
 impl SimulationThread {
@@ -273,7 +386,13 @@ impl SimulationThread {
             workload_sender: Some(workload_sender),
             workload_receiver,
             handles: None,
+            statistics: Arc::new(RunStatistics::default()),
         })
+    }
+
+    /// Returns the shared outcome counters of all executed fault injection runs.
+    pub fn statistics(&self) -> &Arc<RunStatistics> {
+        &self.statistics
     }
 
     pub fn new_with_threads(
@@ -372,8 +491,8 @@ impl SimulationThread {
     ) -> Result<(), SimulatorError> {
         // Check that number of threads is greater than 0
         if number_of_threads == 0 {
-            return Err(SimulatorError::Thread(
-                "Number of threads must be greater than 0".to_string(),
+            return Err(SimulatorError::thread(
+                "Number of threads must be greater than 0",
             ));
         }
 
@@ -383,6 +502,19 @@ impl SimulationThread {
         // The ELF image is read-only for the workers, so share a single copy
         // instead of giving every thread its own deep clone.
         let file = Arc::new(file_data.clone());
+
+        // Validate the configuration once on the calling thread (e.g. catches invalid
+        // memory regions) so a bad config surfaces as a clean error here instead of
+        // panicking inside every worker thread.
+        Control::new(
+            &file,
+            false,
+            self.config.success_addresses.clone(),
+            self.config.failure_addresses.clone(),
+            self.config.initial_registers.clone(),
+            &self.config.memory_regions,
+            self.config.result_checks.clone(),
+        )?;
 
         for _ in 0..number_of_threads {
             // Copy data to be moved into threads
@@ -394,10 +526,11 @@ impl SimulationThread {
             let mem_regions = self.config.memory_regions.clone();
             let result_checks = self.config.result_checks.clone();
             let cycles = self.config.cycles;
+            let statistics = Arc::clone(&self.statistics);
             let handle = spawn(move || {
                 // Wait for workload
                 // Create simulation instance for Run mode (reused across all runs)
-                let mut simulation = Control::new(
+                let mut simulation = match Control::new(
                     &file,
                     false,
                     success_addrs.clone(),
@@ -405,9 +538,15 @@ impl SimulationThread {
                     init_regs.clone(),
                     &mem_regions,
                     result_checks.clone(),
-                );
+                ) {
+                    Ok(simulation) => simulation,
+                    Err(e) => {
+                        log::error!("Failed to initialize simulation worker: {}", e);
+                        return;
+                    }
+                };
                 // Create a separate simulation instance for trace recordings (reused)
-                let mut trace_simulation = Control::new(
+                let mut trace_simulation = match Control::new(
                     &file,
                     false,
                     success_addrs,
@@ -415,7 +554,13 @@ impl SimulationThread {
                     init_regs,
                     &mem_regions,
                     result_checks,
-                );
+                ) {
+                    Ok(simulation) => simulation,
+                    Err(e) => {
+                        log::error!("Failed to initialize trace simulation worker: {}", e);
+                        return;
+                    }
+                };
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
                     let WorkloadMessage {
@@ -452,8 +597,22 @@ impl SimulationThread {
                             );
 
                             let fault = match result {
-                                Ok(Data::Fault(fault)) => fault,
-                                _ => vec![],
+                                Ok(Data::Fault(fault)) => {
+                                    statistics.record_verdict();
+                                    fault
+                                }
+                                Ok(_) => {
+                                    if simulation.instruction_limit_reached() {
+                                        statistics.record_instruction_limit();
+                                    } else {
+                                        statistics.record_verdict();
+                                    }
+                                    vec![]
+                                }
+                                Err(_) => {
+                                    statistics.record_error();
+                                    vec![]
+                                }
                             };
                             if let Some(sender) = fault_sender {
                                 let _ = sender.send(fault);
@@ -512,13 +671,12 @@ impl SimulationThread {
                 trace_sender,
                 fault_sender,
             };
-            sender
-                .send(msg)
-                .map_err(|e| SimulatorError::Channel(format!("Failed to send workload: {}", e)))
+            sender.send(msg).map_err(|e| {
+                let msg = format!("Failed to send workload: {}", e);
+                SimulatorError::channel_with(msg, e)
+            })
         } else {
-            Err(SimulatorError::Channel(
-                "Workload sender channel is closed".to_string(),
-            ))
+            Err(SimulatorError::channel("Workload sender channel is closed"))
         }
     }
 
@@ -552,9 +710,10 @@ impl SimulationThread {
             Some(trace_sender),
             None,
         )?;
-        trace_receiver
-            .recv()
-            .map_err(|e| SimulatorError::Channel(format!("Unable to receive trace data: {}", e)))
+        trace_receiver.recv().map_err(|e| {
+            let msg = format!("Unable to receive trace data: {}", e);
+            SimulatorError::channel_with(msg, e)
+        })
     }
 }
 
@@ -586,5 +745,49 @@ impl Drop for SimulationThread {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_statistics_counts_outcomes() {
+        let stats = RunStatistics::default();
+        stats.record_verdict();
+        stats.record_verdict();
+        stats.record_instruction_limit();
+        stats.record_error();
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.runs, 4);
+        assert_eq!(snapshot.instruction_limit, 1);
+        assert_eq!(snapshot.errors, 1);
+        assert_eq!(snapshot.instruction_limit_ratio(), 25.0);
+
+        stats.reset();
+        assert_eq!(stats.snapshot(), RunStatisticsSnapshot::default());
+        assert_eq!(stats.snapshot().instruction_limit_ratio(), 0.0);
+    }
+
+    #[test]
+    fn result_timeout_parsing() {
+        assert_eq!(parse_result_timeout(None), Some(DEFAULT_RESULT_TIMEOUT));
+        assert_eq!(
+            parse_result_timeout(Some("30")),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(
+            parse_result_timeout(Some(" 30 ")),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(parse_result_timeout(Some("0")), None);
+        assert_eq!(parse_result_timeout(Some("off")), None);
+        assert_eq!(parse_result_timeout(Some("NONE")), None);
+        assert_eq!(
+            parse_result_timeout(Some("abc")),
+            Some(DEFAULT_RESULT_TIMEOUT)
+        );
     }
 }

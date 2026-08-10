@@ -225,6 +225,9 @@ pub struct Config {
     pub log_level: String,
     #[serde(default)]
     pub result_checks: Option<ResultChecks>,
+    /// Seconds to wait for a worker result before aborting a campaign (0 = wait forever).
+    #[serde(default = "Config::default_result_timeout")]
+    pub result_timeout: u64,
 }
 
 impl Config {
@@ -239,13 +242,21 @@ impl Config {
         2000
     }
 
+    fn default_result_timeout() -> u64 {
+        crate::simulation_thread::default_result_timeout()
+            .map(|timeout| timeout.as_secs())
+            .unwrap_or(0)
+    }
+
     /// Load configuration from JSON5 file
     pub fn from_file(path: &PathBuf) -> Result<Self, SimulatorError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| SimulatorError::Config(format!("Failed to read config file: {}", e)))?;
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            SimulatorError::config_with(format!("Failed to read config file: {}", e), e)
+        })?;
 
-        json5::from_str(&content)
-            .map_err(|e| SimulatorError::Config(format!("Failed to parse JSON5 config: {}", e)))
+        json5::from_str(&content).map_err(|e| {
+            SimulatorError::config_with(format!("Failed to parse JSON5 config: {}", e), e)
+        })
     }
 
     /// Create Config from command line arguments.
@@ -282,6 +293,9 @@ impl Config {
             memory_regions: Vec::new(),
             log_level: "off".to_string(),
             result_checks: None,
+            result_timeout: args
+                .result_timeout
+                .unwrap_or_else(Self::default_result_timeout),
         }
     }
 
@@ -313,6 +327,9 @@ impl Config {
         }
         if args.print_analysis.is_some() {
             self.print_analysis = args.print_analysis;
+        }
+        if let Some(result_timeout) = args.result_timeout {
+            self.result_timeout = result_timeout;
         }
 
         // Override vectors/options only if provided
@@ -433,6 +450,12 @@ pub struct Args {
     /// Format: --failure-addresses 0x8000789 0x8000abc
     #[arg(long, value_parser = parse_hex_address, num_args = 0..)]
     pub failure_addresses: Vec<u64>,
+
+    /// Seconds to wait for a worker result before aborting a campaign (0 = wait forever).
+    /// Raise it on slow or heavily loaded machines.
+    /// Defaults to the FAULT_SIM_RESULT_TIMEOUT environment variable, or 120.
+    #[arg(long, value_name = "SECONDS")]
+    pub result_timeout: Option<u64>,
 }
 
 /// Custom deserializer for code patches
