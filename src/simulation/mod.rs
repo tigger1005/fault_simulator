@@ -164,6 +164,9 @@ impl<'a> Control<'a> {
     fn run(&mut self, cycles: usize, run_successful: bool) -> Result<RunState, SimulatorError> {
         // Initial and load program
         self.init(run_successful)?;
+        // Deactivate io print. This has to happen after `init`, because `load_code`
+        // restores the ELF image and would undo the patch of the print function.
+        self.emu.deactivate_printf_function();
         // Start execution with the given amount of instructions
         let ret_info = self.emu.run_steps(cycles, false);
 
@@ -207,8 +210,6 @@ impl<'a> Control<'a> {
     /// * `Ok(())` - Both success and failure paths behave as expected.
     /// * `Err(String)` - Program validation failed with descriptive error message.
     pub fn check_program(&mut self, cycles: usize) -> Result<(), SimulatorError> {
-        // Deactivate io print
-        self.emu.deactivate_printf_function();
         if self.run(cycles, true)? != RunState::Success {
             return Err(SimulatorError::simulation(format!(
                 "Program function check failed. Success path is not working properly!{}",
