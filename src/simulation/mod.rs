@@ -176,10 +176,13 @@ impl<'a> Control<'a> {
     /// and set the initial state.
     /// Every run starts from a pristine memory state: worker threads reuse one
     /// `Control` instance for all runs, so leftovers of a previous (faulted) run
-    /// would otherwise decide the outcome of the next one.
+    /// would otherwise decide the outcome of the next one. This covers the ELF
+    /// segments as well as the memory regions declared in the configuration.
     fn init(&mut self, run_successful: bool) -> Result<(), SimulatorError> {
         self.emu.init_register()?;
         self.emu.clear_segment_memory();
+        // Reset configuration driven memory regions (SRAM, peripherals, dumps)
+        self.emu.restore_memory_regions();
         // Write code to memory area
         self.emu.load_code()?;
         // Set initial state
@@ -398,5 +401,81 @@ impl<'a> Control<'a> {
             }
         }
         format!("{}: {:?} at PC 0x{:08X}", context, error, pc)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli_args::MemoryRegion;
+
+    const REGION_ADDRESS: u64 = 0x3000_0000;
+    const REGION_SIZE: u64 = 0x1000;
+
+    fn control_with_region(data: Option<Vec<u8>>) -> Control<'static> {
+        // Leaked on purpose: `Control` borrows the ELF file for its whole lifetime
+        // and the test process ends right after.
+        let file_data: &'static ElfFile = Box::leak(Box::new(
+            ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap(),
+        ));
+        let regions = vec![MemoryRegion {
+            address: REGION_ADDRESS,
+            size: REGION_SIZE,
+            data,
+            force_overwrite: false,
+        }];
+        Control::new(
+            file_data,
+            false,
+            vec![],
+            vec![],
+            std::collections::HashMap::new(),
+            &regions,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    /// A configured memory region must be pristine again at the start of every run.
+    ///
+    /// Worker threads reuse one `Control` for all runs of a campaign, so a fault that
+    /// writes into a region used to leak into all following runs of that worker. Which
+    /// runs those are depends on the thread scheduling, so the campaign result changed
+    /// from execution to execution.
+    fn memory_region_is_restored_on_init() {
+        let mut control = control_with_region(None);
+        control.init(true).unwrap();
+
+        // A faulted run writes into the region ...
+        control
+            .emu
+            .write_memory(REGION_ADDRESS, &[0xDE, 0xAD, 0xBE, 0xEF]);
+        let mut buffer = [0u8; 4];
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0xDE, 0xAD, 0xBE, 0xEF], buffer);
+
+        // ... and the next run must not see it any more.
+        control.init(true).unwrap();
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0x00, 0x00, 0x00, 0x00], buffer);
+    }
+
+    #[test]
+    /// The `data` value of a memory region is applied on setup *and* on every re-init.
+    fn memory_region_data_is_restored_on_init() {
+        let mut control = control_with_region(Some(0xA5A5_A5A5u64.to_le_bytes().to_vec()));
+        let mut buffer = [0u8; 4];
+
+        control.init(true).unwrap();
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0xA5, 0xA5, 0xA5, 0xA5], buffer);
+
+        control
+            .emu
+            .write_memory(REGION_ADDRESS, &[0x00, 0x00, 0x00, 0x00]);
+        control.init(true).unwrap();
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0xA5, 0xA5, 0xA5, 0xA5], buffer);
     }
 }

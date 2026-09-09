@@ -1,0 +1,19 @@
+// Test configuration for the memory region determinism regression test.
+//
+// Same setup as `test_config_memory_region.json5` but without the interactive
+// analysis, so the campaign can be run repeatedly and non-interactively.
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    memory_regions: [
+        // Unmapped memory region for test
+        {
+            address: "0x30000000",
+            size: "0x1000",         // 4 KB
+            data: "0xA5A5A5A5",
+        },
+    ],
+}

@@ -112,6 +112,12 @@ pub struct Cpu<'a> {
     trace_hook: Option<unicorn_engine::UcHookId>,
     /// Reusable all-zero buffer used to clear BSS regions.
     zeros: Vec<u8>,
+    /// Custom memory regions from the configuration.
+    ///
+    /// They live outside the ELF segments, so neither `clear_segment_memory` nor
+    /// `load_code` restores them. Kept here so every run can start from the same
+    /// content instead of inheriting whatever the previous run wrote.
+    memory_regions: Vec<crate::cli_args::MemoryRegion>,
     /// Set when instruction memory was patched (e.g. by a command bit flip fault).
     ///
     /// Restoring the ELF image via `load_code` does not invalidate the JIT
@@ -203,6 +209,7 @@ impl<'a> Cpu<'a> {
             initial_registers,
             trace_hook: None,
             zeros: Vec::new(),
+            memory_regions: Vec::new(),
             code_modified: false,
         })
     }
@@ -298,6 +305,49 @@ impl<'a> Cpu<'a> {
             let _ = self.emu.ctl_flush_tb();
             self.code_modified = false;
         }
+    }
+
+    /// Reset every configured memory region to its initial content.
+    ///
+    /// Custom memory regions (SRAM, peripherals, memory dumps) live outside the ELF
+    /// segments, so `clear_segment_memory` and `load_code` do not touch them. Worker
+    /// threads reuse one `Control` for all runs, so without this reset whatever a
+    /// previous (faulted) run wrote into such a region would decide the outcome of
+    /// the next one — and, because runs are distributed over threads, the result of a
+    /// campaign would differ from execution to execution.
+    ///
+    /// Called before `load_code()`, mirroring the order of the initial setup so that
+    /// ELF content still wins over a region that overlaps a segment.
+    pub fn restore_memory_regions(&mut self) {
+        if self.memory_regions.is_empty() {
+            return;
+        }
+        let regions = std::mem::take(&mut self.memory_regions);
+        for region in &regions {
+            let size = region.size as usize;
+            if self.zeros.len() < size {
+                self.zeros.resize(size, 0);
+            }
+            // Partially mapped regions are reported during setup; ignore the error here.
+            let _ = self.emu.mem_write(region.address, &self.zeros[..size]);
+            if let Some(data) = &region.data {
+                let write_size = data.len().min(size);
+                let _ = self.emu.mem_write(region.address, &data[..write_size]);
+            }
+        }
+        self.memory_regions = regions;
+    }
+
+    /// Test helper: read raw bytes from the emulated memory.
+    #[cfg(test)]
+    pub(crate) fn read_memory(&self, address: u64, buffer: &mut [u8]) {
+        self.emu.mem_read(address, buffer).unwrap();
+    }
+
+    /// Test helper: write raw bytes into the emulated memory.
+    #[cfg(test)]
+    pub(crate) fn write_memory(&mut self, address: u64, data: &[u8]) {
+        self.emu.mem_write(address, data).unwrap();
     }
 
     /// Function to deactivate printf of c program to
@@ -546,6 +596,8 @@ impl<'a> Cpu<'a> {
 
     /// Setup custom memory regions from configuration
     pub fn setup_memory_regions(&mut self, memory_regions: &[crate::cli_args::MemoryRegion]) {
+        // Remember the regions so `restore_memory_regions` can reset them before every run.
+        self.memory_regions = memory_regions.to_vec();
         for region in memory_regions {
             // Try to map the memory region
             match self.emu.mem_map(

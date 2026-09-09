@@ -20,14 +20,26 @@ use std::time::Duration;
 ///
 /// # Fields
 ///
+/// * `id` - Position of this workload in the batch, used to restore the
+///   enumeration order of the results (workers finish in arbitrary order).
 /// * `fault_sequence` - Sequence of faults to apply during the attack simulation.
 pub struct FaultAttackWorkload {
+    pub id: usize,
     pub fault_sequence: Vec<FaultType>,
 }
 
-/// Result of one fault attack workload: the successful attacks and the number of
-/// executed runs, or the error that aborted it.
-type WorkloadResult = Result<(Vec<FaultElement>, usize), SimulatorError>;
+/// Successful attacks and executed runs of one workload of a batch.
+#[derive(Debug, Default)]
+pub struct BatchOutcome {
+    /// Successful attacks found by this workload, in enumeration order.
+    pub data: Vec<FaultElement>,
+    /// Number of simulation runs executed by this workload.
+    pub count: usize,
+}
+
+/// Result of one fault attack workload: the batch position, the successful attacks
+/// and the number of executed runs, or the error that aborted it.
+type WorkloadResult = Result<(usize, Vec<FaultElement>, usize), SimulatorError>;
 
 /// Receives one message, honouring an optional timeout.
 ///
@@ -207,7 +219,7 @@ impl FaultAttackThread {
 
                 // Loop until the workload receiver is closed
                 while let Ok(msg) = receiver.recv() {
-                    let FaultAttackWorkload { fault_sequence } = msg;
+                    let FaultAttackWorkload { id, fault_sequence } = msg;
 
                     // Execute fault simulation for the given fault sequence
                     let result = fault_simulation(
@@ -219,7 +231,7 @@ impl FaultAttackThread {
                     if let Err(e) = &result {
                         log::error!("Fault simulation error: {}", e);
                     }
-                    let _ = result_sender.send(result);
+                    let _ = result_sender.send(result.map(|(data, n)| (id, data, n)));
                 }
             });
 
@@ -237,6 +249,8 @@ impl FaultAttackThread {
     ///
     /// # Arguments
     ///
+    /// * `id` - Position of this workload within the batch, returned with the result
+    ///   so the caller can restore the enumeration order.
     /// * `fault_sequence` - Sequence of faults to apply during the attack.
     ///
     /// # Returns
@@ -245,10 +259,12 @@ impl FaultAttackThread {
     /// * `Err(String)` - Error if sending fails or channel is closed.
     pub fn send_fault_attack_workload(
         &self,
+        id: usize,
         fault_sequence: &[FaultType],
     ) -> Result<(), SimulatorError> {
         if let Some(sender) = &self.workload_sender {
             let workload = FaultAttackWorkload {
+                id,
                 fault_sequence: fault_sequence.to_vec(),
             };
             sender.send(workload).map_err(|e| {
@@ -273,26 +289,28 @@ impl FaultAttackThread {
     ///
     /// # Returns
     ///
-    /// * `Ok((data, count))` - Successful attack results and total execution count.
+    /// * `Ok(outcomes)` - One outcome per entry of `chunks`, in the order of `chunks`
+    ///   and independent of the order in which the workers happened to finish.
     /// * `Err(SimulatorError)` - A worker failed, a result timed out, or sending failed.
     pub fn run_batch(
         &self,
         chunks: &[Vec<FaultType>],
-    ) -> Result<(Vec<FaultElement>, usize), SimulatorError> {
+    ) -> Result<Vec<BatchOutcome>, SimulatorError> {
         // Discard results left over from an aborted batch so they cannot be
         // counted towards this one.
         while self.result_receiver.try_recv().is_ok() {}
 
-        let mut n_workload = 0;
-        for faults in chunks {
-            self.send_fault_attack_workload(faults)?;
-            n_workload += 1;
+        for (id, faults) in chunks.iter().enumerate() {
+            self.send_fault_attack_workload(id, faults)?;
         }
 
-        let mut all_data = Vec::new();
-        let mut total_count = 0;
+        // Results arrive in completion order, which depends on thread scheduling.
+        // Slot them back into the order of `chunks` so a campaign reports the same
+        // attacks in the same order on every run.
+        let mut outcomes: Vec<BatchOutcome> =
+            (0..chunks.len()).map(|_| BatchOutcome::default()).collect();
 
-        for _ in 0..n_workload {
+        for _ in 0..chunks.len() {
             let result = recv_result(
                 &self.result_receiver,
                 self.result_timeout,
@@ -300,11 +318,15 @@ impl FaultAttackThread {
             )?;
 
             match result {
-                Ok((data, n)) => {
-                    total_count += n;
-                    if !data.is_empty() {
-                        all_data.extend(data);
-                    }
+                Ok((id, data, n)) => {
+                    let outcome = outcomes.get_mut(id).ok_or_else(|| {
+                        SimulatorError::channel(format!(
+                            "Fault attack result carries unknown batch id {}",
+                            id
+                        ))
+                    })?;
+                    outcome.data = data;
+                    outcome.count = n;
                 }
                 // A failed worker makes the campaign result incomplete, so abort
                 // instead of silently reporting fewer attacks.
@@ -312,7 +334,7 @@ impl FaultAttackThread {
             }
         }
 
-        Ok((all_data, total_count))
+        Ok(outcomes)
     }
 }
 
@@ -426,10 +448,28 @@ fn fault_simulation(
             data.push(faults);
         }
     }
+    // The simulation workers answer in completion order, which depends on thread
+    // scheduling. Sort the successful attacks back into the order in which their
+    // injection points were enumerated, so the attack numbering of the report is
+    // reproducible and `--analysis` / `--print-analysis N` always select the same
+    // attack.
+    data.sort_by_key(sort_key);
     // TODO: Remove print or make optional
     // println!("-> {} attacks executed, {} successful", n, data.len());
 
     Ok((data, n))
+}
+
+/// Deterministic ordering key of a successful attack: the injection points of its
+/// faults, with the fault description as tie breaker.
+fn sort_key(element: &FaultElement) -> (Vec<usize>, Vec<String>) {
+    (
+        element.iter().map(|data| data.fault.index).collect(),
+        element
+            .iter()
+            .map(|data| format!("{:?}", data.fault.fault_type))
+            .collect(),
+    )
 }
 
 /// Recursively generates and executes fault injection combinations.

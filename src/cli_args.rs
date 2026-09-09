@@ -544,6 +544,7 @@ where
         address: String,
         size: String,
         file: Option<String>, // Optional binary file to load
+        data: Option<String>, // Optional hex value the region is initialized with
         #[serde(default)]
         force_overwrite: bool, // If true, merge ELF segments to allow overwriting
     }
@@ -556,11 +557,20 @@ where
             let address = parse_hex(&region.address).map_err(de::Error::custom)?;
             let size = parse_hex(&region.size).map_err(de::Error::custom)?;
 
-            // If a file is specified, load its contents
-            let data = if let Some(file_path) = region.file {
-                Some(fs::read(file_path).map_err(de::Error::custom)?)
-            } else {
-                None
+            // A region is initialized either from a binary file or from an inline value
+            let data = match (region.file, region.data) {
+                (Some(_), Some(_)) => {
+                    return Err(de::Error::custom(format!(
+                        "Memory region 0x{:08X}: use either 'file' or 'data', not both",
+                        address
+                    )))
+                }
+                (Some(file_path), None) => Some(fs::read(file_path).map_err(de::Error::custom)?),
+                (None, Some(value)) => {
+                    let value = parse_hex(&value).map_err(de::Error::custom)?;
+                    Some(value.to_le_bytes().to_vec())
+                }
+                (None, None) => None,
             };
 
             Ok(MemoryRegion {
