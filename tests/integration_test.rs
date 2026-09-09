@@ -1234,3 +1234,131 @@ fn mcp_status_reports_instruction_limit() {
         .unwrap()
         .contains("Instruction limit (300) reached in"));
 }
+
+// --- Determinism / reproducibility regression tests ---
+
+/// Run a `--class double glitch` campaign against `test.elf` with the given
+/// number of threads and return the reported attacks in the order they are printed
+/// plus the number of executed tests.
+fn double_glitch_campaign(threads: usize, run_through: bool) -> (Vec<String>, usize) {
+    let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap();
+    let user_thread = Arc::new(
+        SimulationThread::new_with_threads(
+            SimulationConfig::new(
+                2000,
+                false,
+                vec![],
+                vec![],
+                std::collections::HashMap::new(),
+                vec![],
+                "info".to_string(),
+                None,
+            ),
+            &file_data,
+            threads,
+        )
+        .unwrap(),
+    );
+    let mut attack = FaultAttacks::new_with_threads(&file_data, user_thread, threads).unwrap();
+    let (_, count) = attack.double(&["glitch".to_string()], run_through).unwrap();
+
+    let attacks = attack
+        .get_fault_data()
+        .iter()
+        .map(|fault| format!("{:?}", fault))
+        .collect();
+    (attacks, count)
+}
+
+#[test]
+/// The reported attacks, their order and the number of executed tests must not
+/// depend on how the worker threads happen to be scheduled.
+///
+/// Before the fix the results were collected in completion order, so the attack
+/// numbering shown by `--analysis` / `--print-analysis` changed between identical runs.
+fn attack_order_is_reproducible_across_runs() {
+    let reference = double_glitch_campaign(4, true);
+    assert!(
+        reference.0.len() > 100,
+        "campaign must find enough attacks to be a meaningful order check"
+    );
+    for _ in 0..2 {
+        let repeated = double_glitch_campaign(4, true);
+        assert_eq!(
+            reference.0, repeated.0,
+            "attack order changed between two identical campaigns"
+        );
+        assert_eq!(
+            reference.1, repeated.1,
+            "number of executed tests changed between two identical campaigns"
+        );
+    }
+}
+
+#[test]
+/// A campaign that stops at the first successful attack must report the same
+/// result for every thread count.
+///
+/// Before the fix the fault combinations were split into chunks of
+/// `number_of_threads` entries and every entry of a chunk was counted, so a
+/// machine with more cores reported (many) more attacks than a single core one.
+fn early_stop_result_is_independent_of_thread_count() {
+    let (reference_attacks, reference_count) = double_glitch_campaign(1, false);
+    assert!(
+        !reference_attacks.is_empty(),
+        "campaign must find an attack, otherwise there is nothing to stop at"
+    );
+    for threads in [2usize, 3, 4, 8] {
+        let (attacks, count) = double_glitch_campaign(threads, false);
+        assert_eq!(
+            reference_attacks, attacks,
+            "early stop reported different attacks with {threads} threads"
+        );
+        assert_eq!(
+            reference_count, count,
+            "early stop executed a different number of tests with {threads} threads"
+        );
+    }
+}
+
+#[test]
+/// A campaign that uses configured memory regions must produce the same result
+/// for every thread count and on every repetition.
+///
+/// The actual restore-per-run behaviour is covered by the unit tests in
+/// `src/simulation/mod.rs`; this test guards the end-to-end path.
+fn memory_regions_campaign_is_reproducible() {
+    let mut reference: Option<String> = None;
+    for threads in ["1", "4", "8"] {
+        for _ in 0..2 {
+            let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+            cmd.args([
+                "--config",
+                "tests/test_config_memory_region_determinism.json5",
+                "--no-check",
+                "--run-through",
+                "--threads",
+                threads,
+            ]);
+            let output = cmd.output().unwrap();
+            assert!(output.status.success());
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let summary: String = stdout
+                .lines()
+                .filter(|line| {
+                    line.starts_with("Successful attacks")
+                        || line.starts_with("Overall tests executed")
+                })
+                .collect::<Vec<_>>()
+                .join(" | ");
+            assert!(!summary.is_empty(), "no result summary found in output");
+            match &reference {
+                None => reference = Some(summary),
+                Some(expected) => assert_eq!(
+                    *expected, summary,
+                    "result changed with {threads} threads - memory region state leaked between runs"
+                ),
+            }
+        }
+    }
+}

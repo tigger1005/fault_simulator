@@ -328,7 +328,7 @@ impl FaultAttacks {
 
             // Iterate over all fault pairs
             for chunks in iter_list.chunks(self.number_of_threads.unwrap_or(1)) {
-                any_success |= self.fault_simulation(chunks)?;
+                any_success |= self.run_chunks(chunks, !run_through)?;
 
                 if any_success && !run_through {
                     println!("Early stopping double fault injection due to successful attack.");
@@ -358,6 +358,21 @@ impl FaultAttacks {
     ///
     /// Requires fault attack threads to be initialized via `start_fault_attack_threads()` first.
     pub fn fault_simulation(&mut self, chunks: &[Vec<FaultType>]) -> Result<bool, SimulatorError> {
+        self.run_chunks(chunks, false)
+    }
+
+    /// Runs a batch of fault sequences and collects the results in the order of `chunks`.
+    ///
+    /// With `stop_at_first_hit` the batch is cut off after the first fault sequence that
+    /// found an attack: results and run counts of the sequences behind it are discarded.
+    /// Those sequences are only executed because the batch is processed in parallel, so
+    /// keeping them would make both the attack count and `Overall tests executed` depend
+    /// on the number of worker threads, i.e. on the machine the campaign runs on.
+    fn run_chunks(
+        &mut self,
+        chunks: &[Vec<FaultType>],
+        stop_at_first_hit: bool,
+    ) -> Result<bool, SimulatorError> {
         let fault_attack_thread = match &self.fault_attack_thread {
             Some(thread) => thread,
             None => {
@@ -367,11 +382,17 @@ impl FaultAttacks {
             }
         };
 
-        let (data, count) = fault_attack_thread.run_batch(chunks)?;
-        self.count_sum += count;
-        let any_success = !data.is_empty();
-        if any_success {
-            self.fault_data.extend(data);
+        let outcomes = fault_attack_thread.run_batch(chunks)?;
+        let mut any_success = false;
+        for outcome in outcomes {
+            self.count_sum += outcome.count;
+            if !outcome.data.is_empty() {
+                self.fault_data.extend(outcome.data);
+                any_success = true;
+                if stop_at_first_hit {
+                    break;
+                }
+            }
         }
         Ok(any_success)
     }

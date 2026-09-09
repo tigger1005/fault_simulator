@@ -195,6 +195,12 @@ Configuration comes from CLI flags, a JSON5 file, or both — **CLI values alway
 | `--result-timeout <SECONDS>` | Abort if no worker result arrives in time (`0` = wait forever) [default: 120, or `FAULT_SIM_RESULT_TIMEOUT`] |
 | `-h, --help` / `-V, --version` | Help / version |
 
+Results are deterministic: the reported attacks, their numbering and the number of
+executed tests only depend on the target program and the campaign parameters — not
+on `--threads` or on how the worker threads happen to be scheduled. An attack number
+printed by one run therefore always refers to the same attack in `--analysis` /
+`--print-analysis` of another run.
+
 </details>
 
 ---
@@ -288,8 +294,13 @@ decimal numbers; register names are case insensitive.
 | `address` | hex string | Start of the region |
 | `size` | hex string | Size in bytes |
 | `file` | string, optional | Binary file loaded into the region |
-| `data` | hex string, optional | Value the region is initialized with |
+| `data` | hex string, optional | Little-endian value the region is initialized with |
 | `force_overwrite` | bool, optional | Merge fragmented ELF segments so the whole region can be overwritten |
+
+`file` and `data` are mutually exclusive; specifying both is a configuration error.
+Regions are zeroed and re-initialized before *every* simulation run, so a fault that
+writes into a region cannot influence the following run. ELF content still wins over
+an overlapping region, because the ELF segments are loaded after the regions.
 
 </details>
 
@@ -482,7 +493,7 @@ content/          Target C project (edit src/main.c; examples in src/examples/)
 src/              Simulator: emulation, fault injection, threading, MCP server
 doc/              Investigation guide and mitigation technique catalogues
 ghidra_scripts/   Trace visualization script
-tests/            Integration tests and pre-built victim ELF files
+tests/            Integration tests, their C sources in src/ and pre-built victim ELF files
 ```
 
 The C project is built for `armv8-m.main` with `-O3 -fno-inline -g -gdwarf` and

@@ -16,6 +16,7 @@ pub mod record;
 
 use crate::elf_file::ElfFile;
 use crate::error::SimulatorError;
+pub use cpu::StopReason;
 use cpu::{Cpu, RunState};
 use fault_data::FaultData;
 use log::info;
@@ -163,7 +164,10 @@ impl<'a> Control<'a> {
     /// * `RunState` - Returns the state of the program after running.
     fn run(&mut self, cycles: usize, run_successful: bool) -> Result<RunState, SimulatorError> {
         // Initial and load program
-        self.init(run_successful, false)?;
+        self.init(run_successful)?;
+        // Deactivate io print. This has to happen after `init`, because `load_code`
+        // restores the ELF image and would undo the patch of the print function.
+        self.emu.deactivate_printf_function();
         // Start execution with the given amount of instructions
         let ret_info = self.emu.run_steps(cycles, false);
 
@@ -174,14 +178,15 @@ impl<'a> Control<'a> {
 
     /// Initialize cpu state and load the program code into the cpu
     /// and set the initial state.
-    /// When `clean_memory` is true, all segment memory is zeroed before
-    /// loading code to ensure a pristine state (needed for trace recordings).
-    fn init(&mut self, run_successful: bool, clean_memory: bool) -> Result<(), SimulatorError> {
+    /// Every run starts from a pristine memory state: worker threads reuse one
+    /// `Control` instance for all runs, so leftovers of a previous (faulted) run
+    /// would otherwise decide the outcome of the next one. This covers the ELF
+    /// segments as well as the memory regions declared in the configuration.
+    fn init(&mut self, run_successful: bool) -> Result<(), SimulatorError> {
         self.emu.init_register()?;
-        // Zero memory for clean state when required (trace recordings)
-        if clean_memory {
-            self.emu.clear_segment_memory();
-        }
+        self.emu.clear_segment_memory();
+        // Reset configuration driven memory regions (SRAM, peripherals, dumps)
+        self.emu.restore_memory_regions();
         // Write code to memory area
         self.emu.load_code()?;
         // Set initial state
@@ -206,22 +211,25 @@ impl<'a> Control<'a> {
     /// * `Ok(())` - Both success and failure paths behave as expected.
     /// * `Err(String)` - Program validation failed with descriptive error message.
     pub fn check_program(&mut self, cycles: usize) -> Result<(), SimulatorError> {
-        // Deactivate io print
-        self.emu.deactivate_printf_function();
         if self.run(cycles, true)? != RunState::Success {
             return Err(SimulatorError::simulation(format!(
                 "Program function check failed. Success path is not working properly!{}",
-                self.instruction_limit_hint(cycles)
+                self.stop_reason_hint(cycles)
             )));
         }
         if self.run(cycles, false)? != RunState::Failed {
             return Err(SimulatorError::simulation(format!(
                 "Program function check failed. Failure path is not working properly!{}",
-                self.instruction_limit_hint(cycles)
+                self.stop_reason_hint(cycles)
             )));
         }
         println!("Program checked successfully");
         Ok(())
+    }
+
+    /// Why the last run stopped.
+    pub fn stop_reason(&self) -> StopReason {
+        self.emu.stop_reason()
     }
 
     /// True when the last run used up its instruction budget without reaching a verdict.
@@ -229,16 +237,27 @@ impl<'a> Control<'a> {
         self.emu.instruction_limit_reached()
     }
 
-    /// Explanatory suffix for error messages when the instruction budget was the cause.
-    fn instruction_limit_hint(&self, cycles: usize) -> String {
-        if self.instruction_limit_reached() {
-            format!(
+    /// Explanatory suffix for error messages, derived from why the run stopped.
+    ///
+    /// Without it the caller only learns that no verdict was reached, which has very
+    /// different causes: an endless loop, a program that simply runs off its image, or
+    /// an access to memory that is not mapped at all.
+    fn stop_reason_hint(&self, cycles: usize) -> String {
+        match self.stop_reason() {
+            StopReason::InstructionLimit => format!(
                 " The instruction limit of {} was reached before a success or failure \
                  marker was hit — increase --max-instructions.",
                 cycles
-            )
-        } else {
-            String::new()
+            ),
+            StopReason::EmulationError => " The emulation was aborted by an error, e.g. an \
+                 access to unmapped memory, before a success or failure marker was hit — \
+                 map the missing area with 'memory_regions' or stub the access with \
+                 'code_patches'."
+                .to_string(),
+            StopReason::ImageEnd => " Execution ran to the end of the program image without \
+                 hitting a success or failure marker — check that the markers are reachable."
+                .to_string(),
+            StopReason::Verdict | StopReason::NotRun => String::new(),
         }
     }
 
@@ -269,9 +288,7 @@ impl<'a> Control<'a> {
         faults: &[FaultRecord],
     ) -> Result<Data, SimulatorError> {
         let mut restore_required = false;
-        // Initialize and load — use clean memory for trace recordings
-        let clean_memory = matches!(run_type, RunType::RecordTrace | RunType::RecordFullTrace);
-        self.init(false, clean_memory)?;
+        self.init(false)?;
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
@@ -402,5 +419,152 @@ impl<'a> Control<'a> {
             }
         }
         format!("{}: {:?} at PC 0x{:08X}", context, error, pc)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli_args::MemoryRegion;
+
+    const REGION_ADDRESS: u64 = 0x3000_0000;
+    const REGION_SIZE: u64 = 0x1000;
+
+    fn control_with_region(data: Option<Vec<u8>>) -> Control<'static> {
+        // Leaked on purpose: `Control` borrows the ELF file for its whole lifetime
+        // and the test process ends right after.
+        let file_data: &'static ElfFile = Box::leak(Box::new(
+            ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap(),
+        ));
+        let regions = vec![MemoryRegion {
+            address: REGION_ADDRESS,
+            size: REGION_SIZE,
+            data,
+            force_overwrite: false,
+        }];
+        Control::new(
+            file_data,
+            false,
+            vec![],
+            vec![],
+            std::collections::HashMap::new(),
+            &regions,
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    /// A configured memory region must be pristine again at the start of every run.
+    ///
+    /// Worker threads reuse one `Control` for all runs of a campaign, so a fault that
+    /// writes into a region used to leak into all following runs of that worker. Which
+    /// runs those are depends on the thread scheduling, so the campaign result changed
+    /// from execution to execution.
+    fn memory_region_is_restored_on_init() {
+        let mut control = control_with_region(None);
+        control.init(true).unwrap();
+
+        // A faulted run writes into the region ...
+        control
+            .emu
+            .write_memory(REGION_ADDRESS, &[0xDE, 0xAD, 0xBE, 0xEF]);
+        let mut buffer = [0u8; 4];
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0xDE, 0xAD, 0xBE, 0xEF], buffer);
+
+        // ... and the next run must not see it any more.
+        control.init(true).unwrap();
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0x00, 0x00, 0x00, 0x00], buffer);
+    }
+
+    #[test]
+    /// The `data` value of a memory region is applied on setup *and* on every re-init.
+    fn memory_region_data_is_restored_on_init() {
+        let mut control = control_with_region(Some(0xA5A5_A5A5u64.to_le_bytes().to_vec()));
+        let mut buffer = [0u8; 4];
+
+        control.init(true).unwrap();
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0xA5, 0xA5, 0xA5, 0xA5], buffer);
+
+        control
+            .emu
+            .write_memory(REGION_ADDRESS, &[0x00, 0x00, 0x00, 0x00]);
+        control.init(true).unwrap();
+        control.emu.read_memory(REGION_ADDRESS, &mut buffer);
+        assert_eq!([0xA5, 0xA5, 0xA5, 0xA5], buffer);
+    }
+
+    /// `Control` for `test.elf` without any memory region, so the program hits the
+    /// unmapped read at 0x30000000 that it was written for.
+    fn control_without_region() -> Control<'static> {
+        let file_data: &'static ElfFile = Box::leak(Box::new(
+            ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap(),
+        ));
+        Control::new(
+            file_data,
+            false,
+            vec![],
+            vec![],
+            std::collections::HashMap::new(),
+            &[],
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    /// An aborted run must be reported as an emulation error, not as an exhausted
+    /// instruction budget.
+    ///
+    /// `test.elf` reads from unmapped memory, so Unicorn aborts the run. The old
+    /// program counter heuristic could not tell that apart from a runaway program and
+    /// advised "increase --max-instructions", which never helps for this cause.
+    fn emulation_error_is_not_reported_as_instruction_limit() {
+        let mut control = control_without_region();
+        control.run(2000, true).unwrap();
+
+        assert_eq!(StopReason::EmulationError, control.stop_reason());
+        assert!(!control.instruction_limit_reached());
+
+        let error = control.check_program(2000).unwrap_err().to_string();
+        assert!(
+            error.contains("unmapped memory"),
+            "error should name the real cause, got: {error}"
+        );
+        assert!(
+            !error.contains("--max-instructions"),
+            "error must not advise a bigger budget, got: {error}"
+        );
+    }
+
+    #[test]
+    /// A run that ends on a marker is a verdict, not a limit or an error.
+    fn verdict_is_reported_as_verdict() {
+        let mut control = control_with_region(Some(0x1234_5678u64.to_le_bytes().to_vec()));
+        let state = control.run(2000, true).unwrap();
+
+        assert_eq!(RunState::Success, state);
+        assert_eq!(StopReason::Verdict, control.stop_reason());
+        assert!(!control.instruction_limit_reached());
+    }
+
+    #[test]
+    /// A budget that is far too small must be reported as an instruction limit and
+    /// must produce the hint that points at --max-instructions.
+    fn exhausted_budget_is_reported_as_instruction_limit() {
+        let mut control = control_with_region(Some(0x1234_5678u64.to_le_bytes().to_vec()));
+        control.run(5, true).unwrap();
+
+        assert_eq!(StopReason::InstructionLimit, control.stop_reason());
+        assert!(control.instruction_limit_reached());
+
+        let error = control.check_program(5).unwrap_err().to_string();
+        assert!(
+            error.contains("--max-instructions"),
+            "error should point at the budget, got: {error}"
+        );
     }
 }
