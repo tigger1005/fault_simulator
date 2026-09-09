@@ -8,6 +8,9 @@ use crate::simulation::{
 use std::fmt::Debug;
 use std::sync::Arc;
 
+/// Widest instruction the fault can modify. ARM Thumb instructions are 2 or 4 bytes.
+const MAX_INSTRUCTION_BYTES: usize = 4;
+
 /// Command bit flip fault structure
 ///
 #[derive(Clone)]
@@ -35,6 +38,18 @@ impl CmdBitFlip {
     pub fn new(xor_value: u32) -> Arc<Self> {
         Arc::new(Self { xor_value })
     }
+
+    /// Mask of the bits an xor value can reach on an instruction of `width` bytes.
+    ///
+    /// Bits above `width * 8` are dropped, because the xor value is applied byte
+    /// wise over the instruction and there is no byte left for them to land in.
+    fn width_mask(width: usize) -> u32 {
+        match width {
+            0 => 0,
+            w if w >= MAX_INSTRUCTION_BYTES => u32::MAX,
+            w => (1u32 << (w * 8)) - 1,
+        }
+    }
 }
 
 impl FaultFunctions for CmdBitFlip {
@@ -58,9 +73,25 @@ impl FaultFunctions for CmdBitFlip {
         // Set original instructions to same as the original read instructions
         let mut modified_instruction = original_instruction;
 
-        // Manipulate the read command with the xor value
-        for (i, byte) in modified_instruction.as_mut_slice().iter_mut().enumerate() {
-            *byte ^= self.xor_value.to_le_bytes()[i];
+        // The xor value is applied byte wise over the instruction, so it can only
+        // reach the bytes the instruction actually has. ARM Thumb instructions are
+        // either 2 or 4 bytes wide, so on a 2 byte instruction everything above
+        // bit 15 never touches the instruction stream at all: `cmdbf_00010000` up
+        // to `cmdbf_80000000` are silent no-ops there, while they do flip a bit on
+        // a 4 byte instruction. Reducing the value to the width of the instruction
+        // makes that limit explicit instead of leaving it to the loop bounds, and
+        // keeps the indexing inside `to_le_bytes()` for any instruction length.
+        let width = modified_instruction.len().min(MAX_INSTRUCTION_BYTES);
+        let effective_xor = self.xor_value & Self::width_mask(width);
+
+        // Manipulate the read command with the reduced xor value
+        for (i, byte) in modified_instruction
+            .as_mut_slice()
+            .iter_mut()
+            .take(width)
+            .enumerate()
+        {
+            *byte ^= effective_xor.to_le_bytes()[i];
         }
         cpu.asm_cmd_write(address, &modified_instruction).unwrap();
 
@@ -139,9 +170,54 @@ impl FaultFunctions for CmdBitFlip {
         let mut list = Vec::new();
         // Generate a list of all possible cmd bitflips
         // Values will look like: cmdbf_00000001, cmdbf_00000002, ...
+        //
+        // All 32 bits are listed because the campaign does not know in advance which
+        // instruction a fault will hit. On a 4 byte instruction every entry flips a
+        // bit; on a 2 byte instruction the entries above `cmdbf_00008000` are reduced
+        // away by `execute()` and leave the instruction unchanged (see `width_mask`).
         for index in 0..=31 {
             list.push(format!("cmdbf_{:08x}", 1 << index));
         }
         list
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    /// The xor value can only reach the bytes the instruction actually has.
+    fn width_mask_limits_value_to_instruction_width() {
+        assert_eq!(0x0000_0000, CmdBitFlip::width_mask(0));
+        assert_eq!(0x0000_00FF, CmdBitFlip::width_mask(1));
+        assert_eq!(0x0000_FFFF, CmdBitFlip::width_mask(2));
+        assert_eq!(0x00FF_FFFF, CmdBitFlip::width_mask(3));
+        assert_eq!(0xFFFF_FFFF, CmdBitFlip::width_mask(4));
+        // No overflow for values that can never occur as an instruction width
+        assert_eq!(0xFFFF_FFFF, CmdBitFlip::width_mask(8));
+    }
+
+    #[test]
+    /// On a 2 byte Thumb instruction the upper 16 bit are reduced away, so those
+    /// list entries cannot change the instruction stream.
+    fn upper_bits_are_a_no_op_on_two_byte_instructions() {
+        let mask = CmdBitFlip::width_mask(2);
+        for index in 16..=31 {
+            assert_eq!(
+                0,
+                (1u32 << index) & mask,
+                "cmdbf_{:08x} must not reach a 2 byte instruction",
+                1u32 << index
+            );
+        }
+        for index in 0..16 {
+            assert_ne!(
+                0,
+                (1u32 << index) & mask,
+                "cmdbf_{:08x} must reach a 2 byte instruction",
+                1u32 << index
+            );
+        }
     }
 }
