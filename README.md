@@ -162,7 +162,7 @@ Attack classes combine them:
 - `--class single <groups>` — one fault per run
 - `--class double <groups>` — every pair of faults per run
 - `--class all <groups>` — single first, double only if single found nothing
-- `--faults <spec> <spec>` — replay one exact sequence, e.g. `--faults glitch_1 glitch_10`
+- `--faults <spec> <spec>` — test one ordered fault-type sequence across eligible placements, e.g. `--faults glitch_1 glitch_10`
 
 Omit `<groups>` to test every fault type.
 
@@ -182,7 +182,7 @@ Configuration comes from CLI flags, a JSON5 file, or both — **CLI values alway
 | `-t, --threads <N>` | Worker threads [default: number of CPU cores] |
 | `-n, --no-compilation` | Do not re-compile the target program |
 | `--class <CLASS> [GROUPS...]` | `all`, `single` or `double`, optionally restricted to fault groups (`glitch`, `regbf`, `regfld`, `cmdbf`) [default: `all`] |
-| `--faults <SPEC...>` | Replay a fixed fault sequence instead of a campaign |
+| `--faults <SPEC...>` | Test one fixed, ordered fault-type sequence instead of a full campaign |
 | `-r, --run-through` | Do not stop at the first successful attack |
 | `-a, --analysis` | Interactively print the trace of a chosen attack |
 | `--print-analysis <N>` | Print the trace of attack *N* and exit (for automation) |
@@ -220,7 +220,7 @@ cargo run --release -- --class double glitch regfld --elf tests/bin/victim_.elf 
 # Find *all* vulnerabilities instead of stopping at the first
 cargo run --release -- --class single -r
 
-# Replay one exact fault sequence
+# Test one fault-type sequence across eligible placements
 cargo run --release -- --faults regbf_r1_0100 glitch_1
 
 # Run from a config file, override one setting from the CLI

@@ -76,18 +76,18 @@ pub fn run(config: Config, file_data: &ElfFile) -> Result<Option<FaultAttacks>, 
             _ => println!("Unknown attack class!"),
         }
     } else {
-        // Get fault type and numbers
-        let fault_types: Vec<Vec<FaultType>> = config
+        // All --faults values form one ordered, coordinated fault sequence.
+        let fault_types: Vec<FaultType> = config
             .faults
             .iter()
-            .filter_map(|argument| match get_fault_from(argument) {
-                Ok(val) => Some(vec![val]),
-                Err(_) => None,
+            .map(|argument| match get_fault_from(argument) {
+                Ok(val) => Ok(val),
+                Err(error) => Err(error),
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
 
-        // Use threaded fault simulation for better performance
-        let _result = attack_sim.fault_simulation(&fault_types)?;
+        // Use threaded fault simulation for every eligible placement.
+        let _result = attack_sim.fault_simulation(&[fault_types])?;
     }
 
     // Print results and handle analysis options
