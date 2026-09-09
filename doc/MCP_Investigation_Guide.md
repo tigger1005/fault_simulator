@@ -114,7 +114,17 @@ machines or for long double-fault campaigns.
 
 | Parameter | Type     | Required | Description                                           |
 | --------- | -------- | -------- | ----------------------------------------------------- |
-| `faults`  | string[] | **yes**  | List of fault specs, e.g. `["glitch_1", "glitch_10"]` |
+| `faults`  | string[] | **yes** | Ordered fault sequence; all entries are injected together, e.g. `["glitch_1", "glitch_10"]` |
+
+The simulator recursively finds eligible placement combinations for the sequence, just
+like a `double` campaign but limited to the supplied types. Any number of faults is
+supported:
+
+```json
+{
+  "faults": ["cmdbf_00000800", "cmdbf_00000002"]
+}
+```
 
 **Fault specification syntax:**
 - `glitch_N` — Skip N instructions (N = 1..10)

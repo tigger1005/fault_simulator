@@ -369,7 +369,7 @@ pub fn parse_hex_address(s: &str) -> Result<u64, String> {
 /// * `threads` - Number of threads started in parallel.
 /// * `no_compilation` - Suppress re-compilation of the target program.
 /// * `class` - Specifies the attack class to execute. Options include `all`, `single`, `double`, and optional subtypes like `glitch`, `regbf`, `regfld`, `cmdbf`.
-/// * `faults` - Defines a sequence of faults to simulate, e.g., `regbf_r1_0100` or `glitch_1`.
+/// * `faults` - Defines one coordinated fault sequence to simulate, e.g., `regbf_r1_0100 glitch_1`.
 /// * `analysis` - Activates trace analysis of the selected fault.
 /// * `deep_analysis` - Enables a deep scan of repeated code (e.g., loops).
 /// * `max_instructions` - Maximum number of instructions to execute.
@@ -402,7 +402,7 @@ pub struct Args {
     #[arg(long,  value_delimiter = ' ', num_args = 1.., verbatim_doc_comment)]
     pub class: Vec<String>,
 
-    /// Run a command line defined sequence of faults.
+    /// Run one command line defined, coordinated sequence of faults.
     ///   --faults \[specific_attack\] \[optional: specific_attack2 specific_attack3 ...\]
     ///     E.g.: --faults regbf_r1_0100 glitch_1
     #[arg(long, value_delimiter = ' ', num_args = 1.., verbatim_doc_comment)]
@@ -747,5 +747,22 @@ mod tests {
     #[test]
     fn parse_hex_address_public() {
         assert_eq!(parse_hex_address("0x8000123"), Ok(0x8000123));
+    }
+
+    #[test]
+    fn cli_faults_form_one_coordinated_sequence() {
+        let args = Args::try_parse_from([
+            "fault_simulator",
+            "--faults",
+            "cmdbf_00000800",
+            "cmdbf_00000002",
+            "--no-check",
+        ])
+        .unwrap();
+
+        assert_eq!(
+            Config::from_args(&args).faults,
+            vec!["cmdbf_00000800", "cmdbf_00000002"]
+        );
     }
 }

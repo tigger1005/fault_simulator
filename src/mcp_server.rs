@@ -227,7 +227,8 @@ struct RunAttackParams {
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 struct RunFaultsParams {
-    /// List of specific fault specifications, e.g. ["glitch_1", "regbf_r1_0100"]
+    /// One ordered fault sequence, e.g. ["glitch_1", "regbf_r1_00000100"].
+    /// All entries are injected together, with eligible locations found recursively.
     faults: Vec<String>,
 }
 
@@ -574,7 +575,7 @@ impl FaultSimulatorServer {
         ))]))
     }
 
-    /// Run specific fault sequences.
+    /// Run one specific, ordered fault sequence.
     /// Requires load_elf to be called first.
     #[tool(name = "run_faults")]
     async fn run_faults(
@@ -586,25 +587,30 @@ impl FaultSimulatorServer {
             McpError::invalid_request("No ELF loaded. Call load_elf first.", None)
         })?;
 
-        let fault_types: Vec<Vec<FaultType>> = params
+        if params.faults.is_empty() {
+            return Err(McpError::invalid_request(
+                "Provide at least one fault specification.",
+                None,
+            ));
+        }
+
+        let fault_types: Vec<FaultType> = params
             .faults
             .iter()
-            .filter_map(|arg| match get_fault_from(arg) {
-                Ok(val) => Some(vec![val]),
-                Err(_) => None,
+            .map(|fault| {
+                get_fault_from(fault).map_err(|_| {
+                    McpError::invalid_request(
+                        format!("Invalid fault specification: `{}`.", fault),
+                        None,
+                    )
+                })
             })
-            .collect();
-
-        if fault_types.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text(
-                "No valid fault types parsed from input.",
-            )]));
-        }
+            .collect::<Result<_, _>>()?;
 
         let (output, run_result) = capture_stdout_with_result(|| {
             session
                 .attack_sim
-                .fault_simulation(&fault_types)
+                .fault_simulation(&[fault_types])
                 .map(|_| ())
         });
 

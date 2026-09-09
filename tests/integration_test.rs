@@ -1049,6 +1049,40 @@ fn mcp_run_faults() {
 }
 
 #[test]
+/// Test MCP run_faults applies all listed types as one double-fault sequence.
+fn mcp_run_faults_double_sequence() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "elf_path": "tests/bin/victim_3.elf",
+            "max_instructions": 2000
+        }),
+    );
+
+    let response = client.call_tool(
+        "run_faults",
+        serde_json::json!({
+            "faults": ["regbf_r0_00000001", "regbf_r6_00000008"]
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "run_faults returned error: {:?}",
+        response["error"]
+    );
+    let text = response["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        text.contains("Successful attacks: 4"),
+        "Expected four successful double-fault attacks: {text}"
+    );
+}
+
+#[test]
 /// Test MCP error handling — calling tools without loading ELF
 ///
 /// Verifies that calling attack tools before load_elf returns appropriate errors.
