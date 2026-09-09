@@ -272,8 +272,8 @@ impl<'a> Cpu<'a> {
 
     /// Zero the BSS part of every segment (the range between `p_filesz` and
     /// `p_memsz`) and the AUTH_BASE state.
-    /// Called before load_code() when a clean memory state is needed;
-    /// load_code() restores the file-backed part of each segment afterwards.
+    /// Called before load_code() on every run; load_code() restores the
+    /// file-backed part of each segment afterwards.
     pub fn clear_segment_memory(&mut self) {
         let file_data: &'a ElfFile = self.emu.get_data().file_data;
         for (header, data) in &file_data.program_data {
@@ -290,8 +290,10 @@ impl<'a> Cpu<'a> {
         }
         // Clear AUTH_BASE state
         let _ = self.emu.mem_write(AUTH_BASE, &[0u8; 4]);
-        // Restoring the ELF image does not invalidate translation blocks, so drop the
-        // whole JIT cache if a previous run patched the instruction stream
+        // Restoring the ELF image does not invalidate translation blocks, and a
+        // per-instruction `ctl_remove_cache` does not cover the block that contains
+        // it, so drop the whole JIT cache if a previous run patched the instruction
+        // stream. Without this, a stale block silently decides the next run.
         if self.code_modified {
             let _ = self.emu.ctl_flush_tb();
             self.code_modified = false;

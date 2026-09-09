@@ -163,7 +163,7 @@ impl<'a> Control<'a> {
     /// * `RunState` - Returns the state of the program after running.
     fn run(&mut self, cycles: usize, run_successful: bool) -> Result<RunState, SimulatorError> {
         // Initial and load program
-        self.init(run_successful, false)?;
+        self.init(run_successful)?;
         // Start execution with the given amount of instructions
         let ret_info = self.emu.run_steps(cycles, false);
 
@@ -174,14 +174,12 @@ impl<'a> Control<'a> {
 
     /// Initialize cpu state and load the program code into the cpu
     /// and set the initial state.
-    /// When `clean_memory` is true, all segment memory is zeroed before
-    /// loading code to ensure a pristine state (needed for trace recordings).
-    fn init(&mut self, run_successful: bool, clean_memory: bool) -> Result<(), SimulatorError> {
+    /// Every run starts from a pristine memory state: worker threads reuse one
+    /// `Control` instance for all runs, so leftovers of a previous (faulted) run
+    /// would otherwise decide the outcome of the next one.
+    fn init(&mut self, run_successful: bool) -> Result<(), SimulatorError> {
         self.emu.init_register()?;
-        // Zero memory for clean state when required (trace recordings)
-        if clean_memory {
-            self.emu.clear_segment_memory();
-        }
+        self.emu.clear_segment_memory();
         // Write code to memory area
         self.emu.load_code()?;
         // Set initial state
@@ -269,9 +267,7 @@ impl<'a> Control<'a> {
         faults: &[FaultRecord],
     ) -> Result<Data, SimulatorError> {
         let mut restore_required = false;
-        // Initialize and load — use clean memory for trace recordings
-        let clean_memory = matches!(run_type, RunType::RecordTrace | RunType::RecordFullTrace);
-        self.init(false, clean_memory)?;
+        self.init(false)?;
         // Deactivate io print
         self.emu.deactivate_printf_function();
 
