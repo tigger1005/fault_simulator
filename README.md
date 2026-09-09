@@ -493,7 +493,7 @@ content/          Target C project (edit src/main.c; examples in src/examples/)
 src/              Simulator: emulation, fault injection, threading, MCP server
 doc/              Investigation guide and mitigation technique catalogues
 ghidra_scripts/   Trace visualization script
-tests/            Integration tests and pre-built victim ELF files
+tests/            Integration tests, their C sources in src/ and pre-built victim ELF files
 ```
 
 The C project is built for `armv8-m.main` with `-O3 -fno-inline -g -gdwarf` and

@@ -1,7 +1,18 @@
 /**
- * @file main_0.c
+ * @file test.c
  * @author Roland Ebrecht
- * @brief
+ * @brief Source of the pre-built integration test binary `tests/bin/test.elf`.
+ *
+ * This is not a hardening example. It deliberately reads from 0x30000000, which is
+ * not part of any ELF segment, so it only runs when that area is mapped through a
+ * configuration (see `tests/test_config_memory_region.json5`) and always needs
+ * `--no-check`, because the baseline behaviour check cannot pass without the
+ * mapping. It exercises `memory_regions`, `code_patches`, `initial_registers` and
+ * `result_checks` against an otherwise uninstrumented binary.
+ *
+ * Rebuild after a change with the target C project Makefile and copy the result
+ * to `tests/bin/test.elf`.
+ *
  * @version 0.1
  * @date 2024-04-29
  *
