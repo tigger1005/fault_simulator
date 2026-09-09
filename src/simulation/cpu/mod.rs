@@ -38,6 +38,27 @@ use unicorn_engine::unicorn_const::{Arch, HookType, Mode, Prot};
 use unicorn_engine::{RegisterARM, Unicorn};
 
 use log::debug;
+
+/// Why the last call to [`Cpu::run_steps`] stopped.
+///
+/// Deriving this from the program counter alone cannot distinguish an aborted run
+/// from an exhausted instruction budget, which made the simulator advise
+/// "increase --max-instructions" for programs that in fact died on an unmapped
+/// memory access. The reason is therefore recorded where it is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StopReason {
+    /// No run has been executed yet.
+    #[default]
+    NotRun,
+    /// The program reached a success or failure verdict.
+    Verdict,
+    /// Execution ran to the end of the loaded program image.
+    ImageEnd,
+    /// The instruction budget was used up before a verdict was reached.
+    InstructionLimit,
+    /// Unicorn aborted the run, e.g. on an unmapped access or an invalid instruction.
+    EmulationError,
+}
 use std::collections::{HashMap, HashSet};
 
 /// Base address for authentication system MMIO region.
@@ -124,6 +145,8 @@ pub struct Cpu<'a> {
     /// translation blocks, so a full flush is required before the next clean run —
     /// but only if the instruction stream was actually modified.
     code_modified: bool,
+    /// Why the last `run_steps` call stopped.
+    stop_reason: StopReason,
 }
 
 struct CpuState<'a> {
@@ -211,6 +234,7 @@ impl<'a> Cpu<'a> {
             zeros: Vec::new(),
             memory_regions: Vec::new(),
             code_modified: false,
+            stop_reason: StopReason::NotRun,
         })
     }
 
@@ -715,6 +739,10 @@ impl<'a> Cpu<'a> {
                 0, // No wall-clock timeout; rely on cycle count only
                 cycles,
             );
+            // Store new PC
+            self.program_counter = self.emu.pc_read().unwrap();
+            self.stop_reason = self.classify_stop(&ret_val, end_address);
+            return ret_val;
         }
         // Store new PC
         self.program_counter = self.emu.pc_read().unwrap();
@@ -722,22 +750,59 @@ impl<'a> Cpu<'a> {
         ret_val
     }
 
-    /// Address at which emulation stops (end of the loaded program image).
-    fn end_address(&self) -> u64 {
-        let segment = &self.emu.get_data().file_data.program_data[0].0;
-        segment.p_paddr + segment.p_memsz
+    /// Determine why `emu_start` returned.
+    ///
+    /// The four cases are mutually exclusive and cover every way a run can end.
+    /// Recording them explicitly avoids guessing from the program counter, which
+    /// cannot tell an aborted run apart from an exhausted instruction budget.
+    fn classify_stop(&self, result: &Result<(), uc_error>, end_address: u64) -> StopReason {
+        if result.is_err() {
+            StopReason::EmulationError
+        } else if self.emu.get_data().state != RunState::Init {
+            StopReason::Verdict
+        } else if (self.program_counter | 1) == (end_address | 1) {
+            StopReason::ImageEnd
+        } else {
+            StopReason::InstructionLimit
+        }
     }
 
-    /// True when the last run ended without a success/failure verdict while the
-    /// program counter is still inside the program image.
+    /// Address at which emulation stops (end of the loaded program image).
+    ///
+    /// An image can consist of several `PT_LOAD` segments, so the stop address is the
+    /// highest end of all executable ones. Using `program_data[0]` unconditionally
+    /// stops emulation at an arbitrary address as soon as the code does not happen to
+    /// live in the first segment.
+    fn end_address(&self) -> u64 {
+        let program_data = &self.emu.get_data().file_data.program_data;
+        program_data
+            .iter()
+            .filter(|(header, _)| header.p_flags & PF_X != 0)
+            .map(|(header, _)| header.p_paddr + header.p_memsz)
+            .max()
+            .unwrap_or_else(|| {
+                // No segment is marked executable: fall back to the whole image.
+                program_data
+                    .iter()
+                    .map(|(header, _)| header.p_paddr + header.p_memsz)
+                    .max()
+                    .unwrap_or(0)
+            })
+    }
+
+    /// Why the last run stopped.
+    pub fn stop_reason(&self) -> StopReason {
+        self.stop_reason
+    }
+
+    /// True when the last run used up its instruction budget without reaching a verdict.
     ///
     /// Emulation stops either on a verdict (marker write, checked address, register
-    /// check), at the end of the program image, or when the instruction budget is
-    /// used up. Only the last case leaves the state uninitialized with the program
-    /// counter somewhere inside the image — typically an endless loop caused by a fault.
+    /// check), at the end of the program image, on an emulation error, or when the
+    /// instruction budget is used up. Only the last case is reported here — typically
+    /// an endless loop caused by a fault.
     pub fn instruction_limit_reached(&self) -> bool {
-        self.emu.get_data().state == RunState::Init
-            && (self.program_counter | 1) != (self.end_address() | 1)
+        self.stop_reason == StopReason::InstructionLimit
     }
 
     /// Returns the size of the assembler command at the specified address.
@@ -825,6 +890,7 @@ impl<'a> Cpu<'a> {
         fault.fault_type.execute(self, fault)
     }
     pub fn init_cpu_state(&mut self) {
+        self.stop_reason = StopReason::NotRun;
         let state = self.emu.get_data_mut();
         state.state = RunState::Init;
         state.start_trace = false;

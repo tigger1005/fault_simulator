@@ -16,6 +16,7 @@ pub mod record;
 
 use crate::elf_file::ElfFile;
 use crate::error::SimulatorError;
+pub use cpu::StopReason;
 use cpu::{Cpu, RunState};
 use fault_data::FaultData;
 use log::info;
@@ -213,17 +214,22 @@ impl<'a> Control<'a> {
         if self.run(cycles, true)? != RunState::Success {
             return Err(SimulatorError::simulation(format!(
                 "Program function check failed. Success path is not working properly!{}",
-                self.instruction_limit_hint(cycles)
+                self.stop_reason_hint(cycles)
             )));
         }
         if self.run(cycles, false)? != RunState::Failed {
             return Err(SimulatorError::simulation(format!(
                 "Program function check failed. Failure path is not working properly!{}",
-                self.instruction_limit_hint(cycles)
+                self.stop_reason_hint(cycles)
             )));
         }
         println!("Program checked successfully");
         Ok(())
+    }
+
+    /// Why the last run stopped.
+    pub fn stop_reason(&self) -> StopReason {
+        self.emu.stop_reason()
     }
 
     /// True when the last run used up its instruction budget without reaching a verdict.
@@ -231,16 +237,27 @@ impl<'a> Control<'a> {
         self.emu.instruction_limit_reached()
     }
 
-    /// Explanatory suffix for error messages when the instruction budget was the cause.
-    fn instruction_limit_hint(&self, cycles: usize) -> String {
-        if self.instruction_limit_reached() {
-            format!(
+    /// Explanatory suffix for error messages, derived from why the run stopped.
+    ///
+    /// Without it the caller only learns that no verdict was reached, which has very
+    /// different causes: an endless loop, a program that simply runs off its image, or
+    /// an access to memory that is not mapped at all.
+    fn stop_reason_hint(&self, cycles: usize) -> String {
+        match self.stop_reason() {
+            StopReason::InstructionLimit => format!(
                 " The instruction limit of {} was reached before a success or failure \
                  marker was hit — increase --max-instructions.",
                 cycles
-            )
-        } else {
-            String::new()
+            ),
+            StopReason::EmulationError => " The emulation was aborted by an error, e.g. an \
+                 access to unmapped memory, before a success or failure marker was hit — \
+                 map the missing area with 'memory_regions' or stub the access with \
+                 'code_patches'."
+                .to_string(),
+            StopReason::ImageEnd => " Execution ran to the end of the program image without \
+                 hitting a success or failure marker — check that the markers are reachable."
+                .to_string(),
+            StopReason::Verdict | StopReason::NotRun => String::new(),
         }
     }
 
@@ -478,5 +495,76 @@ mod tests {
         control.init(true).unwrap();
         control.emu.read_memory(REGION_ADDRESS, &mut buffer);
         assert_eq!([0xA5, 0xA5, 0xA5, 0xA5], buffer);
+    }
+
+    /// `Control` for `test.elf` without any memory region, so the program hits the
+    /// unmapped read at 0x30000000 that it was written for.
+    fn control_without_region() -> Control<'static> {
+        let file_data: &'static ElfFile = Box::leak(Box::new(
+            ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap(),
+        ));
+        Control::new(
+            file_data,
+            false,
+            vec![],
+            vec![],
+            std::collections::HashMap::new(),
+            &[],
+            None,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    /// An aborted run must be reported as an emulation error, not as an exhausted
+    /// instruction budget.
+    ///
+    /// `test.elf` reads from unmapped memory, so Unicorn aborts the run. The old
+    /// program counter heuristic could not tell that apart from a runaway program and
+    /// advised "increase --max-instructions", which never helps for this cause.
+    fn emulation_error_is_not_reported_as_instruction_limit() {
+        let mut control = control_without_region();
+        control.run(2000, true).unwrap();
+
+        assert_eq!(StopReason::EmulationError, control.stop_reason());
+        assert!(!control.instruction_limit_reached());
+
+        let error = control.check_program(2000).unwrap_err().to_string();
+        assert!(
+            error.contains("unmapped memory"),
+            "error should name the real cause, got: {error}"
+        );
+        assert!(
+            !error.contains("--max-instructions"),
+            "error must not advise a bigger budget, got: {error}"
+        );
+    }
+
+    #[test]
+    /// A run that ends on a marker is a verdict, not a limit or an error.
+    fn verdict_is_reported_as_verdict() {
+        let mut control = control_with_region(Some(0x1234_5678u64.to_le_bytes().to_vec()));
+        let state = control.run(2000, true).unwrap();
+
+        assert_eq!(RunState::Success, state);
+        assert_eq!(StopReason::Verdict, control.stop_reason());
+        assert!(!control.instruction_limit_reached());
+    }
+
+    #[test]
+    /// A budget that is far too small must be reported as an instruction limit and
+    /// must produce the hint that points at --max-instructions.
+    fn exhausted_budget_is_reported_as_instruction_limit() {
+        let mut control = control_with_region(Some(0x1234_5678u64.to_le_bytes().to_vec()));
+        control.run(5, true).unwrap();
+
+        assert_eq!(StopReason::InstructionLimit, control.stop_reason());
+        assert!(control.instruction_limit_reached());
+
+        let error = control.check_program(5).unwrap_err().to_string();
+        assert!(
+            error.contains("--max-instructions"),
+            "error should point at the budget, got: {error}"
+        );
     }
 }
