@@ -298,7 +298,7 @@ fn run_fault_simulation_one_glitch() {
     let result = attack.fault_simulation(&[vec![Glitch::new(1)]]).unwrap();
     let result_data = attack.get_fault_data();
 
-    assert_eq!(true, result);
+    assert!(result);
     // Check if correct faults are found (at: 0x80004BA, 0x8000634, 0x800063C)
     assert_eq!(3, result_data.len());
     // Check for correct faults
@@ -349,7 +349,7 @@ fn run_fault_simulation_two_glitches() {
         .fault_simulation(&[vec![Glitch::new(1), Glitch::new(10)]])
         .unwrap();
 
-    assert_eq!(true, result);
+    assert!(result);
     let result_data = attack.get_fault_data();
 
     println!("Result: {:?}", result);
@@ -920,7 +920,7 @@ fn mcp_load_and_attack() {
     let data: serde_json::Value =
         serde_json::from_str(text).expect("get_attack_data should return valid JSON");
     assert!(
-        data.as_array().unwrap().len() > 0,
+        !data.as_array().unwrap().is_empty(),
         "Expected attack data entries"
     );
 

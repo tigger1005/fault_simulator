@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(elf_struct.header.endianness, elf::endian::AnyEndian::Little);
         assert_eq!(elf_struct.header.version, 1);
         // Program header
-        assert!(elf_struct.program_data.get(0).is_some());
+        assert!(!elf_struct.program_data.is_empty());
         assert_eq!(elf_struct.program_data[0].0.p_type, PT_LOAD);
         assert_eq!(elf_struct.program_data[0].0.p_align, 4);
         assert_eq!(
@@ -314,9 +314,9 @@ mod tests {
             elf_struct.program_data[0].0.p_vaddr
         );
 
-        assert!(elf_struct.symbol_map.get("decision_activation").is_some());
-        assert!(elf_struct.symbol_map.get("serial_puts").is_some());
-        assert!(elf_struct.symbol_map.get("decisiondata").is_some());
+        assert!(elf_struct.symbol_map.contains_key("decision_activation"));
+        assert!(elf_struct.symbol_map.contains_key("serial_puts"));
+        assert!(elf_struct.symbol_map.contains_key("decisiondata"));
 
         //        assert_eq!(elf_struct.symbol_map["decision_activation"].st_name, 0xec);
         // assert_eq!(
