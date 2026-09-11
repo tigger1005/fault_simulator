@@ -9,6 +9,7 @@ use crate::simulation::{record::FaultRecord, FaultElement, RunType, TraceElement
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 
 use crate::fault_attacks::faults::FaultType;
+use crate::injection_filter::InjectionFilter;
 
 use std::time::Duration;
 
@@ -171,6 +172,7 @@ impl FaultAttackThread {
     ///
     /// * `number_of_threads` - Number of worker threads to spawn (must be > 0).
     /// * `user_thread` - Arc-wrapped SimulationThread for workload processing.
+    /// * `injection_filter` - Decides which injection points of a re-traced run are enumerated.
     ///
     /// # Returns
     ///
@@ -190,6 +192,7 @@ impl FaultAttackThread {
         &mut self,
         number_of_threads: usize,
         user_thread: Arc<SimulationThread>,
+        injection_filter: Arc<InjectionFilter>,
     ) -> Result<(), SimulatorError> {
         // Check that number of threads is greater than 0
         if number_of_threads == 0 {
@@ -210,6 +213,7 @@ impl FaultAttackThread {
             let receiver = self.workload_receiver.clone();
             let initial_trace = initial_trace.clone();
             let user_thread = Arc::clone(&user_thread);
+            let injection_filter = Arc::clone(&injection_filter);
             let result_sender = self.result_sender.clone();
 
             // Spawn worker thread
@@ -227,6 +231,7 @@ impl FaultAttackThread {
                         initial_trace.clone(),
                         &cs,
                         Arc::clone(&user_thread),
+                        &injection_filter,
                     );
                     if let Err(e) = &result {
                         log::error!("Fault simulation error: {}", e);
@@ -366,6 +371,7 @@ impl Drop for FaultAttackThread {
 /// * `initial_trace` - Initial trace data that serves as the starting point for fault injection.
 /// * `cs` - Reference to the disassembly engine for filtering records.
 /// * `user_thread` - Reference to the user thread for workload management.
+/// * `injection_filter` - Drops injection points outside the executable image.
 ///
 /// # Returns
 ///
@@ -389,6 +395,7 @@ fn fault_simulation(
     mut records: TraceElement,
     cs: &Disassembly,
     user_thread: Arc<SimulationThread>,
+    injection_filter: &InjectionFilter,
 ) -> Result<(Vec<FaultElement>, usize), SimulatorError> {
     println!("Running simulation for faults: {faults:?}");
 
@@ -424,6 +431,7 @@ fn fault_simulation(
                     &simulation_fault_records,
                     cs,
                     &user_thread,
+                    injection_filter,
                 )?;
             } else {
                 return Err(SimulatorError::simulation("No instruction record found"));
@@ -485,6 +493,7 @@ fn sort_key(element: &FaultElement) -> (Vec<usize>, Vec<String>) {
 /// * `simulation_fault_records` - Current fault injection sequence being built.
 /// * `cs` - Reference to the disassembly engine for filtering records.
 /// * `user_thread` - Reference to the user thread for workload management.
+/// * `injection_filter` - Drops injection points outside the executable image.
 ///
 /// # Returns
 ///
@@ -502,6 +511,7 @@ fn fault_simulation_inner(
     simulation_fault_records: &[FaultRecord],
     cs: &Disassembly,
     user_thread: &SimulationThread,
+    injection_filter: &InjectionFilter,
 ) -> Result<usize, SimulatorError> {
     let mut n = 0;
 
@@ -523,6 +533,12 @@ fn fault_simulation_inner(
             user_thread.config.deep_analysis,
             simulation_fault_records.to_vec(),
         )?;
+
+        // A preceding fault can desynchronize the instruction decoder, after which the
+        // trace consists mostly of data addresses executed as code. Those are not
+        // injection points an attacker can target, and enumerating them dominates the
+        // runtime of such a campaign.
+        injection_filter.retain_valid_injection_points(&mut records);
 
         // Split faults into first and remaining faults
         let (first_fault, remaining_faults) = remaining_faults.split_first().unwrap();
@@ -547,6 +563,7 @@ fn fault_simulation_inner(
                     &index_simulation_fault_records,
                     cs,
                     user_thread,
+                    injection_filter,
                 )?;
             }
         }

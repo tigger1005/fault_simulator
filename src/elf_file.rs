@@ -192,6 +192,24 @@ impl ElfFile {
         Context::new(&read::File::parse(&*self.file_data).unwrap()).unwrap()
     }
 
+    /// Address ranges of all executable segments of the loaded image.
+    ///
+    /// Every address a sane program can execute lies in one of these ranges, so they
+    /// describe where fault injection points can legitimately be placed. An image can
+    /// consist of several `PT_LOAD` segments, so all of them are collected.
+    ///
+    /// # Returns
+    ///
+    /// Half-open `(start, end)` ranges, or an empty vector if no segment is marked
+    /// executable — callers treat that as "range unknown" and must not filter.
+    pub fn executable_ranges(&self) -> Vec<(u64, u64)> {
+        self.program_data
+            .iter()
+            .filter(|(header, _)| header.p_flags & PF_X != 0)
+            .map(|(header, _)| (header.p_paddr, header.p_paddr + header.p_memsz))
+            .collect()
+    }
+
     /// Apply patches to the program data
     pub fn apply_patches(
         &mut self,

@@ -590,9 +590,13 @@ fn test_code_victim_5_full_run() {
 
     cmd.args(["--elf", "tests/bin/victim_5.elf", "--no-check"]);
 
-    // Should run without Unicorn error and execute all tests (711064 total iterations)
+    // Should run without Unicorn error and execute all tests.
+    // The total is lower than the 711064 combinations the fault classes describe
+    // because follow-up faults are not placed on addresses outside the executable
+    // image; see InjectionFilter. Those 97696 skipped points sit in data the program
+    // only reaches after a preceding fault desynchronized the instruction decoder.
     cmd.assert()
-        .stdout(predicate::str::contains("Overall tests executed 711064"))
+        .stdout(predicate::str::contains("Overall tests executed 613368"))
         .success();
 }
 

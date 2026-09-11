@@ -228,6 +228,9 @@ pub struct Config {
     /// Seconds to wait for a worker result before aborting a campaign (0 = wait forever).
     #[serde(default = "Config::default_result_timeout")]
     pub result_timeout: u64,
+    /// Enumerate injection points outside the executable image (slow, see `--no-injection-filter`).
+    #[serde(default)]
+    pub no_injection_filter: bool,
 }
 
 impl Config {
@@ -296,6 +299,7 @@ impl Config {
             result_timeout: args
                 .result_timeout
                 .unwrap_or_else(Self::default_result_timeout),
+            no_injection_filter: args.no_injection_filter,
         }
     }
 
@@ -324,6 +328,9 @@ impl Config {
         }
         if args.run_through {
             self.run_through = true;
+        }
+        if args.no_injection_filter {
+            self.no_injection_filter = true;
         }
         if args.print_analysis.is_some() {
             self.print_analysis = args.print_analysis;
@@ -456,6 +463,13 @@ pub struct Args {
     /// Defaults to the FAULT_SIM_RESULT_TIMEOUT environment variable, or 120.
     #[arg(long, value_name = "SECONDS")]
     pub result_timeout: Option<u64>,
+
+    /// Also place follow-up faults on addresses outside the executable image.
+    /// By default they are skipped: a preceding fault can desynchronize the
+    /// instruction decoder, and enumerating the data the program then executes
+    /// as code dominates the runtime without describing a real target.
+    #[arg(long, default_value_t = false, verbatim_doc_comment)]
+    pub no_injection_filter: bool,
 }
 
 /// Custom deserializer for code patches

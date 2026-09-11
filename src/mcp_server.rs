@@ -208,6 +208,11 @@ struct LoadElfParams {
     /// Raise it on slow or heavily loaded machines. Default: 120 s.
     #[serde(default)]
     result_timeout_seconds: Option<u64>,
+    /// Also place follow-up faults on addresses outside the executable image.
+    /// Those appear when a preceding fault desynchronizes the instruction decoder and the
+    /// program executes data as code. Enumerating them is slow and rarely useful. Default: false.
+    #[serde(default)]
+    no_injection_filter: Option<bool>,
     /// Code patches to apply: list of {address: "0x...", data: "0x..."} or {symbol: "name", data: "0x..."}
     #[serde(default)]
     code_patches: Option<Vec<HashMap<String, String>>>,
@@ -354,6 +359,9 @@ impl FaultSimulatorServer {
         if let Some(result_timeout) = params.result_timeout_seconds {
             config.result_timeout = result_timeout;
         }
+        if let Some(no_injection_filter) = params.no_injection_filter {
+            config.no_injection_filter = no_injection_filter;
+        }
         if let Some(addresses) = &params.success_addresses {
             config.success_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
         }
@@ -425,7 +433,8 @@ impl FaultSimulatorServer {
         .with_result_timeout(match config.result_timeout {
             0 => None,
             seconds => Some(std::time::Duration::from_secs(seconds)),
-        });
+        })
+        .with_injection_filter(!config.no_injection_filter);
         let result_timeout = sim_config.result_timeout;
 
         let threads = config.threads;
@@ -568,10 +577,15 @@ impl FaultSimulatorServer {
             .instruction_limit_report()
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
+        let filter_report = session
+            .attack_sim
+            .injection_filter_report()
+            .map(|r| format!("\n{}", r))
+            .unwrap_or_default();
 
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}",
-            output, num_attacks, count, limit_report
+            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
+            output, num_attacks, count, limit_report, filter_report
         ))]))
     }
 
@@ -625,10 +639,15 @@ impl FaultSimulatorServer {
             .instruction_limit_report()
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
+        let filter_report = session
+            .attack_sim
+            .injection_filter_report()
+            .map(|r| format!("\n{}", r))
+            .unwrap_or_default();
 
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}",
-            output, num_attacks, count, limit_report
+            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
+            output, num_attacks, count, limit_report, filter_report
         ))]))
     }
 
@@ -819,6 +838,8 @@ impl FaultSimulatorServer {
             "runs_instruction_limit_percent": (stats.instruction_limit_ratio() * 10.0).round() / 10.0,
             "runs_emulation_errors": stats.errors,
             "instruction_limit_report": session.attack_sim.instruction_limit_report(),
+            "skipped_injection_points": session.attack_sim.skipped_injection_points(),
+            "injection_filter_report": session.attack_sim.injection_filter_report(),
         });
 
         Ok(CallToolResult::success(vec![Content::text(
