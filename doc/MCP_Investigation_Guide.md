@@ -90,6 +90,13 @@ The response ends with the attack counters and, if any run used up its instructi
 an instruction limit diagnostic (see Section 2.10). Treat a large share of budget-exhausted
 runs as a signal to raise `max_instructions` — those runs test nothing.
 
+> **The reported counters are cumulative for the session, not per call.** Attack data and
+> the test counter accumulate across every `run_attack` / `run_faults` call until
+> `reset_session` is issued. A campaign therefore reports the sum of itself and all
+> preceding campaigns, which makes a clean run look like it found the earlier campaign's
+> attacks. Call `reset_session` before any campaign whose result you evaluate on its own.
+> `attack_number` indices used by `analyze_attack` likewise refer to the accumulated list.
+
 If a worker produces no result within the configured timeout (`result_timeout_seconds` of
 `load_elf` / `result_timeout` in the JSON5 configuration, default 120 s, also settable
 through the `FAULT_SIM_RESULT_TIMEOUT` environment variable), the call fails with an
@@ -164,7 +171,10 @@ Returns all available fault specifications grouped by type.
 
 ### 2.9 `reset_session` — Clear Attack Results
 
-Clears all attack data while keeping the ELF loaded. Use before running a new campaign on the same binary.
+Clears all attack data and the test counters while keeping the ELF loaded. **Call it before
+every campaign whose result you intend to report or compare in isolation** — otherwise the
+counters returned by `run_attack` include all previous campaigns of the session (see the
+note in Section 2.3).
 
 **No parameters.**
 
@@ -419,6 +429,9 @@ Use `get_trace` to see the normal (non-faulted) execution. This shows:
 
 ### Step 5: Run Single Fault Attacks
 
+Call `reset_session` first if any campaign already ran in this session, so the returned
+counters describe this campaign only (Section 2.3).
+
 ```json
 {
   "class": "single",
@@ -427,6 +440,9 @@ Use `get_trace` to see the normal (non-faulted) execution. This shows:
 ```
 
 Use `run_through: true` to find ALL vulnerabilities, not just the first.
+
+To attribute results to a specific fault type, run one `subclass` per campaign with a
+`reset_session` in between.
 
 ### Step 6: Analyze Results
 
@@ -732,14 +748,17 @@ When documenting an investigation, include:
 6. get_results()                                 → Summary of attacks
 7. analyze_attack(attack_number=1)               → Deep-dive attack #1
 8. analyze_attack(attack_number=2)               → Deep-dive attack #2 (etc.)
-9. run_attack(class="double", run_through=true)  → Find double-fault vulns
-10. [Analyze double attacks similarly]
-11. Edit content/src/main.c                      → Apply hardening
-12. compile_target()                             → Recompile
-13. load_elf(elf_path="..victim.elf")            → Reload
-14. run_attack(class="single", run_through=true) → Re-test single
-15. run_attack(class="double", run_through=true) → Re-test double
-16. Repeat 11–15 until 0 successful attacks or a stop condition
+9. reset_session()                               → Counters are cumulative — clear them
+10. run_attack(class="double", run_through=true) → Find double-fault vulns
+11. [Analyze double attacks similarly]
+12. Edit content/src/main.c                      → Apply hardening
+13. compile_target()                             → Recompile
+14. load_elf(elf_path="..victim.elf")            → Reload
+15. reset_session()                              → Drop the previous iteration's attacks
+16. run_attack(class="single", run_through=true) → Re-test single
+17. reset_session()
+18. run_attack(class="double", run_through=true) → Re-test double
+19. Repeat 12–18 until 0 successful attacks or a stop condition
     from Section 6, Step 11 is reached
 ```
 
