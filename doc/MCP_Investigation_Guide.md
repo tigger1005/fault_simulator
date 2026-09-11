@@ -36,6 +36,7 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 | `failure_addresses` | string[] | no       | []        | Hex addresses indicating attack failure                                                  |
 | `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
 | `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
+| `no_injection_filter` | boolean | no     | false     | Also place follow-up faults outside the executable image (slow, see Section 2.10)        |
 | `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data: "0x..."}` or `{symbol: "name", data: "0x..."}` |
 
 Explicit parameters override the values coming from `config_file` / `config_json5`.
@@ -95,6 +96,12 @@ If a worker produces no result within the configured timeout (`result_timeout_se
 through the `FAULT_SIM_RESULT_TIMEOUT` environment variable), the call fails with an
 explicit timeout error instead of returning an incomplete result. Raise the value on slow
 machines or for long double-fault campaigns.
+
+The response also reports injection points that were skipped because they lie outside the
+executable image. They appear when a preceding fault desynchronizes the instruction decoder
+and the program starts executing data as code — enumerating a follow-up fault over them
+dominates the runtime of a campaign without describing a target that exists in the
+firmware. Set `no_injection_filter: true` in `load_elf` to enumerate them anyway.
 
 **Subclass filters:**
 - `"glitch"` — NOP 1–10 instructions (simulates voltage/clock glitches)

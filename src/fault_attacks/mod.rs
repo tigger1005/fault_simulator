@@ -6,6 +6,7 @@ use crate::{fault_attack_thread::FaultAttackThread, simulation::FaultElement};
 
 use super::simulation::{fault_data::FaultData, record::FaultRecord, Control, RunType};
 use crate::error::SimulatorError;
+use crate::injection_filter::InjectionFilter;
 use crate::{disassembly::Disassembly, elf_file::ElfFile};
 use faults::*;
 use itertools::iproduct;
@@ -20,6 +21,8 @@ pub struct FaultAttacks {
     user_thread: Arc<SimulationThread>,
     fault_attack_thread: Option<FaultAttackThread>,
     number_of_threads: Option<usize>,
+    /// Shared with the worker threads, so the campaign can report skipped injection points.
+    injection_filter: Arc<InjectionFilter>,
 }
 
 impl FaultAttacks {
@@ -46,6 +49,10 @@ impl FaultAttacks {
         file_data: &ElfFile,
         user_thread: Arc<SimulationThread>,
     ) -> Result<Self, SimulatorError> {
+        let injection_filter = Arc::new(InjectionFilter::new(
+            file_data,
+            user_thread.config.filter_injection_points,
+        ));
         // Return the FaultAttacks instance
         Ok(Self {
             cs: Disassembly::new(),
@@ -56,6 +63,7 @@ impl FaultAttacks {
             user_thread,
             fault_attack_thread: None,
             number_of_threads: None,
+            injection_filter,
         })
     }
 
@@ -89,6 +97,19 @@ impl FaultAttacks {
     /// Clears the run outcome counters, e.g. when starting a fresh campaign.
     pub fn reset_run_statistics(&self) {
         self.user_thread.statistics().reset();
+        self.injection_filter.reset();
+    }
+
+    /// Number of injection points skipped because they lie outside the executable image.
+    pub fn skipped_injection_points(&self) -> usize {
+        self.injection_filter.skipped()
+    }
+
+    /// Human readable diagnostic about skipped injection points.
+    ///
+    /// Returns `None` when the filter is inactive or nothing was skipped.
+    pub fn injection_filter_report(&self) -> Option<String> {
+        self.injection_filter.report()
     }
 
     /// Number of instructions the unfaulted program executes before it reaches a verdict.
@@ -178,8 +199,11 @@ impl FaultAttacks {
         self.number_of_threads = Some(number_of_threads);
         // Initialize fault attack thread
         let mut fault_attack_thread = FaultAttackThread::new()?;
-        fault_attack_thread
-            .start_worker_threads(number_of_threads, Arc::clone(&self.user_thread))?;
+        fault_attack_thread.start_worker_threads(
+            number_of_threads,
+            Arc::clone(&self.user_thread),
+            Arc::clone(&self.injection_filter),
+        )?;
         self.fault_attack_thread = Some(fault_attack_thread);
         println!(
             "Started {} dedicated fault attack worker threads",

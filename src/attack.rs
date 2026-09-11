@@ -27,7 +27,8 @@ pub fn run(config: Config, file_data: &ElfFile) -> Result<Option<FaultAttacks>, 
     .with_result_timeout(match config.result_timeout {
         0 => None,
         seconds => Some(std::time::Duration::from_secs(seconds)),
-    });
+    })
+    .with_injection_filter(!config.no_injection_filter);
 
     // Create user thread for simulation
     let user_thread = Arc::new(SimulationThread::new_with_threads(

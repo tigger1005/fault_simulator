@@ -20,6 +20,10 @@ pub fn print_results(
         println!("{}", report);
     }
 
+    if let Some(report) = attack_sim.injection_filter_report() {
+        println!("{}", report);
+    }
+
     // Print analysis for a specific attack number and exit
     if let Some(number) = print_analysis {
         if attack_sim.fault_data.is_empty() {

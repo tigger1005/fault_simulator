@@ -152,6 +152,13 @@ pub struct SimulationConfig {
     /// `None` waits indefinitely. Raise it on slow or heavily loaded machines where a
     /// single fault sequence legitimately takes longer than the default.
     pub result_timeout: Option<Duration>,
+    /// Restrict injection points of follow-up faults to the executable image.
+    ///
+    /// A fault can desynchronize the instruction decoder, after which the program walks
+    /// through data as if it were code. Enumerating a follow-up fault over those
+    /// addresses dominates the runtime of such a campaign while describing targets that
+    /// do not exist in the firmware. Disable it to enumerate them anyway.
+    pub filter_injection_points: bool,
 }
 
 /// Default time to wait for a worker result, overridable via `FAULT_SIM_RESULT_TIMEOUT`
@@ -216,12 +223,19 @@ impl SimulationConfig {
             log_level,
             result_checks,
             result_timeout: default_result_timeout(),
+            filter_injection_points: true,
         }
     }
 
     /// Overrides the time to wait for a single worker result (`None` waits indefinitely).
     pub fn with_result_timeout(mut self, result_timeout: Option<Duration>) -> Self {
         self.result_timeout = result_timeout;
+        self
+    }
+
+    /// Enables or disables restricting injection points to the executable image.
+    pub fn with_injection_filter(mut self, filter_injection_points: bool) -> Self {
+        self.filter_injection_points = filter_injection_points;
         self
     }
 }

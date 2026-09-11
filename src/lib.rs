@@ -11,6 +11,7 @@
 //! * `elf_file` - ELF file parsing and analysis
 //! * `fault_attack_thread` - Multi-threaded fault attack execution
 //! * `fault_attacks` - High-level fault attack coordination and management
+//! * `injection_filter` - Restricts injection points to the executable image
 //! * `simulation` - Core simulation engine and data structures
 //! * `simulation_thread` - Simulation thread management and workload distribution
 //!
@@ -25,6 +26,7 @@ pub mod elf_file;
 pub mod error;
 pub mod fault_attack_thread;
 pub mod fault_attacks;
+pub mod injection_filter;
 pub mod simulation;
 pub mod simulation_thread;
 
@@ -47,6 +49,7 @@ pub mod prelude {
     pub use crate::error::SimulatorError;
     pub use crate::fault_attack_thread::FaultAttackThread;
     pub use crate::fault_attacks::{faults::*, FaultAttacks};
+    pub use crate::injection_filter::InjectionFilter;
     pub use crate::simulation::record::TraceRecord;
     pub use crate::simulation_thread::{
         default_result_timeout, RunStatistics, RunStatisticsSnapshot, SimulationConfig,

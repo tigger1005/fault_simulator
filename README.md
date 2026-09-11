@@ -193,6 +193,7 @@ Configuration comes from CLI flags, a JSON5 file, or both — **CLI values alway
 | `--success-addresses <ADDR...>` | Addresses that mark a successful attack, e.g. `0x8000123` |
 | `--failure-addresses <ADDR...>` | Addresses that mark secure behaviour |
 | `--result-timeout <SECONDS>` | Abort if no worker result arrives in time (`0` = wait forever) [default: 120, or `FAULT_SIM_RESULT_TIMEOUT`] |
+| `--no-injection-filter` | Also place follow-up faults on addresses outside the executable image (slow, see below) |
 | `-h, --help` / `-V, --version` | Help / version |
 
 Results are deterministic: the reported attacks, their numbering and the number of
@@ -396,6 +397,30 @@ Also settable as `result_timeout: 600` in the config file or via the
 `FAULT_SIM_RESULT_TIMEOUT` environment variable (`0`, `off`, `none` = wait forever).
 Worker failures are never silently dropped — they abort the campaign instead of reporting
 an incomplete attack count.
+
+### Injection point filtering
+
+In a multi-fault sequence the simulator places fault 1, re-traces the program, and
+enumerates fault 2 over *that* trace. A fault that desynchronizes the instruction decoder
+therefore explodes the search space: a command bit flip on bit 11 of a 32 bit Thumb-2
+instruction, for example, rewrites it into a 16 bit branch, after which the core decodes
+the remaining halfword as an instruction of its own and walks through `.rodata` and
+unmapped memory until the instruction budget runs out.
+
+By default follow-up faults are only placed on addresses inside an executable segment of
+the image, because the rest are data bytes that merely happen to be executed after the
+decoder lost sync — not instructions an attacker can target. The summary reports how many
+injection points this skipped:
+
+```text
+Overall tests executed 141
+Skipped 2825 injection points outside the executable image
+```
+
+Runs that derail but stay inside executable memory keep all of their injection points, so
+multi-fault attacks in which a second fault rescues a first one that crashed the program
+are still found. Use `--no-injection-filter` (or `no_injection_filter: true` in the config
+file) to enumerate the skipped points anyway.
 
 ---
 

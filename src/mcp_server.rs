@@ -15,10 +15,43 @@ use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+/// Serializes stdout captures.
+///
+/// Redirecting file descriptor 1 is a process-global act. Two captures running
+/// concurrently would save each other's pipe as "the original stdout" and restore
+/// the wrong descriptor, which loses output and can leave a reader thread waiting
+/// for an EOF that never arrives.
+static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
+
 /// Captures stdout output from a closure that prints to stdout.
 fn capture_stdout<F: FnOnce()>(f: F) -> String {
     let (output, ()) = capture_stdout_with_result(f);
     output
+}
+
+/// Reads everything from a raw C file descriptor until EOF, then closes it.
+///
+/// Uses `libc::read` rather than wrapping the descriptor in a `std::fs::File`,
+/// because the conversion traits for that differ between platforms
+/// (`FromRawFd` on Unix, `FromRawHandle` on Windows).
+fn read_fd_to_string(fd: i32) -> String {
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let read = unsafe {
+            libc::read(
+                fd,
+                chunk.as_mut_ptr() as *mut libc::c_void,
+                chunk.len() as _,
+            )
+        };
+        if read <= 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read as usize]);
+    }
+    unsafe { libc::close(fd) };
+    String::from_utf8_lossy(&buffer).into_owned()
 }
 
 /// Captures stdout output from a closure, returning both the output and the closure's return value.
@@ -27,12 +60,25 @@ fn capture_stdout<F: FnOnce()>(f: F) -> String {
 /// concurrently so the closure never blocks when the pipe buffer fills up.
 /// Panics inside the closure are caught and re-raised after stdout is restored.
 fn capture_stdout_with_result<F: FnOnce() -> T, T>(f: F) -> (String, T) {
-    use std::os::unix::io::FromRawFd;
+    // Held for the whole redirect so no other capture can touch descriptor 1.
+    let _guard = CAPTURE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
-    // Create a pipe
+    // Create a pipe. The Windows CRT spells this `_pipe` and wants a buffer size
+    // and a mode on top of the descriptor pair. O_NOINHERIT keeps the write end
+    // out of any process spawned while the redirect is active, which would
+    // otherwise hold the pipe open and stop the reader from ever seeing EOF.
     let (read_fd, write_fd) = {
         let mut fds = [0i32; 2];
+        #[cfg(unix)]
         let ret = unsafe { libc::pipe(fds.as_mut_ptr()) };
+        #[cfg(windows)]
+        let ret = unsafe {
+            libc::pipe(
+                fds.as_mut_ptr(),
+                1 << 16,
+                libc::O_BINARY | libc::O_NOINHERIT,
+            )
+        };
         if ret != 0 {
             // If pipe creation fails, just run the closure without capturing
             let result = f();
@@ -51,13 +97,7 @@ fn capture_stdout_with_result<F: FnOnce() -> T, T>(f: F) -> (String, T) {
 
     // Spawn a reader thread BEFORE running the closure to prevent pipe buffer deadlock.
     // The reader drains the pipe concurrently so writes never block.
-    let reader_handle = std::thread::spawn(move || {
-        let mut output = String::new();
-        let mut read_file = unsafe { std::fs::File::from_raw_fd(read_fd) };
-        use std::io::Read;
-        let _ = read_file.read_to_string(&mut output);
-        output
-    });
+    let reader_handle = std::thread::spawn(move || read_fd_to_string(read_fd));
 
     // Run the closure, catching panics to ensure stdout is always restored
     let closure_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
@@ -208,6 +248,11 @@ struct LoadElfParams {
     /// Raise it on slow or heavily loaded machines. Default: 120 s.
     #[serde(default)]
     result_timeout_seconds: Option<u64>,
+    /// Also place follow-up faults on addresses outside the executable image.
+    /// Those appear when a preceding fault desynchronizes the instruction decoder and the
+    /// program executes data as code. Enumerating them is slow and rarely useful. Default: false.
+    #[serde(default)]
+    no_injection_filter: Option<bool>,
     /// Code patches to apply: list of {address: "0x...", data: "0x..."} or {symbol: "name", data: "0x..."}
     #[serde(default)]
     code_patches: Option<Vec<HashMap<String, String>>>,
@@ -354,6 +399,9 @@ impl FaultSimulatorServer {
         if let Some(result_timeout) = params.result_timeout_seconds {
             config.result_timeout = result_timeout;
         }
+        if let Some(no_injection_filter) = params.no_injection_filter {
+            config.no_injection_filter = no_injection_filter;
+        }
         if let Some(addresses) = &params.success_addresses {
             config.success_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
         }
@@ -425,7 +473,8 @@ impl FaultSimulatorServer {
         .with_result_timeout(match config.result_timeout {
             0 => None,
             seconds => Some(std::time::Duration::from_secs(seconds)),
-        });
+        })
+        .with_injection_filter(!config.no_injection_filter);
         let result_timeout = sim_config.result_timeout;
 
         let threads = config.threads;
@@ -568,10 +617,15 @@ impl FaultSimulatorServer {
             .instruction_limit_report()
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
+        let filter_report = session
+            .attack_sim
+            .injection_filter_report()
+            .map(|r| format!("\n{}", r))
+            .unwrap_or_default();
 
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}",
-            output, num_attacks, count, limit_report
+            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
+            output, num_attacks, count, limit_report, filter_report
         ))]))
     }
 
@@ -625,10 +679,15 @@ impl FaultSimulatorServer {
             .instruction_limit_report()
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
+        let filter_report = session
+            .attack_sim
+            .injection_filter_report()
+            .map(|r| format!("\n{}", r))
+            .unwrap_or_default();
 
         Ok(CallToolResult::success(vec![Content::text(format!(
-            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}",
-            output, num_attacks, count, limit_report
+            "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
+            output, num_attacks, count, limit_report, filter_report
         ))]))
     }
 
@@ -819,6 +878,8 @@ impl FaultSimulatorServer {
             "runs_instruction_limit_percent": (stats.instruction_limit_ratio() * 10.0).round() / 10.0,
             "runs_emulation_errors": stats.errors,
             "instruction_limit_report": session.attack_sim.instruction_limit_report(),
+            "skipped_injection_points": session.attack_sim.skipped_injection_points(),
+            "injection_filter_report": session.attack_sim.injection_filter_report(),
         });
 
         Ok(CallToolResult::success(vec![Content::text(
