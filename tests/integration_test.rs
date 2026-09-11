@@ -598,6 +598,9 @@ fn test_code_victim_5_full_run() {
     cmd.assert()
         .stdout(predicate::str::contains("Overall tests executed 613368"))
         .success();
+    cmd.assert()
+        .stdout(predicate::str::contains("Skipped 97696 injection points"))
+        .success();
 }
 
 #[test]
