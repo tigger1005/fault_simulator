@@ -352,7 +352,7 @@ impl FaultSimulatorServer {
             }
             output.push('\n');
         }
-        Ok(CallToolResult::success(vec![Content::text(output)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(output)]))
     }
 
     /// Load an ELF file and initialize the simulation environment.
@@ -564,7 +564,7 @@ impl FaultSimulatorServer {
 
         *self.session.lock().unwrap() = Some(Session { attack_sim, info });
 
-        Ok(CallToolResult::success(vec![Content::text(summary)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(summary)]))
     }
 
     /// Run class-based fault attacks (single or double).
@@ -633,7 +633,7 @@ impl FaultSimulatorServer {
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
             output, num_attacks, count, limit_report, filter_report
         ))]))
@@ -695,7 +695,7 @@ impl FaultSimulatorServer {
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
             output, num_attacks, count, limit_report, filter_report
         ))]))
@@ -715,7 +715,7 @@ impl FaultSimulatorServer {
 
         let num_attacks = session.attack_sim.fault_data.len();
         if num_attacks == 0 {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 "No successful attacks found.",
             )]));
         }
@@ -724,7 +724,7 @@ impl FaultSimulatorServer {
             session.attack_sim.print_fault_data();
         });
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Successful attacks: {}\nOverall tests executed: {}\n\n{}",
             num_attacks,
             session.attack_sim.count_sum,
@@ -746,13 +746,13 @@ impl FaultSimulatorServer {
 
         let num_attacks = session.attack_sim.fault_data.len();
         if num_attacks == 0 {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 "No successful attacks to analyze.",
             )]));
         }
 
         if params.attack_number == 0 || params.attack_number > num_attacks {
-            return Ok(CallToolResult::success(vec![Content::text(format!(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "Invalid attack number {}. Valid range: 1-{}",
                 params.attack_number, num_attacks
             ))]));
@@ -764,7 +764,7 @@ impl FaultSimulatorServer {
 
         trace_result.map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_output(&output, params.max_lines),
         )]))
     }
@@ -786,7 +786,7 @@ impl FaultSimulatorServer {
 
         trace_result.map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_output(&output, params.max_lines),
         )]))
     }
@@ -802,7 +802,7 @@ impl FaultSimulatorServer {
 
         let fault_data = session.attack_sim.get_fault_data();
         if fault_data.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text("[]")]));
+            return Ok(CallToolResult::success(vec![ContentBlock::text("[]")]));
         }
 
         let mut attacks = Vec::new();
@@ -827,7 +827,7 @@ impl FaultSimulatorServer {
         }
 
         let json = serde_json::to_string_pretty(&attacks).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
     /// Reset the current simulation session, clearing all attack results.
@@ -836,7 +836,7 @@ impl FaultSimulatorServer {
     async fn reset_session(&self) -> Result<CallToolResult, McpError> {
         let mut session_guard = self.session.lock().unwrap();
         if session_guard.is_none() {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 "No session to reset.",
             )]));
         }
@@ -847,7 +847,7 @@ impl FaultSimulatorServer {
             session.attack_sim.reset_run_statistics();
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             "Session reset. Attack data cleared.",
         )]))
     }
@@ -858,7 +858,7 @@ impl FaultSimulatorServer {
     async fn get_status(&self) -> Result<CallToolResult, McpError> {
         let session_guard = self.session.lock().unwrap();
         let Some(session) = session_guard.as_ref() else {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::json!({ "loaded": false }).to_string(),
             )]));
         };
@@ -892,7 +892,7 @@ impl FaultSimulatorServer {
             "injection_filter_report": session.attack_sim.injection_filter_report(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&status).unwrap_or_default(),
         )]))
     }
@@ -914,7 +914,7 @@ impl FaultSimulatorServer {
             Err(e) => format!("Behavior check: FAILED: {}", e),
         };
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "{}\n{}",
             verdict, output
         ))]))
@@ -977,7 +977,7 @@ impl FaultSimulatorServer {
             "symbols": symbols.into_iter().take(limit).collect::<Vec<_>>(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&result).unwrap_or_default(),
         )]))
     }
@@ -1036,13 +1036,13 @@ impl FaultSimulatorServer {
             if elf_exists { "exists" } else { "is MISSING" }
         ));
 
-        Ok(CallToolResult::success(vec![Content::text(report)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(report)]))
     }
 }
 
 #[tool_handler]
 impl ServerHandler for FaultSimulatorServer {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
             .with_instructions(
@@ -1208,7 +1208,7 @@ mod tests {
         let content = &result.content;
         assert!(!content.is_empty());
         // Check the text contains known fault types
-        let text_content = content[0].raw.as_text().expect("Expected text content");
+        let text_content = content[0].as_text().expect("Expected text content");
         assert!(text_content.text.contains("glitch"));
         assert!(text_content.text.contains("regbf"));
         assert!(text_content.text.contains("cmdbf"));
@@ -1218,10 +1218,7 @@ mod tests {
     async fn test_reset_session_when_empty() {
         let server = FaultSimulatorServer::new();
         let result = server.reset_session().await.unwrap();
-        let text_content = result.content[0]
-            .raw
-            .as_text()
-            .expect("Expected text content");
+        let text_content = result.content[0].as_text().expect("Expected text content");
         assert!(text_content.text.contains("No session to reset"));
     }
 }
