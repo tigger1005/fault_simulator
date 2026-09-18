@@ -7,7 +7,7 @@
  * not part of any ELF segment, so it only runs when that area is mapped through a
  * configuration (see `tests/test_config_memory_region.json5`) and always needs
  * `--no-check`, because the baseline behaviour check cannot pass without the
- * mapping. It exercises `memory_regions`, `code_patches`, `initial_registers` and
+ * mapping. It exercises `memory_regions`, `memory_patches`, `initial_registers` and
  * `result_checks` against an otherwise uninstrumented binary.
  *
  * Rebuild after a change with the target C project Makefile and copy the result
@@ -29,10 +29,8 @@ void start_success_handling(void);
 
 DECISION_DATA_STRUCTURE(uint32_t, success, failure);
 
-
 // Simple function that reads from unmapped memory
 volatile uint32_t *unmapped_ptr = (volatile uint32_t *)0x30000000;
-
 
 /*******************************************************************************
  * Function Name:  check_secret
@@ -40,12 +38,14 @@ volatile uint32_t *unmapped_ptr = (volatile uint32_t *)0x30000000;
  * \brief This function checks a secret value from unmapped memory.
  *
  *******************************************************************************/
-int check_secret() {
-    uint32_t value = *unmapped_ptr;  // This will fault without memory init
-    if (value == 0x12345678) {
-        return 1;  // Success
+int check_secret()
+{
+    uint32_t value = *unmapped_ptr; // This will fault without memory init
+    if (value == 0x12345678)
+    {
+        return 1; // Success
     }
-    return 0;  // Failure
+    return 0; // Failure
 }
 
 /*******************************************************************************

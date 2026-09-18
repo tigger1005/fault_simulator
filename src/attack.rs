@@ -13,6 +13,12 @@ pub fn run(config: Config, file_data: &ElfFile) -> Result<Option<FaultAttacks>, 
     let analysis = config.analysis;
     let print_analysis = config.print_analysis;
 
+    // Resolve symbol-based result check addresses now that the ELF is loaded
+    let result_checks = config
+        .result_checks
+        .map(|checks| file_data.resolve_result_checks(checks))
+        .transpose()?;
+
     // Create simulation configuration
     let sim_config = SimulationConfig::new(
         config.max_instructions,
@@ -22,7 +28,7 @@ pub fn run(config: Config, file_data: &ElfFile) -> Result<Option<FaultAttacks>, 
         config.initial_registers,
         config.memory_regions,
         config.log_level.clone(),
-        config.result_checks,
+        result_checks,
     )
     .with_result_timeout(match config.result_timeout {
         0 => None,

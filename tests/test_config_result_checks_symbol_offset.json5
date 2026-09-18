@@ -1,0 +1,34 @@
+// Test configuration for result_checks feature using a symbol name with an offset
+{
+    elf: "tests/bin/victim_3.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    max_instructions: 100,
+    log_level: "debug",
+
+    // result_checks mechanism, addresses resolved from symbol name + offset
+    // fih_memcmp (0x0800028c) + 0x204 == start_success_handling (0x08000490)
+    result_checks: {
+        success_checks: [
+            {
+                symbol: "fih_memcmp",
+                offset: "0x204",
+                expected_registers: {
+                    R0: "0x00000000",  // R0 = 0 means success
+                }
+            }
+        ],
+        failure_checks: [
+            {
+                symbol: "fih_memcmp",
+                offset: "0x204",
+                expected_registers: {
+                    R0: "0x00000001",  // R0 = 1 means failure
+                }
+            }
+        ]
+    }
+}

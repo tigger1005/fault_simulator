@@ -1,0 +1,31 @@
+// Test configuration for result_checks feature using a symbol instead of a raw address
+{
+    elf: "tests/bin/victim_3.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    max_instructions: 100,
+    log_level: "debug",
+
+    // result_checks mechanism, addresses resolved from symbol names
+    result_checks: {
+        success_checks: [
+            {
+                symbol: "start_success_handling",
+                expected_registers: {
+                    R0: "0x00000000",  // R0 = 0 means success
+                }
+            }
+        ],
+        failure_checks: [
+            {
+                symbol: "start_success_handling",
+                expected_registers: {
+                    R0: "0x00000001",  // R0 = 1 means failure
+                }
+            }
+        ]
+    }
+}

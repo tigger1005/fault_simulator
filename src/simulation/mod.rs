@@ -252,7 +252,7 @@ impl<'a> Control<'a> {
             StopReason::EmulationError => " The emulation was aborted by an error, e.g. an \
                  access to unmapped memory, before a success or failure marker was hit — \
                  map the missing area with 'memory_regions' or stub the access with \
-                 'code_patches'."
+                 'memory_patches'."
                 .to_string(),
             StopReason::ImageEnd => " Execution ran to the end of the program image without \
                  hitting a success or failure marker — check that the markers are reachable."

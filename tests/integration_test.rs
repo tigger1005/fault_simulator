@@ -539,18 +539,18 @@ fn test_memory_region_init() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using address
+/// Test memory patching from JSON5 config using address
 ///
-/// This test verifies that code patches can be applied using a specific address.
+/// This test verifies that a memory patch can be applied using a specific address.
 /// The test program has an instruction at 0x08000496 that loads from unmapped memory.
-/// With code_patches config, we patch this instruction to load the expected value directly,
+/// With memory_patches config, we patch this instruction to load the expected value directly,
 /// bypassing the unmapped memory access entirely.
-fn test_code_patch() {
+fn test_memory_patch() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch.json5",
+        "tests/test_config_memory_patch.json5",
         "--no-check",
     ]);
 
@@ -559,22 +559,55 @@ fn test_code_patch() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using symbol
+/// Test memory patching from JSON5 config using symbol
 ///
-/// This test verifies that code patches can be applied using a function symbol name.
+/// This test verifies that a memory patch can be applied using a function symbol name.
 /// The test program has a check_secret() function that reads from unmapped memory.
-/// With code_patches config, we patch the function entry point to return immediately,
+/// With memory_patches config, we patch the function entry point to return immediately,
 /// bypassing the entire function logic including the unmapped memory access.
-fn test_code_patch_symbol() {
+fn test_memory_patch_symbol() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch_symbol.json5",
+        "tests/test_config_memory_patch_symbol.json5",
         "--no-check",
     ]);
 
     // Should run without Unicorn error (function patched successfully)
+    cmd.assert().success();
+}
+
+#[test]
+/// Test memory patching a RAM (.bss) address from a binary file
+///
+/// This test verifies that a memory patch can preload bytes read from a binary file
+/// into a RAM address that lies beyond the segment's file-backed range (i.e. inside
+/// its zero-initialized .bss range), proving that RAM (not just code/flash) can be
+/// patched, with data of arbitrary length.
+fn test_memory_patch_file() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_memory_patch_file.json5",
+        "--no-check",
+    ]);
+
+    cmd.assert().success();
+}
+
+#[test]
+/// Test memory patching from JSON5 config using a symbol name with an offset
+fn test_memory_patch_symbol_offset() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_memory_patch_symbol_offset.json5",
+        "--no-check",
+    ]);
+
     cmd.assert().success();
 }
 
@@ -616,7 +649,9 @@ fn test_result_checks() {
 
     // Create result checks configuration
     let success_check = RegisterCheck {
-        address: 0x08000490,
+        address: Some(0x08000490),
+        symbol: None,
+        offset: 0,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
             map.insert(RegisterARM::R0, 0x00000000);
@@ -625,7 +660,9 @@ fn test_result_checks() {
     };
 
     let failure_check_1 = RegisterCheck {
-        address: 0x08000490,
+        address: Some(0x08000490),
+        symbol: None,
+        offset: 0,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
             map.insert(RegisterARM::R0, 0x00000001);
@@ -678,6 +715,52 @@ fn test_result_checks_json_config() {
     cmd.args([
         "--config",
         "tests/test_config_result_checks.json5",
+        "--no-check",
+        "--max-instructions",
+        "100",
+    ]);
+
+    cmd.assert()
+        .stderr(predicate::str::contains(
+            "Using register-based success/failure checking",
+        ))
+        .success();
+}
+
+#[test]
+/// Test result_checks addressing via a symbol name
+///
+/// This test verifies that result_checks can resolve a checkpoint address from a
+/// symbol name (`start_success_handling`), the same way memory_patches does.
+fn test_result_checks_symbol_json_config() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks_symbol.json5",
+        "--no-check",
+        "--max-instructions",
+        "100",
+    ]);
+
+    cmd.assert()
+        .stderr(predicate::str::contains(
+            "Using register-based success/failure checking",
+        ))
+        .success();
+}
+
+#[test]
+/// Test result_checks addressing via a symbol name plus an offset
+///
+/// This test verifies that result_checks can resolve a checkpoint address from a
+/// symbol name and an offset (`fih_memcmp` + 0x204 == `start_success_handling`).
+fn test_result_checks_symbol_offset_json_config() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks_symbol_offset.json5",
         "--no-check",
         "--max-instructions",
         "100",

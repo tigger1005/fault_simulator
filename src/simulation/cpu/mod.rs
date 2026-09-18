@@ -191,6 +191,8 @@ impl<'a> Cpu<'a> {
         result_checks: Option<crate::cli_args::ResultChecks>,
     ) -> Result<Self, SimulatorError> {
         // Setup platform -> ARMv8-m.base
+        // Symbol-based check addresses are expected to already be resolved to
+        // concrete addresses by this point (see `ElfFile::resolve_result_checks`).
         let result_check_addresses = result_checks
             .as_ref()
             .map(|checks| {
@@ -198,7 +200,7 @@ impl<'a> Cpu<'a> {
                     .success_checks
                     .iter()
                     .chain(&checks.failure_checks)
-                    .map(|check| check.address)
+                    .filter_map(|check| check.address)
                     .collect()
             })
             .unwrap_or_default();

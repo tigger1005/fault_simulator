@@ -24,20 +24,20 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 
 **Must be called first before any other tool.**
 
-| Parameter           | Type     | Required | Default   | Description                                                                              |
-| ------------------- | -------- | -------- | --------- | ---------------------------------------------------------------------------------------- |
-| `elf_path`          | string   | no\*     | —         | Path to the ELF file (\*required unless the configuration supplies `elf`)                 |
-| `config_file`       | string   | no       | —         | Path to a JSON5 configuration file (same schema as the CLI `--config` option)             |
-| `config_json5`      | string   | no       | —         | Inline JSON5 configuration content (same schema as `config_file`)                         |
-| `threads`           | number   | no       | CPU cores | Parallel simulation threads                                                              |
-| `max_instructions`  | number   | no       | 2000      | Max instructions per simulation run                                                      |
-| `deep_analysis`     | boolean  | no       | false     | Enable deep analysis of loops                                                            |
-| `success_addresses` | string[] | no       | []        | Hex addresses indicating attack success (e.g. `"0x8000123"`)                             |
-| `failure_addresses` | string[] | no       | []        | Hex addresses indicating attack failure                                                  |
-| `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
-| `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
-| `no_injection_filter` | boolean | no     | false     | Also place follow-up faults outside the executable image (slow, see Section 2.10)        |
-| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data: "0x..."}` or `{symbol: "name", data: "0x..."}` |
+| Parameter                | Type     | Required | Default   | Description                                                                                   |
+| ------------------------ | -------- | -------- | --------- | --------------------------------------------------------------------------------------------- |
+| `elf_path`               | string   | no\*     | —         | Path to the ELF file (\*required unless the configuration supplies `elf`)                     |
+| `config_file`            | string   | no       | —         | Path to a JSON5 configuration file (same schema as the CLI `--config` option)                 |
+| `config_json5`           | string   | no       | —         | Inline JSON5 configuration content (same schema as `config_file`)                             |
+| `threads`                | number   | no       | CPU cores | Parallel simulation threads                                                                   |
+| `max_instructions`       | number   | no       | 2000      | Max instructions per simulation run                                                           |
+| `deep_analysis`          | boolean  | no       | false     | Enable deep analysis of loops                                                                 |
+| `success_addresses`      | string[] | no       | []        | Hex addresses indicating attack success (e.g. `"0x8000123"`)                                  |
+| `failure_addresses`      | string[] | no       | []        | Hex addresses indicating attack failure                                                       |
+| `no_check`               | boolean  | no       | false     | Skip program behavior validation                                                              |
+| `result_timeout_seconds` | number   | no       | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)                   |
+| `no_injection_filter`    | boolean  | no       | false     | Also place follow-up faults outside the executable image (slow, see Section 2.10)             |
+| `memory_patches`         | object[] | no       | []        | Memory patches: `{address\|symbol[+offset], data\|file}`. Works for RAM as well as code/flash |
 
 Explicit parameters override the values coming from `config_file` / `config_json5`.
 The configuration route additionally unlocks `initial_registers`, `memory_regions`,
@@ -51,6 +51,7 @@ diagnose it — but attack results are meaningless until it passes.
 **When to use `no_check`:** When the `DECISION_DATA_STRUCTURE` does not contain a SUCCESS value (e.g. both values are identical failure values). Without `no_check`, the simulator verifies that the program can reach both the success and failure paths. This is useful when your hardening removes the success reference data from memory entirely (see Section 7.6).
 
 **Example call:**
+
 ```json
 {
   "elf_path": "/path/to/fault_simulator/content/bin/aarch32/victim.elf",
@@ -59,10 +60,12 @@ diagnose it — but attack results are meaningless until it passes.
 ```
 
 **Example for an uninstrumented binary** (no simulator macros in the source, success/failure
-derived from register values at a return address):
+derived from register values at a return address, addressed either directly or via symbol
+name/offset, the same way `memory_patches` does):
+
 ```json
 {
-  "config_json5": "{ elf: '/path/to/firmware.elf', max_instructions: 5000, initial_registers: { SP: '0x20010000' }, result_checks: { success_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000000' } } ], failure_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000001' } } ] } }"
+  "config_json5": "{ elf: '/path/to/firmware.elf', max_instructions: 5000, initial_registers: { SP: '0x20010000' }, result_checks: { success_checks: [ { symbol: 'start_success_handling', expected_registers: { R0: '0x00000000' } } ], failure_checks: [ { symbol: 'start_success_handling', expected_registers: { R0: '0x00000001' } } ] } }"
 }
 ```
 
@@ -70,9 +73,9 @@ derived from register values at a return address):
 
 Returns the instruction-by-instruction trace of normal program execution (no faults). Use this to understand the program flow, identify security-critical instructions (comparisons, branches), and map source lines to assembly addresses.
 
-| Parameter   | Type   | Required | Default   | Description                          |
-| ----------- | ------ | -------- | --------- | ------------------------------------ |
-| `max_lines` | number | no       | unlimited | Truncate the output to N lines       |
+| Parameter   | Type   | Required | Default   | Description                    |
+| ----------- | ------ | -------- | --------- | ------------------------------ |
+| `max_lines` | number | no       | unlimited | Truncate the output to N lines |
 
 ### 2.3 `run_attack` — Run Fault Attack Campaign
 
@@ -83,6 +86,7 @@ Returns the instruction-by-instruction trace of normal program execution (no fau
 | `run_through` | boolean  | no       | false     | Continue after first success (find all attacks)      |
 
 **Attack classes:**
+
 - `"single"` — One fault per simulation (fastest, tests basic resilience)
 - `"double"` — Two faults per simulation (tests against coordinated attacks)
 - `"all"` — Run single first; if vulnerabilities found, also run double
@@ -104,12 +108,14 @@ dominates the runtime of a campaign without describing a target that exists in t
 firmware. Set `no_injection_filter: true` in `load_elf` to enumerate them anyway.
 
 **Subclass filters:**
+
 - `"glitch"` — NOP 1–10 instructions (simulates voltage/clock glitches)
 - `"regbf"` — Single-bit flip in registers R0–R12
 - `"regfld"` — Flood register with 0x00000000 or 0xFFFFFFFF
 - `"cmdbf"` — Single-bit flip in fetched instruction opcode
 
 **Example:** Run all single attacks, finding all vulnerabilities:
+
 ```json
 {
   "class": "single",
@@ -119,9 +125,9 @@ firmware. Set `no_injection_filter: true` in `load_elf` to enumerate them anyway
 
 ### 2.4 `run_faults` — Run Specific Fault Sequences
 
-| Parameter | Type     | Required | Description                                           |
-| --------- | -------- | -------- | ----------------------------------------------------- |
-| `faults`  | string[] | **yes** | Ordered fault sequence; all entries are injected together, e.g. `["glitch_1", "glitch_10"]` |
+| Parameter | Type     | Required | Description                                                                                 |
+| --------- | -------- | -------- | ------------------------------------------------------------------------------------------- |
+| `faults`  | string[] | **yes**  | Ordered fault sequence; all entries are injected together, e.g. `["glitch_1", "glitch_10"]` |
 
 The simulator recursively finds eligible placement combinations for the sequence, just
 like a `double` campaign but limited to the supplied types. Any number of faults is
@@ -134,6 +140,7 @@ supported:
 ```
 
 **Fault specification syntax:**
+
 - `glitch_N` — Skip N instructions (N = 1..10)
 - `regbf_rX_YYYYYYYY` — XOR register X (0–12) with hex mask Y (single bit only)
 - `regfld_rX_00000000` or `regfld_rX_FFFFFFFF` — Flood register X
@@ -184,13 +191,13 @@ before trusting campaign results and to track progress across hardening iteratio
 
 It also reports how the executed runs ended:
 
-| Field                             | Meaning                                                        |
-| --------------------------------- | -------------------------------------------------------------- |
-| `runs_completed`                   | Fault injection runs executed since the last reset             |
-| `runs_instruction_limit`           | Runs that used up `max_instructions` without reaching a verdict |
-| `runs_instruction_limit_percent`   | Share of those runs                                            |
-| `runs_emulation_errors`            | Runs aborted by an emulation error                             |
-| `instruction_limit_report`         | Human readable diagnostic, or `null` when no run hit the limit |
+| Field                            | Meaning                                                         |
+| -------------------------------- | --------------------------------------------------------------- |
+| `runs_completed`                 | Fault injection runs executed since the last reset              |
+| `runs_instruction_limit`         | Runs that used up `max_instructions` without reaching a verdict |
+| `runs_instruction_limit_percent` | Share of those runs                                             |
+| `runs_emulation_errors`          | Runs aborted by an emulation error                              |
+| `instruction_limit_report`       | Human readable diagnostic, or `null` when no run hit the limit  |
 
 **No parameters.**
 
@@ -204,11 +211,11 @@ the configured success/failure criteria detect both outcomes. Use it when tuning
 
 ### 2.12 `get_symbols` — List ELF Symbols
 
-| Parameter  | Type   | Required | Default         | Description                                            |
-| ---------- | ------ | -------- | --------------- | ------------------------------------------------------ |
-| `elf_path` | string | no       | session ELF     | Inspect a binary **before** `load_elf`                 |
-| `filter`   | string | no       | —               | Case-insensitive substring filter on the symbol name   |
-| `limit`    | number | no       | 200             | Maximum number of symbols returned                     |
+| Parameter  | Type   | Required | Default     | Description                                          |
+| ---------- | ------ | -------- | ----------- | ---------------------------------------------------- |
+| `elf_path` | string | no       | session ELF | Inspect a binary **before** `load_elf`               |
+| `filter`   | string | no       | —           | Case-insensitive substring filter on the symbol name |
+| `limit`    | number | no       | 200         | Maximum number of symbols returned                   |
 
 Returns name, `address` (raw symbol value) and `entry_address` (Thumb bit cleared) plus
 the symbol size. This is the entry point for analyzing binaries that carry **no**
@@ -217,11 +224,11 @@ simulator instrumentation: locate the function that decides authentication, then
 
 ### 2.13 `compile_target` — Build the Target
 
-| Parameter      | Type    | Required | Default                                | Description                              |
-| -------------- | ------- | -------- | -------------------------------------- | ---------------------------------------- |
-| `directory`    | string  | no       | `content`                              | Directory containing the Makefile        |
-| `clean`        | boolean | no       | true                                   | Run `make clean` before building         |
-| `expected_elf` | string  | no       | `<directory>/bin/aarch32/victim.elf`   | ELF whose existence is verified          |
+| Parameter      | Type    | Required | Default                              | Description                       |
+| -------------- | ------- | -------- | ------------------------------------ | --------------------------------- |
+| `directory`    | string  | no       | `content`                            | Directory containing the Makefile |
+| `clean`        | boolean | no       | true                                 | Run `make clean` before building  |
+| `expected_elf` | string  | no       | `<directory>/bin/aarch32/victim.elf` | ELF whose existence is verified   |
 
 Runs `make` and returns the exit status, stdout, stderr and whether the expected ELF
 exists. This closes the autonomous loop *edit C source → compile → load → attack* without
@@ -233,7 +240,7 @@ requiring shell access.
 
 ### 3.1 Directory Layout
 
-```
+```Text
 content/                          ← C project root
 ├── Makefile                      ← Cross-compilation build system
 ├── include/
@@ -290,7 +297,7 @@ This compiles `content/src/main.c` (and other source files) into `content/bin/aa
 
 ### 4.3 Compiler Flags (Important for Understanding Assembly)
 
-```
+```Text
 -O3                    ← Aggressive optimization (affects instruction ordering)
 -fno-inline            ← Functions are NOT inlined (preserves bl/function calls)
 -fno-omit-frame-pointer
@@ -333,6 +340,7 @@ At program start, `DECISION_DATA` contains `failure_value`. The `decision_activa
 ### 5.3 The `--no-check` Pattern
 
 When using `no_check: true` in `load_elf`:
+
 - The `DECISION_DATA_STRUCTURE` can use identical failure values for both slots (no success reference data in memory)
 - `decision_activation()` is not needed and should be removed
 - This eliminates any success reference data from memory, reducing the attack surface
@@ -353,10 +361,13 @@ third-party binary, define the verdict externally:
    - **Register based** (`result_checks` in a JSON5 configuration) — at a given address the
      register values decide, e.g. `R0 == 0` at the return of `verify_image()` means success.
      This is the right choice when both paths converge on a common return instruction.
+     The address can be given directly or, more robustly across rebuilds, as a symbol name
+     (optionally with an offset), exactly like `memory_patches`.
 3. Supply the execution context the ELF alone does not provide via the configuration:
    `initial_registers` (e.g. `SP`, or arguments in `R0..R3` when starting inside a function)
    and `memory_regions` (input buffers, keys, RAM that is normally set up by earlier boot
-   stages). `code_patches` can stub out unavailable peripherals.
+   stages). `memory_patches` can stub out unavailable peripherals or preload RAM (including
+   `.bss`) with data from an inline hex value or a binary file.
 4. `check_behavior` — confirm the simulator observes both the success and the failure path
    with these criteria. Only then are campaign results meaningful.
 5. From here the workflow is identical to an instrumented target. Source-level hardening is
@@ -374,8 +385,8 @@ Example configuration for a register-based verdict:
     { address: "0x20000100", size: "0x100", data: "0x00112233" },
   ],
   result_checks: {
-    success_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000000" } } ],
-    failure_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000001" } } ],
+    success_checks: [ { symbol: "verify_image", offset: "0x24", expected_registers: { R0: "0x00000000" } } ],
+    failure_checks: [ { symbol: "verify_image", offset: "0x24", expected_registers: { R0: "0x00000001" } } ],
   },
 }
 ```
@@ -387,6 +398,7 @@ Example configuration for a register-based verdict:
 ### Step 1: Read and Understand the Source Code
 
 Read `content/src/main.c` to understand the security logic. Identify:
+
 - What data type is used for the decision variable
 - How the comparison is performed (simple `==`, struct field checks, etc.)
 - What happens in the success and failure paths
@@ -403,6 +415,7 @@ Verify the build succeeds and `content/bin/aarch32/victim.elf` is produced.
 ### Step 3: Load the ELF
 
 Use `load_elf`:
+
 ```json
 {
   "elf_path": "/absolute/path/to/content/bin/aarch32/victim.elf"
@@ -417,6 +430,7 @@ and confirm the setup with `get_status` and `check_behavior` before attacking.
 ### Step 4: Get the Baseline Trace
 
 Use `get_trace` to see the normal (non-faulted) execution. This shows:
+
 - The instruction sequence from `main()` entry to termination
 - Source file and line annotations
 - Register values at each step
@@ -458,6 +472,7 @@ If attacks succeed:
 Double faults combine two independent faults. Even if single attacks fail, double attacks may succeed.
 
 For thorough testing, also run specific double attack combinations:
+
 ```json
 {
   "class": "double",
@@ -465,6 +480,7 @@ For thorough testing, also run specific double attack combinations:
   "run_through": true
 }
 ```
+
 ```json
 {
   "class": "double",
@@ -480,6 +496,7 @@ Based on the attack analysis, modify `content/src/main.c`. See Section 7 for har
 ### Step 9: Recompile and Re-test
 
 After each modification:
+
 1. Recompile: `compile_target` (or `cd content && make clean && make`)
 2. Load the new ELF: `load_elf` (or `reset_session` + `load_elf`)
 3. Verify with `get_status` that the behavior check is still `OK`
@@ -489,6 +506,7 @@ After each modification:
 ### Step 10: Iterate Until Secure
 
 Repeat Steps 5–9 until:
+
 - **Single attacks:** 0 successful across all fault types
 - **Double attacks:** 0 successful across all fault types (or all tested combinations)
 
@@ -585,6 +603,7 @@ __attribute__((noinline)) bool verify_copies_match(secure_uint *a, secure_uint *
 ```
 
 **Why inline macros + non-inlined tail is the strongest pattern:**
+
 - An **inline macro** expands in the caller — each `&&` generates its own branch. Arguments are not pre-loaded into a single register set, so corrupting one load only affects one check.
 - A **non-inlined function** as the final check adds a code boundary. The attacker needs an independent glitch specifically targeting this function call.
 - A **fully non-inlined comparison function** (all checks in one function) is weaker because: (a) all arguments must be pre-loaded into registers before the `bl` call, creating a concentrated vulnerability point, and (b) glitching the single `bl` instruction skips all checks at once.
@@ -622,6 +641,7 @@ DECISION_DATA_STRUCTURE(uint32_t, FAILURE_VAL, FAILURE_VAL);
 ```
 
 When using this pattern:
+
 - Remove the `decision_activation()` call (it has no success value to swap in)
 - Use `load_elf` with `"no_check": true` (the simulator can't verify the positive path)
 - The comparison now checks `DECISION_DATA` against a compile-time constant that only exists in the instruction stream, not as data in memory
@@ -729,7 +749,7 @@ When documenting an investigation, include:
 
 ## 10. Quick Reference: Full Investigation Session
 
-```
+```Text
 1. Read content/src/main.c                      → Understand the code
 2. compile_target()                              → Compile
 3. load_elf(elf_path="..victim.elf")             → Load into simulator
@@ -752,7 +772,7 @@ When documenting an investigation, include:
 
 For an uninstrumented binary, replace steps 1–3 with:
 
-```
+```Text
 1. get_symbols(elf_path="firmware.elf", filter="verify")  → Locate the decision function
 2. load_elf(config_json5="{ ... result_checks ... }")     → Define the verdict externally
 3. check_behavior()                                       → Confirm both paths are detected

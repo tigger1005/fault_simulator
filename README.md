@@ -41,10 +41,10 @@ This simulator reproduces those effects deterministically, so you can
 
 Two ways to use it:
 
-| Mode | Use it for | How |
-|---|---|---|
-| **C project mode** | Developing and hardening a routine from source | Edit `content/src/main.c`; the simulator compiles it for you |
-| **Firmware mode** | Auditing an existing binary, with or without sources | `--elf firmware.elf` plus memory regions, register context and code patches |
+| Mode               | Use it for                                           | How                                                                           |
+| ------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **C project mode** | Developing and hardening a routine from source       | Edit `content/src/main.c`; the simulator compiles it for you                  |
+| **Firmware mode**  | Auditing an existing binary, with or without sources | `--elf firmware.elf` plus memory regions, register context and memory patches |
 
 ---
 
@@ -77,12 +77,12 @@ flowchart LR
 
 ### 1. Requirements
 
-| | |
-|---|---|
-| Rust | stable toolchain ≥ 1.88 via [rustup](https://rustup.rs) |
-| Cross compiler | `gcc-arm-none-eabi` |
-| Build tool | `make` |
-| Optional | Ghidra ≥ 11.3 (PyGhidra mode) for trace visualization |
+|                |                                                         |
+| -------------- | ------------------------------------------------------- |
+| Rust           | stable toolchain ≥ 1.88 via [rustup](https://rustup.rs) |
+| Cross compiler | `gcc-arm-none-eabi`                                     |
+| Build tool     | `make`                                                  |
+| Optional       | Ghidra ≥ 11.3 (PyGhidra mode) for trace visualization   |
 
 > A ready-made [`.devcontainer`](.devcontainer) is included — open the repository in
 > VS Code and *Reopen in Container* to get the full toolchain.
@@ -150,12 +150,12 @@ techniques behind them in
 
 ## Fault models
 
-| Class | Effect | Fault specification | Example |
-|---|---|---|---|
-| `glitch` | Skips 1–10 instructions (PC glitch) | `glitch_<N>`, N = 1…10 | `glitch_3` — skip 3 instructions |
-| `regbf` | Flips a single bit in R0–R12 (XOR mask) | `regbf_r<X>_<MASK>` | `regbf_r0_00000001` — flip bit 0 of R0 |
-| `regfld` | Floods a register with all-zeros / all-ones | `regfld_r<X>_00000000`, `regfld_r<X>_FFFFFFFF` | `regfld_r5_FFFFFFFF` |
-| `cmdbf` | Flips a single bit of the fetched instruction | `cmdbf_<MASK>` | `cmdbf_00000001` |
+| Class    | Effect                                        | Fault specification                            | Example                                |
+| -------- | --------------------------------------------- | ---------------------------------------------- | -------------------------------------- |
+| `glitch` | Skips 1–10 instructions (PC glitch)           | `glitch_<N>`, N = 1…10                         | `glitch_3` — skip 3 instructions       |
+| `regbf`  | Flips a single bit in R0–R12 (XOR mask)       | `regbf_r<X>_<MASK>`                            | `regbf_r0_00000001` — flip bit 0 of R0 |
+| `regfld` | Floods a register with all-zeros / all-ones   | `regfld_r<X>_00000000`, `regfld_r<X>_FFFFFFFF` | `regfld_r5_FFFFFFFF`                   |
+| `cmdbf`  | Flips a single bit of the fetched instruction | `cmdbf_<MASK>`                                 | `cmdbf_00000001`                       |
 
 Attack classes combine them:
 
@@ -175,26 +175,26 @@ Configuration comes from CLI flags, a JSON5 file, or both — **CLI values alway
 <details>
 <summary><b>Full option reference</b></summary>
 
-| Flag | Description |
-|---|---|
-| `-c, --config <FILE>` | Load configuration from a JSON5 file |
-| `-e, --elf <FILE>` | Use an external ELF file, skip the compilation step |
-| `-t, --threads <N>` | Worker threads [default: number of CPU cores] |
-| `-n, --no-compilation` | Do not re-compile the target program |
-| `--class <CLASS> [GROUPS...]` | `all`, `single` or `double`, optionally restricted to fault groups (`glitch`, `regbf`, `regfld`, `cmdbf`) [default: `all`] |
-| `--faults <SPEC...>` | Test one fixed, ordered fault-type sequence instead of a full campaign |
-| `-r, --run-through` | Do not stop at the first successful attack |
-| `-a, --analysis` | Interactively print the trace of a chosen attack |
-| `--print-analysis <N>` | Print the trace of attack *N* and exit (for automation) |
-| `-d, --deep-analysis` | Fully analyse repeated code such as loops |
-| `-m, --max-instructions <N>` | Instruction budget per run [default: 2000] |
-| `--trace` | Trace the program without fault injection |
-| `--no-check` | Skip the baseline program flow check |
-| `--success-addresses <ADDR...>` | Addresses that mark a successful attack, e.g. `0x8000123` |
-| `--failure-addresses <ADDR...>` | Addresses that mark secure behaviour |
-| `--result-timeout <SECONDS>` | Abort if no worker result arrives in time (`0` = wait forever) [default: 120, or `FAULT_SIM_RESULT_TIMEOUT`] |
-| `--no-injection-filter` | Also place follow-up faults on addresses outside the executable image (slow, see below) |
-| `-h, --help` / `-V, --version` | Help / version |
+| Flag                            | Description                                                                                                                |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `-c, --config <FILE>`           | Load configuration from a JSON5 file                                                                                       |
+| `-e, --elf <FILE>`              | Use an external ELF file, skip the compilation step                                                                        |
+| `-t, --threads <N>`             | Worker threads [default: number of CPU cores]                                                                              |
+| `-n, --no-compilation`          | Do not re-compile the target program                                                                                       |
+| `--class <CLASS> [GROUPS...]`   | `all`, `single` or `double`, optionally restricted to fault groups (`glitch`, `regbf`, `regfld`, `cmdbf`) [default: `all`] |
+| `--faults <SPEC...>`            | Test one fixed, ordered fault-type sequence instead of a full campaign                                                     |
+| `-r, --run-through`             | Do not stop at the first successful attack                                                                                 |
+| `-a, --analysis`                | Interactively print the trace of a chosen attack                                                                           |
+| `--print-analysis <N>`          | Print the trace of attack *N* and exit (for automation)                                                                    |
+| `-d, --deep-analysis`           | Fully analyse repeated code such as loops                                                                                  |
+| `-m, --max-instructions <N>`    | Instruction budget per run [default: 2000]                                                                                 |
+| `--trace`                       | Trace the program without fault injection                                                                                  |
+| `--no-check`                    | Skip the baseline program flow check                                                                                       |
+| `--success-addresses <ADDR...>` | Addresses that mark a successful attack, e.g. `0x8000123`                                                                  |
+| `--failure-addresses <ADDR...>` | Addresses that mark secure behaviour                                                                                       |
+| `--result-timeout <SECONDS>`    | Abort if no worker result arrives in time (`0` = wait forever) [default: 120, or `FAULT_SIM_RESULT_TIMEOUT`]               |
+| `--no-injection-filter`         | Also place follow-up faults on addresses outside the executable image (slow, see below)                                    |
+| `-h, --help` / `-V, --version`  | Help / version                                                                                                             |
 
 Results are deterministic: the reported attacks, their numbering and the number of
 executed tests only depend on the target program and the campaign parameters — not
@@ -290,13 +290,13 @@ decimal numbers; register names are case insensitive.
 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `address` | hex string | Start of the region |
-| `size` | hex string | Size in bytes |
-| `file` | string, optional | Binary file loaded into the region |
-| `data` | hex string, optional | Little-endian value the region is initialized with |
-| `force_overwrite` | bool, optional | Merge fragmented ELF segments so the whole region can be overwritten |
+| Field             | Type                 | Description                                                          |
+| ----------------- | -------------------- | -------------------------------------------------------------------- |
+| `address`         | hex string           | Start of the region                                                  |
+| `size`            | hex string           | Size in bytes                                                        |
+| `file`            | string, optional     | Binary file loaded into the region                                   |
+| `data`            | hex string, optional | Little-endian value the region is initialized with                   |
+| `force_overwrite` | bool, optional       | Merge fragmented ELF segments so the whole region can be overwritten |
 
 `file` and `data` are mutually exclusive; specifying both is a configuration error.
 Regions are zeroed and re-initialized before *every* simulation run, so a fault that
@@ -306,20 +306,25 @@ an overlapping region, because the ELF segments are loaded after the regions.
 </details>
 
 <details>
-<summary><b>Code patches</b> — stub functions, bypass peripherals</summary>
+<summary><b>Memory patches</b> — stub functions, bypass peripherals, preload RAM</summary>
 
 ```json5
 {
-  code_patches: [
+  memory_patches: [
     { symbol: "decision_activation", data: "0x4770" },              // bx lr → return immediately
     { symbol: "check_secret", offset: "0x10", data: "0x2001" },      // movs r0, #1 at symbol+0x10
     { address: "0x08000200", data: "0xbf00bf00" },                   // nop; nop
+    { address: "0x20000100", file: "secret.bin" },                   // preload RAM from a binary file
   ],
 }
 ```
 
 Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table,
-optionally with `offset`). Symbol-based patches survive firmware rebuilds.
+optionally with `offset`). Symbol-based patches survive firmware rebuilds. The bytes come
+from **either** an inline `data` hex value **or** a binary `file` (mutually exclusive, like
+memory regions above); `data` has no length limit. Despite the name, a patch is
+not limited to code/flash — any address within a loadable segment works, including RAM
+backed by `.bss` (zero-initialized data), as long as it stays within that segment's bounds.
 
 </details>
 
@@ -336,14 +341,17 @@ values at a given address:
       { address: "0x08000490", expected_registers: { R0: "0x00000000" } },
     ],
     failure_checks: [
-      { address: "0x08000490", expected_registers: { R0: "0xFFFFFFFF" } },
+      { symbol: "start_success_handling", expected_registers: { R0: "0xFFFFFFFF" } },
+      { symbol: "check_secret", offset: "0x10", expected_registers: { R0: "0x00000000" } },
     ],
   },
 }
 ```
 
-All listed registers must match for a check to trigger. `result_checks` takes precedence
-over `success_addresses` / `failure_addresses`.
+Each check uses **either** `address` **or** `symbol` (resolved from the ELF symbol table,
+optionally with `offset`), the same as code patches above. Symbol-based checks
+survive firmware rebuilds. All listed registers must match for a check to trigger.
+`result_checks` takes precedence over `success_addresses` / `failure_addresses`.
 
 </details>
 
@@ -481,21 +489,21 @@ Claude Desktop — `claude_desktop_config.json`:
 <details>
 <summary><b>Available tools</b></summary>
 
-| Tool | Description |
-|---|---|
-| `compile_target` | Build the target program with `make` |
-| `load_elf` | Load an ELF file and initialize the simulation environment |
-| `get_status` | Session state, success-detection mode, behaviour check result, run counters |
-| `check_behavior` | Re-run the baseline behaviour check |
-| `get_symbols` | List ELF symbols with addresses (also before `load_elf`) |
-| `get_trace` | Baseline execution trace without fault injection |
-| `list_fault_types` | All available fault specifications |
-| `run_attack` | Class-based campaign (`single`, `double`, `all`) |
-| `run_faults` | A specific fault sequence, e.g. `["glitch_1", "regbf_r0_00000001"]` |
-| `get_results` | Summary of all successful attacks |
-| `analyze_attack` | Detailed execution trace of one successful attack |
-| `get_attack_data` | Structured attack data incl. source locations (JSON) |
-| `reset_session` | Clear attack results and start a fresh campaign |
+| Tool               | Description                                                                 |
+| ------------------ | --------------------------------------------------------------------------- |
+| `compile_target`   | Build the target program with `make`                                        |
+| `load_elf`         | Load an ELF file and initialize the simulation environment                  |
+| `get_status`       | Session state, success-detection mode, behaviour check result, run counters |
+| `check_behavior`   | Re-run the baseline behaviour check                                         |
+| `get_symbols`      | List ELF symbols with addresses (also before `load_elf`)                    |
+| `get_trace`        | Baseline execution trace without fault injection                            |
+| `list_fault_types` | All available fault specifications                                          |
+| `run_attack`       | Class-based campaign (`single`, `double`, `all`)                            |
+| `run_faults`       | A specific fault sequence, e.g. `["glitch_1", "regbf_r0_00000001"]`         |
+| `get_results`      | Summary of all successful attacks                                           |
+| `analyze_attack`   | Detailed execution trace of one successful attack                           |
+| `get_attack_data`  | Structured attack data incl. source locations (JSON)                        |
+| `reset_session`    | Clear attack results and start a fresh campaign                             |
 
 `load_elf` takes explicit parameters *or* a JSON5 configuration (`config_file` /
 `config_json5`, same schema as `--config`). The configuration route unlocks
@@ -530,11 +538,11 @@ security barrier.
 
 ## Further reading
 
-| Document | Content |
-|---|---|
-| [AI Investigation Guide](doc/MCP_Investigation_Guide.md) | Full MCP API, step-by-step investigation workflow, report structure |
-| [Fault Attack Mitigation Techniques](doc/Fault_Attack_Mitigation_Techniques.md) | Catalogue of hardening patterns with simulator-verified pitfalls |
-| [Compiler Mitigation Techniques](doc/Fault_Attack_Compiler_Mitigation_Techniques.md) | How compiler behaviour defeats or supports hardening |
+| Document                                                                             | Content                                                             |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| [AI Investigation Guide](doc/MCP_Investigation_Guide.md)                             | Full MCP API, step-by-step investigation workflow, report structure |
+| [Fault Attack Mitigation Techniques](doc/Fault_Attack_Mitigation_Techniques.md)      | Catalogue of hardening patterns with simulator-verified pitfalls    |
+| [Compiler Mitigation Techniques](doc/Fault_Attack_Compiler_Mitigation_Techniques.md) | How compiler behaviour defeats or supports hardening                |
 
 ---
 

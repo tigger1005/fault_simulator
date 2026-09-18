@@ -639,17 +639,18 @@ mcp_fault-simulat_load_elf(config_json5: "{ \
   initial_registers: { SP: '0x20010000', R0: '0x20000100' }, \
   memory_regions: [ { address: '0x20000100', size: '0x100', data: '0x00112233' } ], \
   result_checks: { \
-    success_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000000' } } ], \
-    failure_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000001' } } ] \
+    success_checks: [ { symbol: 'verify_image', offset: '0x24', expected_registers: { R0: '0x00000000' } } ], \
+    failure_checks: [ { symbol: 'verify_image', offset: '0x24', expected_registers: { R0: '0x00000001' } } ] \
   } }")
 ```
 
    - **Address based** (`success_addresses` / `failure_addresses`): reaching an address is
      the verdict — use when the paths end in distinct handlers.
    - **Register based** (`result_checks`): register values at one address decide — use when
-     both paths converge on a common return.
+     both paths converge on a common return. The address can be given directly (`address`)
+     or as a symbol name with an optional `offset`, the same as `memory_patches`.
    - `initial_registers` / `memory_regions` supply the context earlier boot stages would
-     normally create; `code_patches` stub out unavailable peripherals.
+     normally create; `memory_patches` stub out unavailable peripherals or preload RAM.
 3. `mcp_fault-simulat_check_behavior()` — both outcomes must be detected before attacking.
 4. Continue with Phase 3 onwards unchanged. If the source of the binary is available,
    hardening iterations work exactly as for the instrumented target: edit the source,

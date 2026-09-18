@@ -51,6 +51,38 @@ fn parse_hex(s: &str) -> Result<u64, String> {
     u64::from_str_radix(cleaned, 16).map_err(|e| format!("Invalid hex address '{}': {}", s, e))
 }
 
+/// Parse a hex string of arbitrary length into raw bytes.
+///
+/// The string is read as a single big-endian number and returned in
+/// little-endian byte order, so `"0x47702001"` (interpreted as the 32-bit
+/// value `0x47702001`) yields `[0x01, 0x20, 0x70, 0x47]`. Unlike parsing into
+/// a `u64`, this has no fixed-width limit — any number of bytes is supported.
+pub fn parse_hex_bytes(s: &str) -> Result<Vec<u8>, String> {
+    let cleaned = s.strip_prefix("0x").unwrap_or(s);
+    if cleaned.is_empty() {
+        return Err(format!("Invalid hex data '{}': empty value", s));
+    }
+
+    // Odd digit counts pad with a leading zero nibble, matching u64::from_str_radix.
+    let padded;
+    let digits = if !cleaned.len().is_multiple_of(2) {
+        padded = format!("0{}", cleaned);
+        padded.as_str()
+    } else {
+        cleaned
+    };
+
+    let mut bytes = Vec::with_capacity(digits.len() / 2);
+    for i in (0..digits.len()).step_by(2) {
+        let byte = u8::from_str_radix(&digits[i..i + 2], 16)
+            .map_err(|e| format!("Invalid hex data '{}': {}", s, e))?;
+        bytes.push(byte);
+    }
+
+    bytes.reverse();
+    Ok(bytes)
+}
+
 /// Custom deserializer for hex addresses that can handle both strings and numbers
 // Wasn't able to find any other crate that could do Vec<u64>.
 fn deserialize_hex<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>
@@ -217,8 +249,8 @@ pub struct Config {
     pub failure_addresses: Vec<u64>,
     #[serde(default, deserialize_with = "deserialize_register_context")]
     pub initial_registers: HashMap<RegisterARM, u64>,
-    #[serde(default, deserialize_with = "deserialize_code_patches")]
-    pub code_patches: Vec<CodePatch>,
+    #[serde(default, deserialize_with = "deserialize_memory_patches")]
+    pub memory_patches: Vec<MemoryPatch>,
     #[serde(default, deserialize_with = "deserialize_memory_regions")]
     pub memory_regions: Vec<MemoryRegion>,
     #[serde(default)]
@@ -292,7 +324,7 @@ impl Config {
             success_addresses: args.success_addresses.clone(),
             failure_addresses: args.failure_addresses.clone(),
             initial_registers: HashMap::new(),
-            code_patches: Vec::new(),
+            memory_patches: Vec::new(),
             memory_regions: Vec::new(),
             log_level: "off".to_string(),
             result_checks: None,
@@ -355,7 +387,7 @@ impl Config {
         if !args.failure_addresses.is_empty() {
             self.failure_addresses = args.failure_addresses.clone();
         }
-        // Note: initial_registers, code_patches, memory_regions, and log_level from JSON config are preserved
+        // Note: initial_registers, memory_patches, memory_regions, and log_level from JSON config are preserved
     }
 }
 
@@ -472,22 +504,24 @@ pub struct Args {
     pub no_injection_filter: bool,
 }
 
-/// Custom deserializer for code patches
-pub fn deserialize_code_patches<'de, D>(deserializer: D) -> Result<Vec<CodePatch>, D::Error>
+/// Custom deserializer for memory patches
+pub fn deserialize_memory_patches<'de, D>(deserializer: D) -> Result<Vec<MemoryPatch>, D::Error>
 where
     D: Deserializer<'de>,
 {
     use serde::de;
+    use std::fs;
 
     #[derive(Deserialize)]
-    struct CodePatchHelper {
+    struct MemoryPatchHelper {
         address: Option<String>,
         symbol: Option<String>,
         offset: Option<String>,
-        data: String,
+        data: Option<String>,
+        file: Option<String>, // Optional binary file providing the patch bytes
     }
 
-    let patches: Vec<CodePatchHelper> = Deserialize::deserialize(deserializer)?;
+    let patches: Vec<MemoryPatchHelper> = Deserialize::deserialize(deserializer)?;
 
     patches
         .into_iter()
@@ -496,12 +530,12 @@ where
             match (&patch.address, &patch.symbol) {
                 (None, None) => {
                     return Err(de::Error::custom(
-                        "Code patch must specify either 'address' or 'symbol'",
+                        "Memory patch must specify either 'address' or 'symbol'",
                     ));
                 }
                 (Some(_), Some(_)) => {
                     return Err(de::Error::custom(
-                        "Code patch cannot specify both 'address' and 'symbol'",
+                        "Memory patch cannot specify both 'address' and 'symbol'",
                     ));
                 }
                 _ => {}
@@ -521,25 +555,27 @@ where
                 0
             };
 
-            let hex_val = parse_hex(&patch.data).map_err(de::Error::custom)?;
-
-            // Convert u64 to bytes (little-endian, remove leading zeros)
-            let mut bytes = Vec::new();
-            let mut val = hex_val;
-            if val == 0 {
-                bytes.push(0);
-            } else {
-                while val > 0 {
-                    bytes.push((val & 0xFF) as u8);
-                    val >>= 8;
+            // The patch bytes come either from an inline hex value or a binary file
+            let data = match (patch.file, patch.data) {
+                (Some(_), Some(_)) => {
+                    return Err(de::Error::custom(
+                        "Memory patch: use either 'file' or 'data', not both",
+                    ))
                 }
-            }
+                (Some(file_path), None) => fs::read(file_path).map_err(de::Error::custom)?,
+                (None, Some(data_str)) => parse_hex_bytes(&data_str).map_err(de::Error::custom)?,
+                (None, None) => {
+                    return Err(de::Error::custom(
+                        "Memory patch must specify either 'data' or 'file'",
+                    ))
+                }
+            };
 
-            Ok(CodePatch {
+            Ok(MemoryPatch {
                 address,
                 symbol: patch.symbol,
                 offset,
-                data: bytes,
+                data,
             })
         })
         .collect()
@@ -597,41 +633,77 @@ where
         .collect()
 }
 
-/// Deserialize a single hex string to u64
-fn deserialize_single_hex<'de, D>(deserializer: D) -> Result<u64, D::Error>
+/// Custom deserializer for result check lists (success_checks/failure_checks)
+///
+/// Mirrors `deserialize_memory_patches`: each check specifies either 'address' or
+/// 'symbol' (with an optional 'offset'), resolved later against the ELF symbol
+/// table once it becomes available.
+fn deserialize_register_checks<'de, D>(deserializer: D) -> Result<Vec<RegisterCheck>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    use serde::de::{self, Visitor};
+    use serde::de;
 
-    struct HexVisitor;
-
-    impl<'de> Visitor<'de> for HexVisitor {
-        type Value = u64;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a hex string (e.g., '0x1234') or a number")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<u64, E>
-        where
-            E: de::Error,
-        {
-            parse_hex(value).map_err(de::Error::custom)
-        }
-
-        fn visit_u64<E>(self, value: u64) -> Result<u64, E>
-        where
-            E: de::Error,
-        {
-            Ok(value)
-        }
+    #[derive(Deserialize)]
+    struct RegisterCheckHelper {
+        address: Option<String>,
+        symbol: Option<String>,
+        offset: Option<String>,
+        #[serde(deserialize_with = "deserialize_register_context")]
+        expected_registers: HashMap<RegisterARM, u64>,
     }
 
-    deserializer.deserialize_any(HexVisitor)
+    let checks: Vec<RegisterCheckHelper> = Deserialize::deserialize(deserializer)?;
+
+    checks
+        .into_iter()
+        .map(|check| {
+            // Validate that exactly one of address or symbol is provided
+            match (&check.address, &check.symbol) {
+                (None, None) => {
+                    return Err(de::Error::custom(
+                        "Result check must specify either 'address' or 'symbol'",
+                    ));
+                }
+                (Some(_), Some(_)) => {
+                    return Err(de::Error::custom(
+                        "Result check cannot specify both 'address' and 'symbol'",
+                    ));
+                }
+                _ => {}
+            }
+
+            let address = if let Some(addr_str) = check.address {
+                Some(parse_hex(&addr_str).map_err(de::Error::custom)?)
+            } else {
+                None
+            };
+
+            let offset = if let Some(offset_str) = check.offset {
+                parse_hex(&offset_str).map_err(de::Error::custom)?
+            } else {
+                0
+            };
+
+            Ok(RegisterCheck {
+                address,
+                symbol: check.symbol,
+                offset,
+                expected_registers: check.expected_registers,
+            })
+        })
+        .collect()
 }
+/// A patch applied directly to the loaded ELF image before simulation starts.
+///
+/// Despite the name, this is not limited to code/flash: any address within a
+/// loadable segment's address range can be patched, including RAM backed by
+/// `.bss` (zero-initialized data), as long as it fits within the segment.
+/// The address can be given directly, or as a symbol name (with an optional
+/// offset) resolved against the ELF symbol table once it is loaded. The patch
+/// bytes come either from an inline hex value or from a binary file.
 #[derive(Debug, Clone)]
-pub struct CodePatch {
+pub struct MemoryPatch {
     pub address: Option<u64>,
     pub symbol: Option<String>,
     pub offset: u64,
@@ -647,13 +719,19 @@ pub struct MemoryRegion {
 }
 
 /// Configuration for register value checking at a specific address
-#[derive(Debug, Clone, Deserialize)]
+///
+/// The address can be given directly, or as a symbol name (with an optional
+/// offset) that is resolved against the ELF symbol table once it is loaded,
+/// in the same manner as `MemoryPatch`.
+#[derive(Debug, Clone)]
 pub struct RegisterCheck {
-    /// Address where register values should be checked
-    #[serde(deserialize_with = "deserialize_single_hex")]
-    pub address: u64,
+    /// Direct address where register values should be checked
+    pub address: Option<u64>,
+    /// Symbol name to resolve the address from
+    pub symbol: Option<String>,
+    /// Offset added to the resolved symbol address
+    pub offset: u64,
     /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
-    #[serde(deserialize_with = "deserialize_register_context")]
     pub expected_registers: HashMap<RegisterARM, u64>,
 }
 
@@ -661,10 +739,10 @@ pub struct RegisterCheck {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ResultChecks {
     /// List of register checks that indicate success
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_register_checks")]
     pub success_checks: Vec<RegisterCheck>,
     /// List of register checks that indicate failure
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_register_checks")]
     pub failure_checks: Vec<RegisterCheck>,
 }
 #[cfg(test)]
@@ -694,6 +772,41 @@ mod tests {
     #[test]
     fn parse_hex_empty_returns_error() {
         assert!(parse_hex("").is_err());
+    }
+
+    #[test]
+    fn parse_hex_bytes_matches_legacy_u64_conversion() {
+        // 4-byte value, matches the previous u64-based little-endian conversion
+        assert_eq!(
+            parse_hex_bytes("0x47702001"),
+            Ok(vec![0x01, 0x20, 0x70, 0x47])
+        );
+    }
+
+    #[test]
+    fn parse_hex_bytes_beyond_u64_width() {
+        // 20 bytes, far beyond what fits in a u64
+        let value = "0x1122334455667788990011223344556677889900";
+        let bytes = parse_hex_bytes(value).unwrap();
+        assert_eq!(bytes.len(), 20);
+        assert_eq!(bytes.first(), Some(&0x00));
+        assert_eq!(bytes.last(), Some(&0x11));
+    }
+
+    #[test]
+    fn parse_hex_bytes_preserves_leading_zero_bytes() {
+        // Previously the u64-based conversion collapsed "0x0001" to a single byte.
+        assert_eq!(parse_hex_bytes("0x0001"), Ok(vec![0x01, 0x00]));
+    }
+
+    #[test]
+    fn parse_hex_bytes_odd_digit_count_is_padded() {
+        assert_eq!(parse_hex_bytes("0x1"), Ok(vec![0x01]));
+    }
+
+    #[test]
+    fn parse_hex_bytes_empty_returns_error() {
+        assert!(parse_hex_bytes("0x").is_err());
     }
 
     #[test]
@@ -754,6 +867,103 @@ mod tests {
     #[test]
     fn config_invalid_register_name() {
         let json = r#"{"initial_registers": {"INVALID": "0xFF"}}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn result_checks_address() {
+        let json = r#"{"success_checks": [{"address": "0x08000490", "expected_registers": {"R0": "0x0"}}]}"#;
+        let result_checks: ResultChecks = serde_json::from_str(json).unwrap();
+        let check = &result_checks.success_checks[0];
+        assert_eq!(check.address, Some(0x08000490));
+        assert_eq!(check.symbol, None);
+        assert_eq!(check.offset, 0);
+    }
+
+    #[test]
+    fn result_checks_symbol() {
+        let json = r#"{"success_checks": [{"symbol": "start_success_handling", "expected_registers": {"R0": "0x0"}}]}"#;
+        let result_checks: ResultChecks = serde_json::from_str(json).unwrap();
+        let check = &result_checks.success_checks[0];
+        assert_eq!(check.address, None);
+        assert_eq!(check.symbol.as_deref(), Some("start_success_handling"));
+        assert_eq!(check.offset, 0);
+    }
+
+    #[test]
+    fn result_checks_symbol_with_offset() {
+        let json = r#"{"success_checks": [{"symbol": "fih_memcmp", "offset": "0x204", "expected_registers": {"R0": "0x0"}}]}"#;
+        let result_checks: ResultChecks = serde_json::from_str(json).unwrap();
+        let check = &result_checks.success_checks[0];
+        assert_eq!(check.symbol.as_deref(), Some("fih_memcmp"));
+        assert_eq!(check.offset, 0x204);
+    }
+
+    #[test]
+    fn result_checks_requires_address_or_symbol() {
+        let json = r#"{"success_checks": [{"expected_registers": {"R0": "0x0"}}]}"#;
+        let result: Result<ResultChecks, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn result_checks_rejects_both_address_and_symbol() {
+        let json = r#"{"success_checks": [{"address": "0x08000490", "symbol": "start_success_handling", "expected_registers": {"R0": "0x0"}}]}"#;
+        let result: Result<ResultChecks, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn memory_patch_address_with_long_data() {
+        let json = r#"{"memory_patches": [{"address": "0x08000100", "data": "0x1122334455667788990011223344556677889900"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory_patches[0].address, Some(0x08000100));
+        assert_eq!(config.memory_patches[0].data.len(), 20);
+    }
+
+    #[test]
+    fn memory_patch_symbol_with_offset() {
+        let json = r#"{"memory_patches": [{"symbol": "check_secret", "offset": "0x4", "data": "0x2001"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        let patch = &config.memory_patches[0];
+        assert_eq!(patch.symbol.as_deref(), Some("check_secret"));
+        assert_eq!(patch.offset, 0x4);
+        assert_eq!(patch.data, vec![0x01, 0x20]);
+    }
+
+    #[test]
+    fn memory_patch_from_file() {
+        let json = r#"{"memory_patches": [{"address": "0x20000100", "file": "tests/bin/patch_data.bin"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        // Read verbatim, no byte reversal (unlike inline hex `data`)
+        assert_eq!(config.memory_patches[0].data, b"0123456789ABCDEFGHIJ");
+    }
+
+    #[test]
+    fn memory_patch_requires_address_or_symbol() {
+        let json = r#"{"memory_patches": [{"data": "0x01"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn memory_patch_rejects_both_address_and_symbol() {
+        let json = r#"{"memory_patches": [{"address": "0x08000100", "symbol": "check_secret", "data": "0x01"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn memory_patch_requires_data_or_file() {
+        let json = r#"{"memory_patches": [{"address": "0x08000100"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn memory_patch_rejects_both_data_and_file() {
+        let json = r#"{"memory_patches": [{"address": "0x08000100", "data": "0x01", "file": "tests/bin/patch_data.bin"}]}"#;
         let result: Result<Config, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }

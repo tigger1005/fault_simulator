@@ -83,7 +83,7 @@ pub fn hook_result_check_callback(emu: &mut Unicorn<CpuState>, address: u64, _si
     if let Some(ref checkpoints) = emu_data.result_checks {
         // Check success conditions
         for check in &checkpoints.success_checks {
-            if check.address == address {
+            if check.address == Some(address) {
                 // Read all required registers and compare
                 let mut all_match = true;
                 for (reg, expected_value) in &check.expected_registers {
@@ -120,7 +120,7 @@ pub fn hook_result_check_callback(emu: &mut Unicorn<CpuState>, address: u64, _si
 
         // Check failure conditions
         for check in &checkpoints.failure_checks {
-            if check.address == address {
+            if check.address == Some(address) {
                 let mut all_match = true;
                 for (reg, expected_value) in &check.expected_registers {
                     match emu.reg_read(*reg) {

@@ -1,4 +1,4 @@
-// Test configuration for code patching by address
+// Test configuration for memory patching by address
 {
     elf: "tests/bin/test.elf",
     class: [
@@ -6,7 +6,7 @@
         "glitch",
     ],
     analysis: true,
-    code_patches: [
+    memory_patches: [
         // Patch unmapped memory read at 0x08000496 to load expected value directly
         {
             address: "0x08000496",

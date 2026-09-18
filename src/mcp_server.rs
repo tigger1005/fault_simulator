@@ -176,7 +176,7 @@ struct SessionInfo {
     result_checks: bool,
     initial_registers: usize,
     memory_regions: usize,
-    code_patches: usize,
+    memory_patches: usize,
     result_timeout: Option<std::time::Duration>,
     behavior_check: String,
 }
@@ -219,7 +219,7 @@ struct LoadElfParams {
     #[serde(default)]
     elf_path: Option<String>,
     /// Path to a JSON5 configuration file (same schema as the CLI `--config` option).
-    /// Use it for advanced setups: initial_registers, memory_regions, result_checks, code_patches.
+    /// Use it for advanced setups: initial_registers, memory_regions, result_checks, memory_patches.
     #[serde(default)]
     config_file: Option<String>,
     /// Inline JSON5 configuration content (same schema as `config_file`).
@@ -253,9 +253,11 @@ struct LoadElfParams {
     /// program executes data as code. Enumerating them is slow and rarely useful. Default: false.
     #[serde(default)]
     no_injection_filter: Option<bool>,
-    /// Code patches to apply: list of {address: "0x...", data: "0x..."} or {symbol: "name", data: "0x..."}
+    /// Memory patches to apply: list of {address|symbol[+offset], data|file}.
+    /// E.g. {address: "0x...", data: "0x..."}, {symbol: "name", offset: "0x4", data: "0x..."}
+    /// or {symbol: "name", file: "patch.bin"}. Works for RAM as well as code/flash.
     #[serde(default)]
-    code_patches: Option<Vec<HashMap<String, String>>>,
+    memory_patches: Option<Vec<HashMap<String, String>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -365,7 +367,7 @@ impl FaultSimulatorServer {
         Parameters(params): Parameters<LoadElfParams>,
     ) -> Result<CallToolResult, McpError> {
         // Start from a JSON5 configuration (file or inline) so that all advanced
-        // options (initial_registers, memory_regions, result_checks, code_patches,
+        // options (initial_registers, memory_regions, result_checks, memory_patches,
         // log_level) are available, then apply the explicit tool parameters on top.
         let mut config: Config = if let Some(path) = &params.config_file {
             Config::from_file(&PathBuf::from(path)).map_err(|e| {
@@ -408,29 +410,28 @@ impl FaultSimulatorServer {
         if let Some(addresses) = &params.failure_addresses {
             config.failure_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
         }
-        if let Some(patches) = &params.code_patches {
-            config.code_patches = patches
+        if let Some(patches) = &params.memory_patches {
+            config.memory_patches = patches
                 .iter()
                 .filter_map(|patch| {
-                    let data_str = patch.get("data")?;
-                    let data_hex = data_str.strip_prefix("0x").unwrap_or(data_str);
-                    let data = (0..data_hex.len())
-                        .step_by(2)
-                        .filter_map(|i| u8::from_str_radix(&data_hex[i..i + 2], 16).ok())
-                        .collect::<Vec<u8>>();
+                    let data = if let Some(data_str) = patch.get("data") {
+                        fault_simulator::cli_args::parse_hex_bytes(data_str).ok()?
+                    } else {
+                        std::fs::read(patch.get("file")?).ok()?
+                    };
                     let offset = patch
                         .get("offset")
                         .and_then(|o| parse_hex_u64(o))
                         .unwrap_or(0);
                     if let Some(addr_str) = patch.get("address") {
-                        Some(CodePatch {
+                        Some(MemoryPatch {
                             address: Some(parse_hex_u64(addr_str)?),
                             symbol: None,
                             offset,
                             data,
                         })
                     } else {
-                        patch.get("symbol").map(|symbol| CodePatch {
+                        patch.get("symbol").map(|symbol| MemoryPatch {
                             address: None,
                             symbol: Some(symbol.clone()),
                             offset,
@@ -452,11 +453,20 @@ impl FaultSimulatorServer {
         let mut file_data = ElfFile::new(path.clone())
             .map_err(|e| McpError::internal_error(format!("Failed to load ELF: {}", e), None))?;
 
-        // Apply code patches
-        if !config.code_patches.is_empty() {
-            file_data.apply_patches(&config.code_patches).map_err(|e| {
-                McpError::internal_error(format!("Failed to apply patches: {}", e), None)
-            })?;
+        // Apply memory patches
+        if !config.memory_patches.is_empty() {
+            file_data
+                .apply_patches(&config.memory_patches)
+                .map_err(|e| {
+                    McpError::internal_error(format!("Failed to apply patches: {}", e), None)
+                })?;
+        }
+
+        // Resolve symbol-based result check addresses now that the ELF is loaded
+        if let Some(checks) = config.result_checks.take() {
+            config.result_checks = Some(file_data.resolve_result_checks(checks).map_err(|e| {
+                McpError::internal_error(format!("Failed to resolve result_checks: {}", e), None)
+            })?);
         }
 
         // Create simulation config
@@ -521,7 +531,7 @@ impl FaultSimulatorServer {
             result_checks: config.result_checks.is_some(),
             initial_registers: config.initial_registers.len(),
             memory_regions: config.memory_regions.len(),
-            code_patches: config.code_patches.len(),
+            memory_patches: config.memory_patches.len(),
             result_timeout,
             behavior_check: behavior_check.clone(),
         };
@@ -537,14 +547,14 @@ impl FaultSimulatorServer {
 
         let summary = format!(
             "ELF loaded: {}\nThreads: {}\nMax instructions: {}\nDeep analysis: {}\n\
-             Success detection: {}\nCode patches applied: {}\nInitial registers: {}\n\
+             Success detection: {}\nMemory patches applied: {}\nInitial registers: {}\n\
              Memory regions: {}\nBehavior check: {}\n{}{}",
             info.elf_path,
             info.threads,
             info.max_instructions,
             info.deep_analysis,
             detection_mode,
-            info.code_patches,
+            info.memory_patches,
             info.initial_registers,
             info.memory_regions,
             behavior_check,
@@ -868,7 +878,7 @@ impl FaultSimulatorServer {
             "result_checks": info.result_checks,
             "initial_registers": info.initial_registers,
             "memory_regions": info.memory_regions,
-            "code_patches": info.code_patches,
+            "memory_patches": info.memory_patches,
             "result_timeout_seconds": info.result_timeout.map(|t| t.as_secs()),
             "behavior_check": info.behavior_check,
             "successful_attacks": session.attack_sim.fault_data.len(),
@@ -1081,7 +1091,7 @@ mod tests {
         assert!(params.success_addresses.is_none());
         assert!(params.failure_addresses.is_none());
         assert!(params.no_check.is_none());
-        assert!(params.code_patches.is_none());
+        assert!(params.memory_patches.is_none());
     }
 
     #[test]
@@ -1094,7 +1104,7 @@ mod tests {
             "success_addresses": ["0x8000100", "0x8000200"],
             "failure_addresses": ["0x8000300"],
             "no_check": true,
-            "code_patches": [
+            "memory_patches": [
                 {"address": "0x08000100", "data": "0x4770"},
                 {"symbol": "check_secret", "data": "0xbf00"}
             ]
@@ -1107,7 +1117,7 @@ mod tests {
         assert_eq!(params.success_addresses.as_ref().unwrap().len(), 2);
         assert_eq!(params.failure_addresses.as_ref().unwrap().len(), 1);
         assert_eq!(params.no_check, Some(true));
-        assert_eq!(params.code_patches.as_ref().unwrap().len(), 2);
+        assert_eq!(params.memory_patches.as_ref().unwrap().len(), 2);
     }
 
     #[test]
