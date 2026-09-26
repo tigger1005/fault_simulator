@@ -265,13 +265,26 @@ the tool from a C playground into a firmware auditing instrument.
     R7: "0x2000FFF8",  // frame pointer
     SP: "0x2000FFF8",  // stack pointer
     LR: "0x08000005",  // link register
-    PC: "0x08000620",  // entry point
+    PC: "0x08000620",  // entry point, given as a raw address
   },
 }
 ```
 
 Supported: `R0`–`R12`, `SP`, `LR`, `PC`, `CPSR`. Values as hex strings (`"0x12345678"`) or
 decimal numbers; register names are case insensitive.
+
+Instead of a raw address, a register value can also be a symbol name (optionally with an
+offset), resolved against the ELF symbol table once it is loaded — handy for pointing `PC`
+straight at a function, or partway into it (e.g. to skip its prologue):
+
+```json5
+{
+  initial_registers: {
+    PC: { symbol: "my_function" },                  // start execution at the function's entry
+    R1: { symbol: "my_function", offset: "0x8" },    // e.g. reuse an address a few instructions in
+  },
+}
+```
 
 </details>
 

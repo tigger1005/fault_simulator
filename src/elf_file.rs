@@ -10,6 +10,7 @@ use elf::{
     symbol::Symbol, ElfBytes,
 };
 use std::collections::HashMap;
+use unicorn_engine::RegisterARM;
 
 use crate::error::SimulatorError;
 
@@ -263,6 +264,26 @@ impl ElfFile {
         })
     }
 
+    /// Resolves symbol-based `initial_registers` values against this ELF file's
+    /// symbol table, in the same manner as `resolve_result_checks`.
+    pub fn resolve_initial_registers(
+        &self,
+        initial_registers: HashMap<RegisterARM, crate::cli_args::RegisterValue>,
+    ) -> Result<HashMap<RegisterARM, u64>, SimulatorError> {
+        initial_registers
+            .into_iter()
+            .map(|(register, value)| {
+                let resolved = match value {
+                    crate::cli_args::RegisterValue::Direct(v) => v,
+                    crate::cli_args::RegisterValue::Symbol { name, offset } => {
+                        self.resolve_symbol_address(&name, offset)?
+                    }
+                };
+                Ok((register, resolved))
+            })
+            .collect()
+    }
+
     fn resolve_register_check(
         &self,
         check: crate::cli_args::RegisterCheck,
@@ -450,6 +471,52 @@ mod tests {
         };
 
         assert!(elf_struct.resolve_result_checks(result_checks).is_err());
+    }
+
+    #[test]
+    fn resolve_initial_registers_by_symbol() {
+        use crate::cli_args::RegisterValue;
+        use unicorn_engine::RegisterARM;
+
+        let elf_struct = ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
+        let expected_address = elf_struct.symbol_map["decision_activation"].st_value & !1;
+
+        let mut initial_registers = std::collections::HashMap::new();
+        initial_registers.insert(
+            RegisterARM::PC,
+            RegisterValue::Symbol {
+                name: "decision_activation".to_string(),
+                offset: 0,
+            },
+        );
+        initial_registers.insert(RegisterARM::R0, RegisterValue::Direct(0x42));
+
+        let resolved = elf_struct
+            .resolve_initial_registers(initial_registers)
+            .unwrap();
+        assert_eq!(resolved[&RegisterARM::PC], expected_address);
+        assert_eq!(resolved[&RegisterARM::R0], 0x42);
+    }
+
+    #[test]
+    fn resolve_initial_registers_unknown_symbol_errors() {
+        use crate::cli_args::RegisterValue;
+        use unicorn_engine::RegisterARM;
+
+        let elf_struct = ElfFile::new(std::path::PathBuf::from("tests/bin/victim_.elf")).unwrap();
+
+        let mut initial_registers = std::collections::HashMap::new();
+        initial_registers.insert(
+            RegisterARM::PC,
+            RegisterValue::Symbol {
+                name: "does_not_exist".to_string(),
+                offset: 0,
+            },
+        );
+
+        assert!(elf_struct
+            .resolve_initial_registers(initial_registers)
+            .is_err());
     }
 
     #[test]

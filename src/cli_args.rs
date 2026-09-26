@@ -216,6 +216,120 @@ where
     deserializer.deserialize_map(RegisterContextVisitor)
 }
 
+/// An initial register value: either a direct value, or a symbol name
+/// (with optional offset) resolved against the ELF symbol table once it is
+/// loaded, in the same manner as `MemoryPatch` and `RegisterCheck`.
+///
+/// This lets e.g. `PC` be pointed at a function by name instead of a raw
+/// address: `PC: { symbol: "my_function" }`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RegisterValue {
+    Direct(u64),
+    Symbol { name: String, offset: u64 },
+}
+
+/// Custom deserializer for `initial_registers`.
+///
+/// Mirrors `deserialize_register_context`, but additionally accepts an object
+/// value of the form `{"symbol": "name"}` or `{"symbol": "name", "offset": "0x4"}`
+/// in place of a raw hex/number value, resolved later against the ELF symbol
+/// table once it becomes available.
+fn deserialize_initial_registers<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<RegisterARM, RegisterValue>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct InitialRegistersVisitor;
+
+    impl<'de> Visitor<'de> for InitialRegistersVisitor {
+        type Value = HashMap<RegisterARM, RegisterValue>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a map of register names to hex values or symbol references")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::MapAccess<'de>,
+        {
+            let mut registers = HashMap::new();
+
+            while let Some((key, value)) = map.next_entry::<String, serde_json::Value>()? {
+                let register = get_register_from_name(&key).ok_or_else(|| {
+                    de::Error::custom(format!("Invalid register name: '{}'", key))
+                })?;
+
+                let reg_value = match value {
+                    serde_json::Value::String(s) => {
+                        RegisterValue::Direct(parse_hex(&s).map_err(de::Error::custom)?)
+                    }
+                    serde_json::Value::Number(n) => {
+                        let val = n.as_u64().ok_or_else(|| {
+                            de::Error::custom(format!(
+                                "Invalid number for register {}: must be a positive integer",
+                                key
+                            ))
+                        })?;
+                        RegisterValue::Direct(val)
+                    }
+                    serde_json::Value::Object(obj) => {
+                        let symbol = obj
+                            .get("symbol")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                de::Error::custom(format!(
+                                    "Register {} object value must specify a string 'symbol'",
+                                    key
+                                ))
+                            })?
+                            .to_string();
+
+                        let offset = match obj.get("offset") {
+                            None => 0,
+                            Some(serde_json::Value::String(s)) => {
+                                parse_hex(s).map_err(de::Error::custom)?
+                            }
+                            Some(serde_json::Value::Number(n)) => n.as_u64().ok_or_else(|| {
+                                de::Error::custom(format!(
+                                    "Invalid offset for register {}: must be a positive integer",
+                                    key
+                                ))
+                            })?,
+                            Some(_) => {
+                                return Err(de::Error::custom(format!(
+                                    "Register {} offset must be a string or number",
+                                    key
+                                )))
+                            }
+                        };
+
+                        RegisterValue::Symbol {
+                            name: symbol,
+                            offset,
+                        }
+                    }
+                    _ => {
+                        return Err(de::Error::custom(format!(
+                            "Register {} value must be a string, number, or {{\"symbol\": ...}} object",
+                            key
+                        )))
+                    }
+                };
+
+                registers.insert(register, reg_value);
+            }
+
+            Ok(registers)
+        }
+    }
+
+    deserializer.deserialize_map(InitialRegistersVisitor)
+}
+
 /// Configuration structure that can be loaded from JSON
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -247,8 +361,8 @@ pub struct Config {
     pub success_addresses: Vec<u64>,
     #[serde(default, deserialize_with = "deserialize_hex")]
     pub failure_addresses: Vec<u64>,
-    #[serde(default, deserialize_with = "deserialize_register_context")]
-    pub initial_registers: HashMap<RegisterARM, u64>,
+    #[serde(default, deserialize_with = "deserialize_initial_registers")]
+    pub initial_registers: HashMap<RegisterARM, RegisterValue>,
     #[serde(default, deserialize_with = "deserialize_memory_patches")]
     pub memory_patches: Vec<MemoryPatch>,
     #[serde(default, deserialize_with = "deserialize_memory_regions")]
@@ -860,8 +974,48 @@ mod tests {
         let json = r#"{"initial_registers": {"R0": "0xFF", "SP": "0x20000000"}}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.initial_registers.len(), 2);
-        assert_eq!(config.initial_registers[&RegisterARM::R0], 0xFF);
-        assert_eq!(config.initial_registers[&RegisterARM::SP], 0x20000000);
+        assert_eq!(
+            config.initial_registers[&RegisterARM::R0],
+            RegisterValue::Direct(0xFF)
+        );
+        assert_eq!(
+            config.initial_registers[&RegisterARM::SP],
+            RegisterValue::Direct(0x20000000)
+        );
+    }
+
+    #[test]
+    fn config_initial_registers_symbol() {
+        let json = r#"{"initial_registers": {"PC": {"symbol": "my_function"}}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.initial_registers[&RegisterARM::PC],
+            RegisterValue::Symbol {
+                name: "my_function".to_string(),
+                offset: 0
+            }
+        );
+    }
+
+    #[test]
+    fn config_initial_registers_symbol_with_offset() {
+        let json =
+            r#"{"initial_registers": {"PC": {"symbol": "my_function", "offset": "0x4"}}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.initial_registers[&RegisterARM::PC],
+            RegisterValue::Symbol {
+                name: "my_function".to_string(),
+                offset: 0x4
+            }
+        );
+    }
+
+    #[test]
+    fn config_initial_registers_symbol_object_requires_symbol_key() {
+        let json = r#"{"initial_registers": {"PC": {"offset": "0x4"}}}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 
     #[test]
