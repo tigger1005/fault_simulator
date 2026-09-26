@@ -126,7 +126,18 @@ fn main() -> Result<(), SimulatorError> {
     if !config.initial_registers.is_empty() {
         log::info!("Using custom initial register context:");
         for (reg, value) in &config.initial_registers {
-            log::info!("  {:?}: 0x{:08X}", reg, value);
+            match value {
+                fault_simulator::cli_args::RegisterValue::Direct(v) => {
+                    log::info!("  {:?}: 0x{:08X}", reg, v);
+                }
+                fault_simulator::cli_args::RegisterValue::Symbol { name, offset } => {
+                    if *offset == 0 {
+                        log::info!("  {:?}: symbol '{}'", reg, name);
+                    } else {
+                        log::info!("  {:?}: symbol '{}' + 0x{:X}", reg, name, offset);
+                    }
+                }
+            }
         }
     }
 

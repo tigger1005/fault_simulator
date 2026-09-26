@@ -469,13 +469,23 @@ impl FaultSimulatorServer {
             })?);
         }
 
+        // Resolve symbol-based initial register values now that the ELF is loaded
+        let initial_registers = file_data
+            .resolve_initial_registers(config.initial_registers.clone())
+            .map_err(|e| {
+                McpError::internal_error(
+                    format!("Failed to resolve initial_registers: {}", e),
+                    None,
+                )
+            })?;
+
         // Create simulation config
         let sim_config = SimulationConfig::new(
             config.max_instructions,
             config.deep_analysis,
             config.success_addresses.clone(),
             config.failure_addresses.clone(),
-            config.initial_registers.clone(),
+            initial_registers,
             config.memory_regions.clone(),
             config.log_level.clone(),
             config.result_checks.clone(),

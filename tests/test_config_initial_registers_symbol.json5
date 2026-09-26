@@ -1,0 +1,18 @@
+// Test configuration with an initial register value given as a symbol name,
+// resolved against the ELF symbol table once it is loaded (in the same
+// manner as memory_patches / result_checks symbol resolution).
+{
+    elf: "tests/bin/victim_3.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    initial_registers: {
+        SP: "0x2000FFF8",           // Stack pointer, given directly
+        PC: {
+            symbol: "start_success_handling", // Program counter, given as a symbol name
+        },
+    },
+    log_level: "info",
+}

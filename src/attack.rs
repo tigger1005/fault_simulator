@@ -19,13 +19,16 @@ pub fn run(config: Config, file_data: &ElfFile) -> Result<Option<FaultAttacks>, 
         .map(|checks| file_data.resolve_result_checks(checks))
         .transpose()?;
 
+    // Resolve symbol-based initial register values now that the ELF is loaded
+    let initial_registers = file_data.resolve_initial_registers(config.initial_registers)?;
+
     // Create simulation configuration
     let sim_config = SimulationConfig::new(
         config.max_instructions,
         config.deep_analysis,
         config.success_addresses,
         config.failure_addresses,
-        config.initial_registers,
+        initial_registers,
         config.memory_regions,
         config.log_level.clone(),
         result_checks,
