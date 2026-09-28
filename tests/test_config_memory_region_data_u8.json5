@@ -1,0 +1,17 @@
+// Test configuration for memory region initialization with a literal byte stream
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    memory_regions: [
+        // Unmapped memory region for test
+        {
+            address: "0x30000000",
+            size: "0x1000",         // 4 KB
+            data_u8: "01 02 03 04",
+        },
+    ],
+}
