@@ -51,6 +51,48 @@ fn parse_hex(s: &str) -> Result<u64, String> {
     u64::from_str_radix(cleaned, 16).map_err(|e| format!("Invalid hex address '{}': {}", s, e))
 }
 
+fn parse_hex_byte_stream(s: &str) -> Result<Vec<u8>, String> {
+    let cleaned = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    let hex: String = cleaned.chars().filter(|c| !c.is_whitespace()).collect();
+
+    if hex.is_empty() {
+        return Err("Hex byte stream must not be empty".to_string());
+    }
+
+    if hex.len() % 2 != 0 {
+        return Err(format!(
+            "Hex byte stream '{}' must contain an even number of hex digits",
+            s
+        ));
+    }
+
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for i in (0..hex.len()).step_by(2) {
+        let byte = u8::from_str_radix(&hex[i..i + 2], 16)
+            .map_err(|e| format!("Invalid hex byte stream '{}': {}", s, e))?;
+        bytes.push(byte);
+    }
+
+    Ok(bytes)
+}
+
+fn parse_le_u16_bytes(s: &str) -> Result<Vec<u8>, String> {
+    let value = parse_hex(s)?;
+    let value =
+        u16::try_from(value).map_err(|_| format!("Value '{}' exceeds the range of data_u16", s))?;
+    Ok(value.to_le_bytes().to_vec())
+}
+
+fn parse_le_u32_bytes(s: &str) -> Result<Vec<u8>, String> {
+    let value = parse_hex(s)?;
+    let value =
+        u32::try_from(value).map_err(|_| format!("Value '{}' exceeds the range of data_u32", s))?;
+    Ok(value.to_le_bytes().to_vec())
+}
+
 /// Custom deserializer for hex addresses that can handle both strings and numbers
 // Wasn't able to find any other crate that could do Vec<u64>.
 fn deserialize_hex<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>
@@ -557,8 +599,11 @@ where
     struct MemoryRegionHelper {
         address: String,
         size: String,
-        file: Option<String>, // Optional binary file to load
-        data: Option<String>, // Optional hex value the region is initialized with
+        file: Option<String>,     // Optional binary file to load
+        data: Option<String>,     // Optional legacy little-endian u64 value
+        data_u8: Option<String>,  // Optional hex byte stream
+        data_u16: Option<String>, // Optional little-endian u16 value
+        data_u32: Option<String>, // Optional little-endian u32 value
         #[serde(default)]
         force_overwrite: bool, // If true, merge ELF segments to allow overwriting
     }
@@ -571,20 +616,37 @@ where
             let address = parse_hex(&region.address).map_err(de::Error::custom)?;
             let size = parse_hex(&region.size).map_err(de::Error::custom)?;
 
-            // A region is initialized either from a binary file or from an inline value
-            let data = match (region.file, region.data) {
-                (Some(_), Some(_)) => {
-                    return Err(de::Error::custom(format!(
-                        "Memory region 0x{:08X}: use either 'file' or 'data', not both",
-                        address
-                    )))
-                }
-                (Some(file_path), None) => Some(fs::read(file_path).map_err(de::Error::custom)?),
-                (None, Some(value)) => {
-                    let value = parse_hex(&value).map_err(de::Error::custom)?;
-                    Some(value.to_le_bytes().to_vec())
-                }
-                (None, None) => None,
+            let inline_source_count = [
+                region.file.is_some(),
+                region.data.is_some(),
+                region.data_u8.is_some(),
+                region.data_u16.is_some(),
+                region.data_u32.is_some(),
+            ]
+            .into_iter()
+            .filter(|is_set| *is_set)
+            .count();
+
+            if inline_source_count > 1 {
+                return Err(de::Error::custom(format!(
+                    "Memory region 0x{:08X}: use at most one of 'file', 'data', 'data_u8', 'data_u16', or 'data_u32'",
+                    address
+                )));
+            }
+
+            let data = if let Some(file_path) = region.file {
+                Some(fs::read(file_path).map_err(de::Error::custom)?)
+            } else if let Some(value) = region.data {
+                let value = parse_hex(&value).map_err(de::Error::custom)?;
+                Some(value.to_le_bytes().to_vec())
+            } else if let Some(value) = region.data_u8 {
+                Some(parse_hex_byte_stream(&value).map_err(de::Error::custom)?)
+            } else if let Some(value) = region.data_u16 {
+                Some(parse_le_u16_bytes(&value).map_err(de::Error::custom)?)
+            } else if let Some(value) = region.data_u32 {
+                Some(parse_le_u32_bytes(&value).map_err(de::Error::custom)?)
+            } else {
+                None
             };
 
             Ok(MemoryRegion {
@@ -692,6 +754,50 @@ mod tests {
     }
 
     #[test]
+    fn parse_hex_byte_stream_with_spaces() {
+        assert_eq!(
+            parse_hex_byte_stream("01 02 03 04 0A 0B"),
+            Ok(vec![1, 2, 3, 4, 10, 11])
+        );
+    }
+
+    #[test]
+    fn parse_hex_byte_stream_without_spaces() {
+        assert_eq!(
+            parse_hex_byte_stream("010203040A0B"),
+            Ok(vec![1, 2, 3, 4, 10, 11])
+        );
+    }
+
+    #[test]
+    fn parse_hex_byte_stream_requires_even_digits() {
+        assert!(parse_hex_byte_stream("123").is_err());
+    }
+
+    #[test]
+    fn parse_le_u16_bytes_pads_to_two_bytes() {
+        assert_eq!(parse_le_u16_bytes("0x125"), Ok(vec![0x25, 0x01]));
+    }
+
+    #[test]
+    fn parse_le_u16_bytes_rejects_overflow() {
+        assert!(parse_le_u16_bytes("0x10000").is_err());
+    }
+
+    #[test]
+    fn parse_le_u32_bytes_pads_to_four_bytes() {
+        assert_eq!(
+            parse_le_u32_bytes("0x12ABCDEF"),
+            Ok(vec![0xEF, 0xCD, 0xAB, 0x12])
+        );
+    }
+
+    #[test]
+    fn parse_le_u32_bytes_rejects_overflow() {
+        assert!(parse_le_u32_bytes("0x100000000").is_err());
+    }
+
+    #[test]
     fn parse_hex_empty_returns_error() {
         assert!(parse_hex("").is_err());
     }
@@ -749,6 +855,41 @@ mod tests {
         assert_eq!(config.initial_registers.len(), 2);
         assert_eq!(config.initial_registers[&RegisterARM::R0], 0xFF);
         assert_eq!(config.initial_registers[&RegisterARM::SP], 0x20000000);
+    }
+
+    #[test]
+    fn config_memory_region_data_u8() {
+        let json = r#"{"memory_regions": [{"address": "0x30000000", "size": "0x1000", "data_u8": "01 02 03 04"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory_regions.len(), 1);
+        assert_eq!(
+            config.memory_regions[0].data,
+            Some(vec![0x01, 0x02, 0x03, 0x04])
+        );
+    }
+
+    #[test]
+    fn config_memory_region_data_u16() {
+        let json = r#"{"memory_regions": [{"address": "0x30000000", "size": "0x1000", "data_u16": "0x125"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory_regions[0].data, Some(vec![0x25, 0x01]));
+    }
+
+    #[test]
+    fn config_memory_region_data_u32() {
+        let json = r#"{"memory_regions": [{"address": "0x30000000", "size": "0x1000", "data_u32": "0x12ABCDEF"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.memory_regions[0].data,
+            Some(vec![0xEF, 0xCD, 0xAB, 0x12])
+        );
+    }
+
+    #[test]
+    fn config_memory_region_inline_data_sources_are_mutually_exclusive() {
+        let json = r#"{"memory_regions": [{"address": "0x30000000", "size": "0x1000", "data": "0x1", "data_u8": "01"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 
     #[test]

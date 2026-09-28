@@ -283,7 +283,9 @@ decimal numbers; register names are case insensitive.
   memory_regions: [
     { address: "0x20000000", size: "0x20000" },                       // 128 KB SRAM
     { address: "0x40000000", size: "0x10000", file: "periph.bin" },   // peripherals from file
-    { address: "0x30000000", size: "0x1000",  data: "0xDEADBEEF" },   // inline init value
+    { address: "0x30000000", size: "0x1000",  data_u8: "78 56 34 12" }, // byte stream
+    { address: "0x30001000", size: "0x1000",  data_u16: "0x12AB" },     // fixed-width u16
+    { address: "0x30002000", size: "0x1000",  data_u32: "0xDEADBEEF" }, // fixed-width u32
     { address: "0x34000000", size: "0x10000", file: "sram_dump.bin",
       force_overwrite: true },                                        // merge fragmented ELF segments
   ],
@@ -295,10 +297,14 @@ decimal numbers; register names are case insensitive.
 | `address` | hex string | Start of the region |
 | `size` | hex string | Size in bytes |
 | `file` | string, optional | Binary file loaded into the region |
-| `data` | hex string, optional | Little-endian value the region is initialized with |
+| `data` | hex string, optional | Legacy inline value, stored as an 8-byte little-endian `u64` |
+| `data_u8` | hex string, optional | Hex byte stream written in ascending-address order (`"01 02 03"` = bytes `01`, `02`, `03`) |
+| `data_u16` | hex string, optional | Value stored as a 2-byte little-endian `u16` |
+| `data_u32` | hex string, optional | Value stored as a 4-byte little-endian `u32` |
 | `force_overwrite` | bool, optional | Merge fragmented ELF segments so the whole region can be overwritten |
 
-`file` and `data` are mutually exclusive; specifying both is a configuration error.
+At most one of `file`, `data`, `data_u8`, `data_u16`, or `data_u32` may be set for a
+region. `data_u8` accepts both `"010203"` and `"01 02 03"` forms.
 Regions are zeroed and re-initialized before *every* simulation run, so a fault that
 writes into a region cannot influence the following run. ELF content still wins over
 an overlapping region, because the ELF segments are loaded after the regions.

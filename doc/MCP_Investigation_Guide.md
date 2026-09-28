@@ -371,7 +371,7 @@ Example configuration for a register-based verdict:
   max_instructions: 20000,
   initial_registers: { SP: "0x20010000", R0: "0x20000100" },
   memory_regions: [
-    { address: "0x20000100", size: "0x100", data: "0x00112233" },
+    { address: "0x20000100", size: "0x100", data_u8: "33 22 11 00" },
   ],
   result_checks: {
     success_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000000" } } ],
