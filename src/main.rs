@@ -82,7 +82,7 @@ fn main() -> Result<(), SimulatorError> {
     println!("--- Fault injection simulator: {GIT_VERSION} ---\n");
 
     // Load configuration
-    let config = match &args.config {
+    let mut config = match &args.config {
         Some(config_path) => {
             println!("Loading configuration from: {}", config_path.display());
             let mut config = Config::from_file(config_path)?;
@@ -145,6 +145,9 @@ fn main() -> Result<(), SimulatorError> {
 
     // Load victim data
     let mut file_data: ElfFile = ElfFile::new(path)?;
+
+    // Resolve all symbol-based addresses once so runtime logic can use concrete addresses.
+    file_data.resolve_config_symbols(&mut config)?;
 
     // Apply patches immediately after loading
     if !config.code_patches.is_empty() {

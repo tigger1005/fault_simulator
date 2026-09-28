@@ -51,6 +51,78 @@ fn parse_hex(s: &str) -> Result<u64, String> {
     u64::from_str_radix(cleaned, 16).map_err(|e| format!("Invalid hex address '{}': {}", s, e))
 }
 
+fn parse_unsigned_number(s: &str) -> Result<u64, String> {
+    let cleaned = s.trim();
+    if cleaned.is_empty() {
+        return Err("Value cannot be empty".to_string());
+    }
+    if let Some(hex) = cleaned
+        .strip_prefix("0x")
+        .or_else(|| cleaned.strip_prefix("0X"))
+    {
+        u64::from_str_radix(hex, 16).map_err(|e| format!("Invalid hex value '{}': {}", s, e))
+    } else {
+        cleaned
+            .parse::<u64>()
+            .map_err(|e| format!("Invalid decimal value '{}': {}", s, e))
+    }
+}
+
+fn parse_signed_offset(s: &str) -> Result<i64, String> {
+    let cleaned = s.trim();
+    if cleaned.is_empty() {
+        return Err("Offset cannot be empty".to_string());
+    }
+    let (negative, digits) = if let Some(rest) = cleaned.strip_prefix('-') {
+        (true, rest)
+    } else if let Some(rest) = cleaned.strip_prefix('+') {
+        (false, rest)
+    } else {
+        (false, cleaned)
+    };
+    let magnitude = parse_unsigned_number(digits)?;
+    if magnitude > i64::MAX as u64 {
+        return Err(format!("Offset '{}' exceeds i64 range", s));
+    }
+    let magnitude = magnitude as i64;
+    Ok(if negative { -magnitude } else { magnitude })
+}
+
+fn parse_symbol_with_inline_offset(s: &str) -> Result<(String, i64), String> {
+    let cleaned = s.trim();
+    if cleaned.is_empty() {
+        return Err("Symbol cannot be empty".to_string());
+    }
+
+    for (idx, ch) in cleaned.char_indices().rev() {
+        if (ch == '+' || ch == '-') && idx > 0 {
+            let symbol = cleaned[..idx].trim();
+            let suffix = cleaned[idx + 1..].trim();
+            if symbol.is_empty() || suffix.is_empty() {
+                continue;
+            }
+            if let Ok(magnitude) = parse_unsigned_number(suffix) {
+                if magnitude > i64::MAX as u64 {
+                    return Err(format!(
+                        "Offset in symbol expression '{}' exceeds i64 range",
+                        s
+                    ));
+                }
+                let magnitude = magnitude as i64;
+                let offset = if ch == '-' { -magnitude } else { magnitude };
+                return Ok((symbol.to_string(), offset));
+            }
+        }
+    }
+
+    Ok((cleaned.to_string(), 0))
+}
+
+fn combine_offsets(lhs: i64, rhs: i64) -> Result<i64, String> {
+    lhs.checked_add(rhs)
+        .ok_or_else(|| "Combined offset exceeds i64 range".to_string())
+}
+
 /// Custom deserializer for hex addresses that can handle both strings and numbers
 // Wasn't able to find any other crate that could do Vec<u64>.
 fn deserialize_hex<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>
@@ -530,12 +602,10 @@ pub fn resolve_patch_data(
         (Some(v), None, None) => parse_data_u8(v),
         (None, Some(v), None) => parse_data_u16(v),
         (None, None, Some(v)) => parse_data_u32(v),
-        (None, None, None) => Err(
-            "Specify exactly one of 'data_u8', 'data_u16', or 'data_u32'".to_string(),
-        ),
-        _ => Err(
-            "Specify only one of 'data_u8', 'data_u16', or 'data_u32'".to_string(),
-        ),
+        (None, None, None) => {
+            Err("Specify exactly one of 'data_u8', 'data_u16', or 'data_u32'".to_string())
+        }
+        _ => Err("Specify only one of 'data_u8', 'data_u16', or 'data_u32'".to_string()),
     }
 }
 
@@ -583,11 +653,21 @@ where
                 None
             };
 
-            // Parse offset if provided
-            let offset = if let Some(offset_str) = patch.offset {
-                parse_hex(&offset_str).map_err(de::Error::custom)?
+            // Parse optional explicit offset (decimal or hexadecimal, signed)
+            let explicit_offset = if let Some(offset_str) = patch.offset {
+                parse_signed_offset(&offset_str).map_err(de::Error::custom)?
             } else {
                 0
+            };
+            let (symbol, offset) = if let Some(symbol_expr) = patch.symbol {
+                let (symbol, inline_offset) =
+                    parse_symbol_with_inline_offset(&symbol_expr).map_err(de::Error::custom)?;
+                (
+                    Some(symbol),
+                    combine_offsets(inline_offset, explicit_offset).map_err(de::Error::custom)?,
+                )
+            } else {
+                (None, explicit_offset)
             };
 
             let bytes = resolve_patch_data(
@@ -599,7 +679,7 @@ where
 
             Ok(CodePatch {
                 address,
-                symbol: patch.symbol,
+                symbol,
                 offset,
                 data: bytes,
             })
@@ -619,10 +699,10 @@ where
     struct MemoryRegionHelper {
         address: String,
         size: String,
-        file: Option<String>,      // Optional binary file to load
-        data_u8: Option<String>,   // Optional hex byte stream the region is initialized with
-        data_u16: Option<String>,  // Optional 16-bit LE value the region is initialized with
-        data_u32: Option<String>,  // Optional 32-bit LE value the region is initialized with
+        file: Option<String>,     // Optional binary file to load
+        data_u8: Option<String>,  // Optional hex byte stream the region is initialized with
+        data_u16: Option<String>, // Optional 16-bit LE value the region is initialized with
+        data_u32: Option<String>, // Optional 32-bit LE value the region is initialized with
         #[serde(default)]
         force_overwrite: bool, // If true, merge ELF segments to allow overwriting
     }
@@ -674,44 +754,11 @@ where
         .collect()
 }
 
-/// Deserialize a single hex string to u64
-fn deserialize_single_hex<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::{self, Visitor};
-
-    struct HexVisitor;
-
-    impl<'de> Visitor<'de> for HexVisitor {
-        type Value = u64;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a hex string (e.g., '0x1234') or a number")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<u64, E>
-        where
-            E: de::Error,
-        {
-            parse_hex(value).map_err(de::Error::custom)
-        }
-
-        fn visit_u64<E>(self, value: u64) -> Result<u64, E>
-        where
-            E: de::Error,
-        {
-            Ok(value)
-        }
-    }
-
-    deserializer.deserialize_any(HexVisitor)
-}
 #[derive(Debug, Clone)]
 pub struct CodePatch {
     pub address: Option<u64>,
     pub symbol: Option<String>,
-    pub offset: u64,
+    pub offset: i64,
     pub data: Vec<u8>,
 }
 
@@ -724,14 +771,79 @@ pub struct MemoryRegion {
 }
 
 /// Configuration for register value checking at a specific address
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct RegisterCheck {
-    /// Address where register values should be checked
-    #[serde(deserialize_with = "deserialize_single_hex")]
-    pub address: u64,
+    /// Resolved address where register values should be checked
+    pub address: Option<u64>,
+    /// Optional symbol name to resolve during ELF load
+    pub symbol: Option<String>,
+    /// Optional signed offset from `address`/`symbol`
+    pub offset: i64,
     /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
-    #[serde(deserialize_with = "deserialize_register_context")]
     pub expected_registers: HashMap<RegisterARM, u64>,
+}
+
+impl<'de> Deserialize<'de> for RegisterCheck {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de;
+
+        #[derive(Deserialize)]
+        struct RegisterCheckHelper {
+            address: Option<String>,
+            symbol: Option<String>,
+            offset: Option<String>,
+            #[serde(deserialize_with = "deserialize_register_context")]
+            expected_registers: HashMap<RegisterARM, u64>,
+        }
+
+        let helper = RegisterCheckHelper::deserialize(deserializer)?;
+        match (&helper.address, &helper.symbol) {
+            (None, None) => {
+                return Err(de::Error::custom(
+                    "Register check must specify either 'address' or 'symbol'",
+                ));
+            }
+            (Some(_), Some(_)) => {
+                return Err(de::Error::custom(
+                    "Register check cannot specify both 'address' and 'symbol'",
+                ));
+            }
+            _ => {}
+        }
+
+        let explicit_offset = if let Some(offset_str) = &helper.offset {
+            parse_signed_offset(offset_str).map_err(de::Error::custom)?
+        } else {
+            0
+        };
+
+        let address = if let Some(addr_str) = &helper.address {
+            Some(parse_hex(addr_str).map_err(de::Error::custom)?)
+        } else {
+            None
+        };
+
+        let (symbol, offset) = if let Some(symbol_expr) = helper.symbol {
+            let (symbol, inline_offset) =
+                parse_symbol_with_inline_offset(&symbol_expr).map_err(de::Error::custom)?;
+            (
+                Some(symbol),
+                combine_offsets(inline_offset, explicit_offset).map_err(de::Error::custom)?,
+            )
+        } else {
+            (None, explicit_offset)
+        };
+
+        Ok(RegisterCheck {
+            address,
+            symbol,
+            offset,
+            expected_registers: helper.expected_registers,
+        })
+    }
 }
 
 /// Configuration for register-based success/failure checking
@@ -808,8 +920,14 @@ mod tests {
 
     #[test]
     fn data_u32_stores_little_endian() {
-        assert_eq!(parse_data_u32("0x12").unwrap(), vec![0x12, 0x00, 0x00, 0x00]);
-        assert_eq!(parse_data_u32("0x125").unwrap(), vec![0x25, 0x01, 0x00, 0x00]);
+        assert_eq!(
+            parse_data_u32("0x12").unwrap(),
+            vec![0x12, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(
+            parse_data_u32("0x125").unwrap(),
+            vec![0x25, 0x01, 0x00, 0x00]
+        );
         assert_eq!(
             parse_data_u32("0x12abcdef").unwrap(),
             vec![0xEF, 0xCD, 0xAB, 0x12]
@@ -830,8 +948,7 @@ mod tests {
 
     #[test]
     fn code_patch_requires_one_data_field() {
-        let json =
-            r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
+        let json = r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.code_patches[0].data, vec![0x70, 0x47]);
     }
@@ -845,7 +962,8 @@ mod tests {
 
     #[test]
     fn code_patch_multiple_data_fields_is_error() {
-        let json = r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x1", "data_u32": "0x1"}]}"#;
+        let json =
+            r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x1", "data_u32": "0x1"}]}"#;
         let result: Result<Config, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
@@ -855,6 +973,56 @@ mod tests {
         let json = r#"{"code_patches": [{"address": "0x1000", "data_u8": "70470120"}]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.code_patches[0].data, vec![0x70, 0x47, 0x01, 0x20]);
+    }
+
+    #[test]
+    fn code_patch_symbol_compact_positive_hex_offset() {
+        let json = r#"{"code_patches": [{"symbol": "check_secret+0x10", "data_u16": "0x4770"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.code_patches[0].symbol.as_deref(),
+            Some("check_secret")
+        );
+        assert_eq!(config.code_patches[0].offset, 0x10);
+    }
+
+    #[test]
+    fn code_patch_symbol_compact_negative_decimal_offset() {
+        let json = r#"{"code_patches": [{"symbol": "check_secret-100", "data_u16": "0x4770"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.code_patches[0].symbol.as_deref(),
+            Some("check_secret")
+        );
+        assert_eq!(config.code_patches[0].offset, -100);
+    }
+
+    #[test]
+    fn register_check_supports_symbol_and_offset_formats() {
+        let json = r#"{
+            "result_checks": {
+                "success_checks": [
+                    { "symbol": "start_success_handling+20", "expected_registers": { "R0": "0x1" } }
+                ],
+                "failure_checks": [
+                    { "symbol": "start_success_handling", "offset": "-0x10", "expected_registers": { "R0": "0x0" } }
+                ]
+            }
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        let checks = config.result_checks.unwrap();
+        assert_eq!(
+            checks.success_checks[0].symbol.as_deref(),
+            Some("start_success_handling")
+        );
+        assert_eq!(checks.success_checks[0].offset, 20);
+        assert_eq!(
+            checks.failure_checks[0].symbol.as_deref(),
+            Some("start_success_handling")
+        );
+        assert_eq!(checks.failure_checks[0].offset, -0x10);
+        assert!(checks.success_checks[0].address.is_none());
+        assert!(checks.failure_checks[0].address.is_none());
     }
 
     #[test]

@@ -198,7 +198,7 @@ impl<'a> Cpu<'a> {
                     .success_checks
                     .iter()
                     .chain(&checks.failure_checks)
-                    .map(|check| check.address)
+                    .filter_map(|check| check.address)
                     .collect()
             })
             .unwrap_or_default();

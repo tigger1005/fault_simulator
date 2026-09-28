@@ -37,7 +37,7 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 | `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
 | `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
 | `no_injection_filter` | boolean | no     | false     | Also place follow-up faults outside the executable image (slow, see Section 2.10)        |
-| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data_u8|data_u16|data_u32: "..."}` or `{symbol: "name", data_u8|data_u16|data_u32: "..."}` |
+| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", ...}` or `{symbol: "name+0x10" / "name-20", ...}` (`offset` field still supported) |
 
 Explicit parameters override the values coming from `config_file` / `config_json5`.
 The configuration route additionally unlocks `initial_registers`, `memory_regions`,
@@ -62,7 +62,7 @@ diagnose it — but attack results are meaningless until it passes.
 derived from register values at a return address):
 ```json
 {
-  "config_json5": "{ elf: '/path/to/firmware.elf', max_instructions: 5000, initial_registers: { SP: '0x20010000' }, result_checks: { success_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000000' } } ], failure_checks: [ { address: '0x08000490', expected_registers: { R0: '0x00000001' } } ] } }"
+  "config_json5": "{ elf: '/path/to/firmware.elf', max_instructions: 5000, initial_registers: { SP: '0x20010000' }, result_checks: { success_checks: [ { symbol: 'start_success_handling+0', expected_registers: { R0: '0x00000000' } } ], failure_checks: [ { symbol: 'start_success_handling+0', expected_registers: { R0: '0x00000001' } } ] } }"
 }
 ```
 
@@ -374,8 +374,8 @@ Example configuration for a register-based verdict:
     { address: "0x20000100", size: "0x100", data_u32: "0x00112233" },
   ],
   result_checks: {
-    success_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000000" } } ],
-    failure_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000001" } } ],
+    success_checks: [ { symbol: "start_success_handling+0", expected_registers: { R0: "0x00000000" } } ],
+    failure_checks: [ { symbol: "start_success_handling+0", expected_registers: { R0: "0x00000001" } } ],
   },
 }
 ```

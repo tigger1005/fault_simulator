@@ -13,7 +13,7 @@
     result_checks: {
         success_checks: [
             {
-                address: "0x08000490",
+                symbol: "start_success_handling+0",
                 expected_registers: {
                     R0: "0x00000000",  // R0 = 0 means success
                 }
@@ -21,7 +21,7 @@
         ],
         failure_checks: [
             {
-                address: "0x08000490",
+                symbol: "start_success_handling+0",
                 expected_registers: {
                     R0: "0x00000001",  // R0 = 1 means failure
                 }

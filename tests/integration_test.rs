@@ -579,6 +579,21 @@ fn test_code_patch_symbol() {
 }
 
 #[test]
+/// Test code patching from JSON5 config using compact symbol+offset syntax
+fn test_code_patch_symbol_compact_offset() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_code_patch_symbol_offset.json5",
+        "--no-check",
+    ]);
+
+    // Should run without Unicorn error (compact symbol+offset parsed and applied).
+    cmd.assert().success();
+}
+
+#[test]
 /// Test code running victim_5.elf with all tests
 ///
 /// This test verifies that victim_5.elf can run successfully with the victim_5.elf binary,
@@ -616,7 +631,9 @@ fn test_result_checks() {
 
     // Create result checks configuration
     let success_check = RegisterCheck {
-        address: 0x08000490,
+        address: Some(0x08000490),
+        symbol: None,
+        offset: 0,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
             map.insert(RegisterARM::R0, 0x00000000);
@@ -625,7 +642,9 @@ fn test_result_checks() {
     };
 
     let failure_check_1 = RegisterCheck {
-        address: 0x08000490,
+        address: Some(0x08000490),
+        symbol: None,
+        offset: 0,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
             map.insert(RegisterARM::R0, 0x00000001);

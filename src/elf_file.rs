@@ -15,6 +15,44 @@ use crate::error::SimulatorError;
 
 pub use elf::abi::*;
 
+fn parse_unsigned_offset(value: &str) -> Option<i64> {
+    let cleaned = value.trim();
+    if cleaned.is_empty() {
+        return None;
+    }
+    let magnitude = if let Some(hex) = cleaned
+        .strip_prefix("0x")
+        .or_else(|| cleaned.strip_prefix("0X"))
+    {
+        i64::from_str_radix(hex, 16).ok()?
+    } else {
+        cleaned.parse::<i64>().ok()?
+    };
+    if magnitude < 0 {
+        None
+    } else {
+        Some(magnitude)
+    }
+}
+
+fn split_symbol_inline_offset(symbol_expr: &str) -> (String, i64) {
+    let cleaned = symbol_expr.trim();
+    for (idx, ch) in cleaned.char_indices().rev() {
+        if (ch == '+' || ch == '-') && idx > 0 {
+            let symbol = cleaned[..idx].trim();
+            let suffix = cleaned[idx + 1..].trim();
+            if symbol.is_empty() || suffix.is_empty() {
+                continue;
+            }
+            if let Some(magnitude) = parse_unsigned_offset(suffix) {
+                let offset = if ch == '-' { -magnitude } else { magnitude };
+                return (symbol.to_string(), offset);
+            }
+        }
+    }
+    (cleaned.to_string(), 0)
+}
+
 /// ELF file parser and data container for fault injection simulation.
 ///
 /// This structure provides comprehensive parsing and access to ELF binary files,
@@ -192,6 +230,91 @@ impl ElfFile {
         Context::new(&read::File::parse(&*self.file_data).unwrap()).unwrap()
     }
 
+    /// Resolve a symbol plus signed offset to a concrete instruction address.
+    pub fn resolve_symbol_address(
+        &self,
+        symbol_name: &str,
+        offset: i64,
+    ) -> Result<u64, SimulatorError> {
+        let symbol = self.symbol_map.get(symbol_name).ok_or_else(|| {
+            SimulatorError::elf(format!("Symbol '{}' not found in ELF file", symbol_name))
+        })?;
+
+        // Clear LSB for Thumb mode indicator - actual code is at even address
+        let base_address = symbol.st_value & !1;
+        Ok(base_address.wrapping_add_signed(offset))
+    }
+
+    /// Resolve symbol-based config locations to absolute addresses immediately after ELF load.
+    pub fn resolve_config_symbols(
+        &self,
+        config: &mut crate::cli_args::Config,
+    ) -> Result<(), SimulatorError> {
+        for patch in &mut config.code_patches {
+            match (&patch.address, &patch.symbol) {
+                (_, Some(symbol_name)) => {
+                    let (symbol_name, inline_offset) = split_symbol_inline_offset(symbol_name);
+                    let total_offset =
+                        inline_offset.checked_add(patch.offset).ok_or_else(|| {
+                            SimulatorError::elf("Combined patch offset exceeds i64 range")
+                        })?;
+                    let address = self.resolve_symbol_address(&symbol_name, total_offset)?;
+                    patch.address = Some(address);
+                    patch.symbol = None;
+                    patch.offset = 0;
+                }
+                (Some(address), None) => {
+                    if patch.offset != 0 {
+                        patch.address = Some(address.wrapping_add_signed(patch.offset));
+                        patch.offset = 0;
+                    }
+                }
+                (None, None) => {
+                    return Err(SimulatorError::elf(
+                        "Code patch must specify either 'address' or 'symbol'",
+                    ));
+                }
+            }
+        }
+
+        if let Some(result_checks) = config.result_checks.as_mut() {
+            for check in result_checks
+                .success_checks
+                .iter_mut()
+                .chain(result_checks.failure_checks.iter_mut())
+            {
+                match (check.address, check.symbol.as_deref()) {
+                    (_, Some(symbol_name)) => {
+                        let (symbol_name, inline_offset) = split_symbol_inline_offset(symbol_name);
+                        let total_offset =
+                            inline_offset.checked_add(check.offset).ok_or_else(|| {
+                                SimulatorError::elf(
+                                    "Combined register-check offset exceeds i64 range",
+                                )
+                            })?;
+                        check.address =
+                            Some(self.resolve_symbol_address(&symbol_name, total_offset)?);
+                        check.symbol = None;
+                        check.offset = 0;
+                    }
+                    (Some(address), None) => {
+                        if check.offset != 0 {
+                            check.address = Some(address.wrapping_add_signed(check.offset));
+                            check.offset = 0;
+                        }
+                    }
+                    (None, None) => {
+                        return Err(SimulatorError::elf(
+                            "Register check must specify either 'address' or 'symbol'",
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Address ranges of all executable segments of the loaded image.
     ///
     /// Every address a sane program can execute lies in one of these ranges, so they
@@ -222,34 +345,12 @@ impl ElfFile {
         log::info!("Applying {} code patches to ELF data...", patches.len());
 
         for patch in patches {
-            // Resolve address from symbol if needed, otherwise use direct address
+            // Symbols are expected to be resolved up front, but keep fallback resolution
+            // for direct unit test construction and backward compatibility.
             let address = if let Some(sym_name) = &patch.symbol {
-                let symbol = self.symbol_map.get(sym_name).ok_or_else(|| {
-                    SimulatorError::elf(format!("Symbol '{}' not found in ELF file", sym_name))
-                })?;
-
-                // Clear LSB for Thumb mode indicator - actual code is at even address
-                let mut actual_address = symbol.st_value & !1;
-
-                // Add offset if provided
-                if patch.offset != 0 {
-                    actual_address = actual_address.wrapping_add(patch.offset);
-                    log::debug!(
-                        "  Resolving symbol '{}' + 0x{:X} to address 0x{:08X}",
-                        sym_name,
-                        patch.offset,
-                        actual_address
-                    );
-                } else {
-                    log::debug!(
-                        "  Resolving symbol '{}' to address 0x{:08X}",
-                        sym_name,
-                        actual_address
-                    );
-                }
-                actual_address
+                self.resolve_symbol_address(sym_name, patch.offset)?
             } else if let Some(addr) = patch.address {
-                addr
+                addr.wrapping_add_signed(patch.offset)
             } else {
                 return Err(SimulatorError::elf(
                     "Code patch must specify either 'address' or 'symbol'",

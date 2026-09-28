@@ -151,6 +151,34 @@ fn parse_hex_u64(value: &str) -> Option<u64> {
     u64::from_str_radix(cleaned, 16).ok()
 }
 
+fn parse_signed_offset_i64(value: &str) -> Option<i64> {
+    let cleaned = value.trim();
+    if cleaned.is_empty() {
+        return None;
+    }
+    let (negative, digits) = if let Some(rest) = cleaned.strip_prefix('-') {
+        (true, rest)
+    } else if let Some(rest) = cleaned.strip_prefix('+') {
+        (false, rest)
+    } else {
+        (false, cleaned)
+    };
+
+    let magnitude = if let Some(hex) = digits
+        .strip_prefix("0x")
+        .or_else(|| digits.strip_prefix("0X"))
+    {
+        u64::from_str_radix(hex, 16).ok()?
+    } else {
+        digits.parse::<u64>().ok()?
+    };
+    if magnitude > i64::MAX as u64 {
+        return None;
+    }
+    let magnitude = magnitude as i64;
+    Some(if negative { -magnitude } else { magnitude })
+}
+
 /// Resolves an address to "file:line" using the ELF DWARF debug information.
 fn source_location(file_data: &ElfFile, address: u64) -> Option<String> {
     let debug_context = file_data.get_debug_context();
@@ -255,7 +283,8 @@ struct LoadElfParams {
     #[serde(default)]
     no_injection_filter: Option<bool>,
     /// Code patches to apply: list of {address: "0x...", data_u8|data_u16|data_u32: "..."}
-    /// or {symbol: "name", data_u8|data_u16|data_u32: "..."}. `data_u8` is a literal hex
+    /// or {symbol: "name+0x10"/"name-20", data_u8|data_u16|data_u32: "..."}.
+    /// The legacy separate `offset` field is also accepted. `data_u8` is a literal hex
     /// byte stream (first byte = lowest address); `data_u16`/`data_u32` store a
     /// little-endian value of the given width.
     #[serde(default)]
@@ -424,7 +453,7 @@ impl FaultSimulatorServer {
                     .ok()?;
                     let offset = patch
                         .get("offset")
-                        .and_then(|o| parse_hex_u64(o))
+                        .and_then(|o| parse_signed_offset_i64(o))
                         .unwrap_or(0);
                     if let Some(addr_str) = patch.get("address") {
                         Some(CodePatch {
@@ -455,6 +484,11 @@ impl FaultSimulatorServer {
         // Load ELF file
         let mut file_data = ElfFile::new(path.clone())
             .map_err(|e| McpError::internal_error(format!("Failed to load ELF: {}", e), None))?;
+
+        // Resolve symbol-based locations once so runtime only operates on addresses.
+        file_data.resolve_config_symbols(&mut config).map_err(|e| {
+            McpError::internal_error(format!("Failed to resolve symbols: {}", e), None)
+        })?;
 
         // Apply code patches
         if !config.code_patches.is_empty() {

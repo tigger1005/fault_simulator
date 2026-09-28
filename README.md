@@ -317,7 +317,8 @@ an overlapping region, because the ELF segments are loaded after the regions.
 {
   code_patches: [
     { symbol: "decision_activation", data_u16: "0x4770" },              // bx lr → return immediately
-    { symbol: "check_secret", offset: "0x10", data_u16: "0x2001" },     // movs r0, #1 at symbol+0x10
+    { symbol: "check_secret+0x10", data_u16: "0x2001" },                // movs r0, #1 at symbol+0x10
+    { symbol: "check_secret-20", data_u16: "0x2001" },                  // decimal offsets also work
     { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop
     { address: "0x08000300", data_u8: "70470120" },                     // bx lr; movs r0, #1 (literal bytes)
   ],
@@ -325,7 +326,8 @@ an overlapping region, because the ELF segments are loaded after the regions.
 ```
 
 Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table,
-optionally with `offset`). Symbol-based patches survive firmware rebuilds. Each patch
+optionally with `+offset` / `-offset`, where offset can be decimal or hex). The legacy
+separate `offset` field is still supported. Symbol-based patches survive firmware rebuilds. Each patch
 also uses **exactly one** of `data_u8` (literal byte stream), `data_u16`, or `data_u32`
 (little-endian value) — see the `Memory regions` field table above for their exact
 semantics.
@@ -343,17 +345,18 @@ values at a given address:
 {
   result_checks: {
     success_checks: [
-      { address: "0x08000490", expected_registers: { R0: "0x00000000" } },
+      { symbol: "start_success_handling+0", expected_registers: { R0: "0x00000000" } },
     ],
     failure_checks: [
-      { address: "0x08000490", expected_registers: { R0: "0xFFFFFFFF" } },
+      { symbol: "start_success_handling+0", expected_registers: { R0: "0xFFFFFFFF" } },
     ],
   },
 }
 ```
 
 All listed registers must match for a check to trigger. `result_checks` takes precedence
-over `success_addresses` / `failure_addresses`.
+over `success_addresses` / `failure_addresses`. Every check accepts either `address` or
+`symbol`; symbol supports compact `name+offset` / `name-offset` syntax (hex or decimal offsets).
 
 </details>
 
