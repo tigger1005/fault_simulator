@@ -1,0 +1,16 @@
+// Test configuration for memory region initialization with a little-endian u16
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    memory_regions: [
+        {
+            address: "0x30000000",
+            size: "0x1000",
+            data_u16: "0x5678",
+        },
+    ],
+}

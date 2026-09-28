@@ -556,6 +556,23 @@ fn test_memory_region_data_u8_init() {
 }
 
 #[test]
+/// Test memory region u16 initialization from JSON5 config
+///
+/// This verifies that a config using `data_u16` is accepted by the CLI and
+/// reaches the simulation pipeline without triggering a memory mapping error.
+fn test_memory_region_data_u16_init() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_memory_region_data_u16.json5",
+        "--no-check",
+    ]);
+
+    cmd.assert().success();
+}
+
+#[test]
 /// Test memory region u32 initialization from JSON5 config
 ///
 /// This verifies that a config using `data_u32` is accepted by the CLI and
