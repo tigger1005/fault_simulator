@@ -10,7 +10,7 @@
         // Patch unmapped memory read at 0x08000496 to load expected value directly
         {
             address: "0x08000496",
-            data: "0x4FF0125A",
+            data_u32: "0x4FF0125A",
         },
     ],
 }

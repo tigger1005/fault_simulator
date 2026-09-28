@@ -11,7 +11,7 @@
         {
             symbol: "check_secret",
             offset: "0x4",
-            data: "0x2001",  // movs r0, #1
+            data_u16: "0x2001",  // movs r0, #1
         },
     ],
 }

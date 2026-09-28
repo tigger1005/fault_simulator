@@ -472,6 +472,73 @@ pub struct Args {
     pub no_injection_filter: bool,
 }
 
+/// Parse a `data_u8` hex byte-stream string into raw bytes.
+///
+/// The string lists the patch bytes in increasing-address order: the first
+/// byte pair is the value stored at the lowest address. Whitespace between
+/// byte pairs is optional and ignored, so `"0102030A0B"` and
+/// `"01 02 03 0A 0B"` are equivalent. An optional leading `0x`/`0X` is
+/// stripped before decoding.
+pub fn parse_data_u8(s: &str) -> Result<Vec<u8>, String> {
+    let no_ws: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    let hex = no_ws
+        .strip_prefix("0x")
+        .or_else(|| no_ws.strip_prefix("0X"))
+        .unwrap_or(&no_ws);
+    if hex.is_empty() || hex.len() % 2 != 0 {
+        return Err(format!(
+            "data_u8 value '{}' must contain a non-empty, even number of hex digits",
+            s
+        ));
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
+        .collect::<Result<Vec<u8>, _>>()
+        .map_err(|e| format!("Invalid data_u8 value '{}': {}", s, e))
+}
+
+/// Parse a `data_u16` hex value string into its 2-byte little-endian ARM
+/// representation.
+pub fn parse_data_u16(s: &str) -> Result<Vec<u8>, String> {
+    let val = parse_hex(s)?;
+    let val = u16::try_from(val).map_err(|_| format!("data_u16 value '{}' exceeds 16 bits", s))?;
+    Ok(val.to_le_bytes().to_vec())
+}
+
+/// Parse a `data_u32` hex value string into its 4-byte little-endian ARM
+/// representation.
+pub fn parse_data_u32(s: &str) -> Result<Vec<u8>, String> {
+    let val = parse_hex(s)?;
+    let val = u32::try_from(val).map_err(|_| format!("data_u32 value '{}' exceeds 32 bits", s))?;
+    Ok(val.to_le_bytes().to_vec())
+}
+
+/// Resolve exactly one of the three typed patch data fields (`data_u8`,
+/// `data_u16`, `data_u32`) into raw patch bytes.
+///
+/// Returns an error if none or more than one of the fields is provided.
+/// Shared by the JSON5 `code_patches`/`memory_regions` deserializers and the
+/// MCP `load_elf` tool's ad-hoc `code_patches` parameter, so both paths patch
+/// memory with identical, unambiguous semantics.
+pub fn resolve_patch_data(
+    data_u8: Option<&str>,
+    data_u16: Option<&str>,
+    data_u32: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    match (data_u8, data_u16, data_u32) {
+        (Some(v), None, None) => parse_data_u8(v),
+        (None, Some(v), None) => parse_data_u16(v),
+        (None, None, Some(v)) => parse_data_u32(v),
+        (None, None, None) => Err(
+            "Specify exactly one of 'data_u8', 'data_u16', or 'data_u32'".to_string(),
+        ),
+        _ => Err(
+            "Specify only one of 'data_u8', 'data_u16', or 'data_u32'".to_string(),
+        ),
+    }
+}
+
 /// Custom deserializer for code patches
 pub fn deserialize_code_patches<'de, D>(deserializer: D) -> Result<Vec<CodePatch>, D::Error>
 where
@@ -484,7 +551,9 @@ where
         address: Option<String>,
         symbol: Option<String>,
         offset: Option<String>,
-        data: String,
+        data_u8: Option<String>,
+        data_u16: Option<String>,
+        data_u32: Option<String>,
     }
 
     let patches: Vec<CodePatchHelper> = Deserialize::deserialize(deserializer)?;
@@ -521,19 +590,12 @@ where
                 0
             };
 
-            let hex_val = parse_hex(&patch.data).map_err(de::Error::custom)?;
-
-            // Convert u64 to bytes (little-endian, remove leading zeros)
-            let mut bytes = Vec::new();
-            let mut val = hex_val;
-            if val == 0 {
-                bytes.push(0);
-            } else {
-                while val > 0 {
-                    bytes.push((val & 0xFF) as u8);
-                    val >>= 8;
-                }
-            }
+            let bytes = resolve_patch_data(
+                patch.data_u8.as_deref(),
+                patch.data_u16.as_deref(),
+                patch.data_u32.as_deref(),
+            )
+            .map_err(de::Error::custom)?;
 
             Ok(CodePatch {
                 address,
@@ -557,8 +619,10 @@ where
     struct MemoryRegionHelper {
         address: String,
         size: String,
-        file: Option<String>, // Optional binary file to load
-        data: Option<String>, // Optional hex value the region is initialized with
+        file: Option<String>,      // Optional binary file to load
+        data_u8: Option<String>,   // Optional hex byte stream the region is initialized with
+        data_u16: Option<String>,  // Optional 16-bit LE value the region is initialized with
+        data_u32: Option<String>,  // Optional 32-bit LE value the region is initialized with
         #[serde(default)]
         force_overwrite: bool, // If true, merge ELF segments to allow overwriting
     }
@@ -571,19 +635,32 @@ where
             let address = parse_hex(&region.address).map_err(de::Error::custom)?;
             let size = parse_hex(&region.size).map_err(de::Error::custom)?;
 
+            let inline_data = if region.data_u8.is_some()
+                || region.data_u16.is_some()
+                || region.data_u32.is_some()
+            {
+                Some(
+                    resolve_patch_data(
+                        region.data_u8.as_deref(),
+                        region.data_u16.as_deref(),
+                        region.data_u32.as_deref(),
+                    )
+                    .map_err(de::Error::custom)?,
+                )
+            } else {
+                None
+            };
+
             // A region is initialized either from a binary file or from an inline value
-            let data = match (region.file, region.data) {
+            let data = match (region.file, inline_data) {
                 (Some(_), Some(_)) => {
                     return Err(de::Error::custom(format!(
-                        "Memory region 0x{:08X}: use either 'file' or 'data', not both",
+                        "Memory region 0x{:08X}: use either 'file' or one of 'data_u8'/'data_u16'/'data_u32', not both",
                         address
                     )))
                 }
                 (Some(file_path), None) => Some(fs::read(file_path).map_err(de::Error::custom)?),
-                (None, Some(value)) => {
-                    let value = parse_hex(&value).map_err(de::Error::custom)?;
-                    Some(value.to_le_bytes().to_vec())
-                }
+                (None, Some(bytes)) => Some(bytes),
                 (None, None) => None,
             };
 
@@ -694,6 +771,104 @@ mod tests {
     #[test]
     fn parse_hex_empty_returns_error() {
         assert!(parse_hex("").is_err());
+    }
+
+    #[test]
+    fn data_u8_decodes_contiguous_hex_stream() {
+        assert_eq!(
+            parse_data_u8("0102030405060708090A0B").unwrap(),
+            vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B]
+        );
+    }
+
+    #[test]
+    fn data_u8_decodes_space_separated_hex_stream() {
+        assert_eq!(
+            parse_data_u8("01 02 03 04 05 06 07 08 0A 0B").unwrap(),
+            vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0A, 0x0B]
+        );
+    }
+
+    #[test]
+    fn data_u8_odd_length_is_error() {
+        assert!(parse_data_u8("010").is_err());
+    }
+
+    #[test]
+    fn data_u16_stores_little_endian() {
+        assert_eq!(parse_data_u16("0x12").unwrap(), vec![0x12, 0x00]);
+        assert_eq!(parse_data_u16("0x125").unwrap(), vec![0x25, 0x01]);
+        assert_eq!(parse_data_u16("0x12ab").unwrap(), vec![0xAB, 0x12]);
+    }
+
+    #[test]
+    fn data_u16_overflow_is_error() {
+        assert!(parse_data_u16("0x10000").is_err());
+    }
+
+    #[test]
+    fn data_u32_stores_little_endian() {
+        assert_eq!(parse_data_u32("0x12").unwrap(), vec![0x12, 0x00, 0x00, 0x00]);
+        assert_eq!(parse_data_u32("0x125").unwrap(), vec![0x25, 0x01, 0x00, 0x00]);
+        assert_eq!(
+            parse_data_u32("0x12abcdef").unwrap(),
+            vec![0xEF, 0xCD, 0xAB, 0x12]
+        );
+    }
+
+    #[test]
+    fn data_u32_overflow_is_error() {
+        assert!(parse_data_u32("0x100000000").is_err());
+    }
+
+    #[test]
+    fn resolve_patch_data_requires_exactly_one_field() {
+        assert!(resolve_patch_data(None, None, None).is_err());
+        assert!(resolve_patch_data(Some("01"), Some("0x1"), None).is_err());
+        assert!(resolve_patch_data(Some("01"), None, None).is_ok());
+    }
+
+    #[test]
+    fn code_patch_requires_one_data_field() {
+        let json =
+            r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.code_patches[0].data, vec![0x70, 0x47]);
+    }
+
+    #[test]
+    fn code_patch_missing_data_field_is_error() {
+        let json = r#"{"code_patches": [{"address": "0x1000"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn code_patch_multiple_data_fields_is_error() {
+        let json = r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x1", "data_u32": "0x1"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn code_patch_data_u8_is_literal_byte_stream() {
+        let json = r#"{"code_patches": [{"address": "0x1000", "data_u8": "70470120"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.code_patches[0].data, vec![0x70, 0x47, 0x01, 0x20]);
+    }
+
+    #[test]
+    fn memory_region_data_and_file_mutually_exclusive() {
+        let json = r#"{"memory_regions": [{"address": "0x1000", "size": "0x10", "file": "x.bin", "data_u32": "0x1"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn memory_region_without_data_is_none() {
+        let json = r#"{"memory_regions": [{"address": "0x1000", "size": "0x10"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.memory_regions[0].data.is_none());
     }
 
     #[test]

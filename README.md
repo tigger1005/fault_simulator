@@ -283,7 +283,8 @@ decimal numbers; register names are case insensitive.
   memory_regions: [
     { address: "0x20000000", size: "0x20000" },                       // 128 KB SRAM
     { address: "0x40000000", size: "0x10000", file: "periph.bin" },   // peripherals from file
-    { address: "0x30000000", size: "0x1000",  data: "0xDEADBEEF" },   // inline init value
+    { address: "0x30000000", size: "0x1000",  data_u32: "0xDEADBEEF" }, // inline init value
+    { address: "0x30001000", size: "0x10",    data_u8: "0102030405060708090A0B" }, // inline byte stream
     { address: "0x34000000", size: "0x10000", file: "sram_dump.bin",
       force_overwrite: true },                                        // merge fragmented ELF segments
   ],
@@ -295,10 +296,14 @@ decimal numbers; register names are case insensitive.
 | `address` | hex string | Start of the region |
 | `size` | hex string | Size in bytes |
 | `file` | string, optional | Binary file loaded into the region |
-| `data` | hex string, optional | Little-endian value the region is initialized with |
+| `data_u8` | hex string, optional | Literal byte stream; first byte pair = lowest address (spaces optional, e.g. `"01 02 0A"`) |
+| `data_u16` | hex string, optional | 16-bit value stored little-endian at `address` |
+| `data_u32` | hex string, optional | 32-bit value stored little-endian at `address` |
 | `force_overwrite` | bool, optional | Merge fragmented ELF segments so the whole region can be overwritten |
 
-`file` and `data` are mutually exclusive; specifying both is a configuration error.
+`file` and `data_u8`/`data_u16`/`data_u32` are mutually exclusive; specifying `file`
+together with any of them, or more than one of `data_u8`/`data_u16`/`data_u32`, is a
+configuration error.
 Regions are zeroed and re-initialized before *every* simulation run, so a fault that
 writes into a region cannot influence the following run. ELF content still wins over
 an overlapping region, because the ELF segments are loaded after the regions.
@@ -311,17 +316,22 @@ an overlapping region, because the ELF segments are loaded after the regions.
 ```json5
 {
   code_patches: [
-    { symbol: "decision_activation", data: "0x4770" },              // bx lr → return immediately
-    { symbol: "check_secret", offset: "0x10", data: "0x2001" },      // movs r0, #1 at symbol+0x10
-    { address: "0x08000200", data: "0xbf00bf00" },                   // nop; nop
+    { symbol: "decision_activation", data_u16: "0x4770" },              // bx lr → return immediately
+    { symbol: "check_secret", offset: "0x10", data_u16: "0x2001" },     // movs r0, #1 at symbol+0x10
+    { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop
+    { address: "0x08000300", data_u8: "70470120" },                     // bx lr; movs r0, #1 (literal bytes)
   ],
 }
 ```
 
 Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table,
-optionally with `offset`). Symbol-based patches survive firmware rebuilds.
+optionally with `offset`). Symbol-based patches survive firmware rebuilds. Each patch
+also uses **exactly one** of `data_u8` (literal byte stream), `data_u16`, or `data_u32`
+(little-endian value) — see the `Memory regions` field table above for their exact
+semantics.
 
 </details>
+
 
 <details>
 <summary><b>Result checks</b> — define success by register state</summary>
