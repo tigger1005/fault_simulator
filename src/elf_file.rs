@@ -345,12 +345,17 @@ impl ElfFile {
         log::info!("Applying {} code patches to ELF data...", patches.len());
 
         for patch in patches {
-            // Symbols are expected to be resolved up front, but keep fallback resolution
+            // Symbols are expected to be resolved up front. Symbol fallback is retained
             // for direct unit test construction and backward compatibility.
             let address = if let Some(sym_name) = &patch.symbol {
                 self.resolve_symbol_address(sym_name, patch.offset)?
             } else if let Some(addr) = patch.address {
-                addr.wrapping_add_signed(patch.offset)
+                if patch.offset != 0 {
+                    return Err(SimulatorError::elf(
+                        "Code patch address+offset must be resolved before apply_patches",
+                    ));
+                }
+                addr
             } else {
                 return Err(SimulatorError::elf(
                     "Code patch must specify either 'address' or 'symbol'",

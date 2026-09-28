@@ -792,7 +792,7 @@ impl<'de> Deserialize<'de> for RegisterCheck {
 
         #[derive(Deserialize)]
         struct RegisterCheckHelper {
-            address: Option<String>,
+            address: Option<serde_json::Value>,
             symbol: Option<String>,
             offset: Option<String>,
             #[serde(deserialize_with = "deserialize_register_context")]
@@ -820,8 +820,19 @@ impl<'de> Deserialize<'de> for RegisterCheck {
             0
         };
 
-        let address = if let Some(addr_str) = &helper.address {
-            Some(parse_hex(addr_str).map_err(de::Error::custom)?)
+        let address = if let Some(addr_value) = &helper.address {
+            let parsed = match addr_value {
+                serde_json::Value::String(s) => parse_hex(s).map_err(de::Error::custom)?,
+                serde_json::Value::Number(n) => n.as_u64().ok_or_else(|| {
+                    de::Error::custom("Register check address number must be a positive integer")
+                })?,
+                _ => {
+                    return Err(de::Error::custom(
+                        "Register check address must be a string or number",
+                    ));
+                }
+            };
+            Some(parsed)
         } else {
             None
         };
@@ -1023,6 +1034,34 @@ mod tests {
         assert_eq!(checks.failure_checks[0].offset, -0x10);
         assert!(checks.success_checks[0].address.is_none());
         assert!(checks.failure_checks[0].address.is_none());
+    }
+
+    #[test]
+    fn register_check_supports_numeric_address() {
+        let json = r#"{
+            "result_checks": {
+                "success_checks": [
+                    { "address": 134218896, "expected_registers": { "R0": "0x1" } }
+                ]
+            }
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        let checks = config.result_checks.unwrap();
+        assert_eq!(checks.success_checks[0].address, Some(134218896));
+        assert!(checks.success_checks[0].symbol.is_none());
+    }
+
+    #[test]
+    fn register_check_rejects_address_and_symbol_together() {
+        let json = r#"{
+            "result_checks": {
+                "success_checks": [
+                    { "address": "0x08000490", "symbol": "start_success_handling", "expected_registers": { "R0": "0x1" } }
+                ]
+            }
+        }"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 
     #[test]
