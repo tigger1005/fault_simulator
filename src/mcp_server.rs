@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use fault_simulator::cli_args::resolve_patch_data;
 use fault_simulator::prelude::*;
 
 use addr2line::fallible_iterator::FallibleIterator;
@@ -253,7 +254,10 @@ struct LoadElfParams {
     /// program executes data as code. Enumerating them is slow and rarely useful. Default: false.
     #[serde(default)]
     no_injection_filter: Option<bool>,
-    /// Code patches to apply: list of {address: "0x...", data: "0x..."} or {symbol: "name", data: "0x..."}
+    /// Code patches to apply: list of {address: "0x...", data_u8|data_u16|data_u32: "..."}
+    /// or {symbol: "name", data_u8|data_u16|data_u32: "..."}. `data_u8` is a literal hex
+    /// byte stream (first byte = lowest address); `data_u16`/`data_u32` store a
+    /// little-endian value of the given width.
     #[serde(default)]
     code_patches: Option<Vec<HashMap<String, String>>>,
 }
@@ -412,12 +416,12 @@ impl FaultSimulatorServer {
             config.code_patches = patches
                 .iter()
                 .filter_map(|patch| {
-                    let data_str = patch.get("data")?;
-                    let data_hex = data_str.strip_prefix("0x").unwrap_or(data_str);
-                    let data = (0..data_hex.len())
-                        .step_by(2)
-                        .filter_map(|i| u8::from_str_radix(&data_hex[i..i + 2], 16).ok())
-                        .collect::<Vec<u8>>();
+                    let data = resolve_patch_data(
+                        patch.get("data_u8").map(String::as_str),
+                        patch.get("data_u16").map(String::as_str),
+                        patch.get("data_u32").map(String::as_str),
+                    )
+                    .ok()?;
                     let offset = patch
                         .get("offset")
                         .and_then(|o| parse_hex_u64(o))
@@ -1095,8 +1099,8 @@ mod tests {
             "failure_addresses": ["0x8000300"],
             "no_check": true,
             "code_patches": [
-                {"address": "0x08000100", "data": "0x4770"},
-                {"symbol": "check_secret", "data": "0xbf00"}
+                {"address": "0x08000100", "data_u16": "0x4770"},
+                {"symbol": "check_secret", "data_u16": "0xbf00"}
             ]
         }"#;
         let params: LoadElfParams = serde_json::from_str(json).unwrap();

@@ -317,17 +317,22 @@ an overlapping region, because the ELF segments are loaded after the regions.
 ```json5
 {
   code_patches: [
-    { symbol: "decision_activation", data: "0x4770" },              // bx lr → return immediately
-    { symbol: "check_secret", offset: "0x10", data: "0x2001" },      // movs r0, #1 at symbol+0x10
-    { address: "0x08000200", data: "0xbf00bf00" },                   // nop; nop
+    { symbol: "decision_activation", data_u16: "0x4770" },              // bx lr → return immediately
+    { symbol: "check_secret", offset: "0x10", data_u16: "0x2001" },     // movs r0, #1 at symbol+0x10
+    { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop
+    { address: "0x08000300", data_u8: "70470120" },                     // bx lr; movs r0, #1 (literal bytes)
   ],
 }
 ```
 
 Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table,
-optionally with `offset`). Symbol-based patches survive firmware rebuilds.
+optionally with `offset`). Symbol-based patches survive firmware rebuilds. Each patch
+also uses **exactly one** of `data_u8` (literal byte stream), `data_u16`, or `data_u32`
+(little-endian value) — see the `Memory regions` field table above for their exact
+semantics.
 
 </details>
+
 
 <details>
 <summary><b>Result checks</b> — define success by register state</summary>

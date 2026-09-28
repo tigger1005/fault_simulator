@@ -10,7 +10,7 @@
         // Patch check_secret function to return immediately with success (return 1)
         {
             symbol: "check_secret",
-            data: "0x47702001",  // bx lr; movs r0, #1
+            data_u32: "0x47702001",  // bx lr; movs r0, #1
         },
     ],
 }
