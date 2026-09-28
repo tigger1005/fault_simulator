@@ -13,7 +13,7 @@
         {
             address: "0x30000000",
             size: "0x1000",         // 4 KB
-            data: "0xA5A5A5A5",
+            data_u32: "0xA5A5A5A5",
         },
     ],
 }

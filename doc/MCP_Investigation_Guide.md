@@ -37,7 +37,7 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 | `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
 | `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
 | `no_injection_filter` | boolean | no     | false     | Also place follow-up faults outside the executable image (slow, see Section 2.10)        |
-| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data: "0x..."}` or `{symbol: "name", data: "0x..."}` |
+| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data_u8|data_u16|data_u32: "..."}` or `{symbol: "name", data_u8|data_u16|data_u32: "..."}` |
 
 Explicit parameters override the values coming from `config_file` / `config_json5`.
 The configuration route additionally unlocks `initial_registers`, `memory_regions`,
@@ -371,7 +371,7 @@ Example configuration for a register-based verdict:
   max_instructions: 20000,
   initial_registers: { SP: "0x20010000", R0: "0x20000100" },
   memory_regions: [
-    { address: "0x20000100", size: "0x100", data: "0x00112233" },
+    { address: "0x20000100", size: "0x100", data_u32: "0x00112233" },
   ],
   result_checks: {
     success_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000000" } } ],
