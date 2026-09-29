@@ -13,16 +13,21 @@ pub fn run(config: Config, file_data: &ElfFile) -> Result<Option<FaultAttacks>, 
     let analysis = config.analysis;
     let print_analysis = config.print_analysis;
 
+    // Resolve every symbol/offset expression against the ELF symbol table once,
+    // right after the ELF file is loaded; everything downstream deals only
+    // with plain addresses.
+    let resolved = config.resolve_addresses(file_data)?;
+
     // Create simulation configuration
     let sim_config = SimulationConfig::new(
         config.max_instructions,
         config.deep_analysis,
-        config.success_addresses,
-        config.failure_addresses,
-        config.initial_registers,
-        config.memory_regions,
+        resolved.success_addresses,
+        resolved.failure_addresses,
+        resolved.initial_registers,
+        resolved.memory_regions,
         config.log_level.clone(),
-        config.result_checks,
+        resolved.result_checks,
     )
     .with_result_timeout(match config.result_timeout {
         0 => None,

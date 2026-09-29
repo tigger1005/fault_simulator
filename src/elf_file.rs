@@ -222,39 +222,7 @@ impl ElfFile {
         log::info!("Applying {} code patches to ELF data...", patches.len());
 
         for patch in patches {
-            // Resolve address from symbol if needed, otherwise use direct address
-            let address = if let Some(sym_name) = &patch.symbol {
-                let symbol = self.symbol_map.get(sym_name).ok_or_else(|| {
-                    SimulatorError::elf(format!("Symbol '{}' not found in ELF file", sym_name))
-                })?;
-
-                // Clear LSB for Thumb mode indicator - actual code is at even address
-                let mut actual_address = symbol.st_value & !1;
-
-                // Add offset if provided
-                if patch.offset != 0 {
-                    actual_address = actual_address.wrapping_add(patch.offset);
-                    log::debug!(
-                        "  Resolving symbol '{}' + 0x{:X} to address 0x{:08X}",
-                        sym_name,
-                        patch.offset,
-                        actual_address
-                    );
-                } else {
-                    log::debug!(
-                        "  Resolving symbol '{}' to address 0x{:08X}",
-                        sym_name,
-                        actual_address
-                    );
-                }
-                actual_address
-            } else if let Some(addr) = patch.address {
-                addr
-            } else {
-                return Err(SimulatorError::elf(
-                    "Code patch must specify either 'address' or 'symbol'",
-                ));
-            };
+            let address = patch.address.resolve(&self.symbol_map)?;
 
             log::debug!(
                 "  Patching address 0x{:08X} with {} bytes",

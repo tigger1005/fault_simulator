@@ -142,15 +142,6 @@ fn truncate_output(text: &str, max_lines: Option<usize>) -> String {
     }
 }
 
-/// Parses a hex string with optional "0x" prefix into an address.
-fn parse_hex_u64(value: &str) -> Option<u64> {
-    let cleaned = value
-        .strip_prefix("0x")
-        .or_else(|| value.strip_prefix("0X"))
-        .unwrap_or(value);
-    u64::from_str_radix(cleaned, 16).ok()
-}
-
 /// Resolves an address to "file:line" using the ELF DWARF debug information.
 fn source_location(file_data: &ElfFile, address: u64) -> Option<String> {
     let debug_context = file_data.get_debug_context();
@@ -236,10 +227,11 @@ struct LoadElfParams {
     /// Enable deep analysis of loops
     #[serde(default)]
     deep_analysis: Option<bool>,
-    /// Memory addresses that indicate attack success (hex strings like "0x8000123")
+    /// Memory addresses that indicate attack success: hex strings like "0x8000123",
+    /// symbol names, or "symbol+offset"/"symbol-offset" (offset in hex or decimal).
     #[serde(default)]
     success_addresses: Option<Vec<String>>,
-    /// Memory addresses that indicate attack failure (hex strings like "0x8000789")
+    /// Memory addresses that indicate attack failure: same format as `success_addresses`.
     #[serde(default)]
     failure_addresses: Option<Vec<String>>,
     /// Skip program behavior validation
@@ -255,9 +247,11 @@ struct LoadElfParams {
     #[serde(default)]
     no_injection_filter: Option<bool>,
     /// Code patches to apply: list of {address: "0x...", data_u8|data_u16|data_u32: "..."}
-    /// or {symbol: "name", data_u8|data_u16|data_u32: "..."}. `data_u8` is a literal hex
-    /// byte stream (first byte = lowest address); `data_u16`/`data_u32` store a
-    /// little-endian value of the given width.
+    /// or {symbol: "name"[+/-offset], data_u8|data_u16|data_u32: "..."}. The offset (hex
+    /// or decimal) is embedded directly in the `address`/`symbol` string, e.g.
+    /// {symbol: "check_secret+0x10", ...}. `data_u8` is a literal hex byte stream (first
+    /// byte = lowest address); `data_u16`/`data_u32` store a little-endian value of the
+    /// given width.
     #[serde(default)]
     code_patches: Option<Vec<HashMap<String, String>>>,
 }
@@ -407,10 +401,16 @@ impl FaultSimulatorServer {
             config.no_injection_filter = no_injection_filter;
         }
         if let Some(addresses) = &params.success_addresses {
-            config.success_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
+            config.success_addresses = addresses
+                .iter()
+                .filter_map(|s| AddressExpr::parse(s).ok())
+                .collect();
         }
         if let Some(addresses) = &params.failure_addresses {
-            config.failure_addresses = addresses.iter().filter_map(|s| parse_hex_u64(s)).collect();
+            config.failure_addresses = addresses
+                .iter()
+                .filter_map(|s| AddressExpr::parse(s).ok())
+                .collect();
         }
         if let Some(patches) = &params.code_patches {
             config.code_patches = patches
@@ -422,25 +422,12 @@ impl FaultSimulatorServer {
                         patch.get("data_u32").map(String::as_str),
                     )
                     .ok()?;
-                    let offset = patch
-                        .get("offset")
-                        .and_then(|o| parse_hex_u64(o))
-                        .unwrap_or(0);
-                    if let Some(addr_str) = patch.get("address") {
-                        Some(CodePatch {
-                            address: Some(parse_hex_u64(addr_str)?),
-                            symbol: None,
-                            offset,
-                            data,
-                        })
+                    let address = if let Some(addr_str) = patch.get("address") {
+                        AddressExpr::parse(addr_str).ok()?
                     } else {
-                        patch.get("symbol").map(|symbol| CodePatch {
-                            address: None,
-                            symbol: Some(symbol.clone()),
-                            offset,
-                            data,
-                        })
-                    }
+                        AddressExpr::parse_symbol(patch.get("symbol")?).ok()?
+                    };
+                    Some(CodePatch { address, data })
                 })
                 .collect();
         }
@@ -463,16 +450,22 @@ impl FaultSimulatorServer {
             })?;
         }
 
+        // Resolve every symbol/offset expression against the ELF symbol table once;
+        // everything downstream deals only with plain addresses.
+        let resolved = config.resolve_addresses(&file_data).map_err(|e| {
+            McpError::invalid_request(format!("Failed to resolve symbols: {}", e), None)
+        })?;
+
         // Create simulation config
         let sim_config = SimulationConfig::new(
             config.max_instructions,
             config.deep_analysis,
-            config.success_addresses.clone(),
-            config.failure_addresses.clone(),
-            config.initial_registers.clone(),
-            config.memory_regions.clone(),
+            resolved.success_addresses.clone(),
+            resolved.failure_addresses.clone(),
+            resolved.initial_registers.clone(),
+            resolved.memory_regions.clone(),
             config.log_level.clone(),
-            config.result_checks.clone(),
+            resolved.result_checks.clone(),
         )
         .with_result_timeout(match config.result_timeout {
             0 => None,
@@ -520,9 +513,9 @@ impl FaultSimulatorServer {
             max_instructions: config.max_instructions,
             deep_analysis: config.deep_analysis,
             no_check,
-            success_addresses: config.success_addresses.clone(),
-            failure_addresses: config.failure_addresses.clone(),
-            result_checks: config.result_checks.is_some(),
+            success_addresses: resolved.success_addresses.clone(),
+            failure_addresses: resolved.failure_addresses.clone(),
+            result_checks: resolved.result_checks.is_some(),
             initial_registers: config.initial_registers.len(),
             memory_regions: config.memory_regions.len(),
             code_patches: config.code_patches.len(),
@@ -1171,13 +1164,6 @@ mod tests {
         assert_eq!(truncate_output(text, None), text);
         assert!(truncate_output(text, Some(2)).starts_with("a\nb\n..."));
         assert_eq!(truncate_output(text, Some(10)), text);
-    }
-
-    #[test]
-    fn test_parse_hex_u64() {
-        assert_eq!(parse_hex_u64("0x08000100"), Some(0x0800_0100));
-        assert_eq!(parse_hex_u64("08000100"), Some(0x0800_0100));
-        assert_eq!(parse_hex_u64("zzz"), None);
     }
 
     #[test]

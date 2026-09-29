@@ -51,52 +51,156 @@ fn parse_hex(s: &str) -> Result<u64, String> {
     u64::from_str_radix(cleaned, 16).map_err(|e| format!("Invalid hex address '{}': {}", s, e))
 }
 
-/// Custom deserializer for hex addresses that can handle both strings and numbers
-// Wasn't able to find any other crate that could do Vec<u64>.
-fn deserialize_hex<'de, D>(deserializer: D) -> Result<Vec<u64>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::{self, Visitor};
-    use std::fmt;
-
-    struct HexAddressesVisitor;
-
-    impl<'de> Visitor<'de> for HexAddressesVisitor {
-        type Value = Vec<u64>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("an array of hex addresses (strings like \"0x123\" or numbers)")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<u64>, A::Error>
-        where
-            A: de::SeqAccess<'de>,
-        {
-            let mut addresses = Vec::new();
-
-            while let Some(value) = seq.next_element::<serde_json::Value>()? {
-                match value {
-                    serde_json::Value::String(s) => {
-                        let addr = parse_hex(&s).map_err(de::Error::custom)?;
-                        addresses.push(addr);
-                    }
-                    serde_json::Value::Number(n) => {
-                        if let Some(addr) = n.as_u64() {
-                            addresses.push(addr);
-                        } else {
-                            return Err(de::Error::custom("Invalid number for address"));
-                        }
-                    }
-                    _ => return Err(de::Error::custom("Address must be a string or number")),
+/// Splits a trailing `+<offset>` or `-<offset>` suffix off a symbol/address string.
+///
+/// Returns the base string (everything before the sign) and the signed offset,
+/// or `(s, 0)` if no valid offset suffix is present. The offset may be written
+/// in hex (`0x`/`0X` prefix) or decimal.
+fn split_trailing_offset(s: &str) -> (&str, i64) {
+    if let Some(idx) = s.rfind(['+', '-']) {
+        // idx > 0 so a leading sign (which would make the base empty) is ignored.
+        if idx > 0 {
+            let (base, rest) = s.split_at(idx);
+            let sign = &rest[..1];
+            let magnitude_str = &rest[1..];
+            if !magnitude_str.is_empty() {
+                let magnitude = match magnitude_str
+                    .strip_prefix("0x")
+                    .or_else(|| magnitude_str.strip_prefix("0X"))
+                {
+                    Some(hex) => u64::from_str_radix(hex, 16).ok(),
+                    None => magnitude_str.parse::<u64>().ok(),
+                };
+                if let Some(magnitude) = magnitude {
+                    let offset = if sign == "-" {
+                        -(magnitude as i64)
+                    } else {
+                        magnitude as i64
+                    };
+                    return (base, offset);
                 }
             }
+        }
+    }
+    (s, 0)
+}
 
-            Ok(addresses)
+/// Whether a bare string looks like a hex address literal (as opposed to a symbol name).
+fn is_hex_literal(s: &str) -> bool {
+    s.starts_with("0x") || s.starts_with("0X")
+}
+
+/// A memory location: either a concrete address, or a symbol name with an
+/// optional signed offset (e.g. `check_secret+0x10`, `check_secret-100`).
+///
+/// This is the unified representation used for every address-like value in
+/// the JSON5 configuration (`success_addresses`, `failure_addresses`,
+/// register values, code patch and result-check locations). Resolution to a
+/// concrete `u64` address happens once, right after the ELF file is loaded
+/// (see [`AddressExpr::resolve`]); everything downstream deals only with
+/// plain addresses, never with symbol names.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AddressExpr {
+    /// A concrete memory address.
+    Address(u64),
+    /// A symbol name with a signed byte offset (0 if none was given).
+    Symbol { name: String, offset: i64 },
+}
+
+impl AddressExpr {
+    /// Parses a string that may be a plain address or a symbol name, auto-detecting
+    /// which it is: strings starting with `0x`/`0X` are addresses, everything else
+    /// is a symbol name. Both forms may carry a trailing `+offset`/`-offset`
+    /// (hex or decimal), e.g. `"0x1000+4"` or `"check_secret+0x10"`.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("Address/symbol string must not be empty".to_string());
+        }
+        let (base, offset) = split_trailing_offset(s);
+        if is_hex_literal(base) {
+            let addr = parse_hex(base)?;
+            Ok(AddressExpr::Address(addr.wrapping_add_signed(offset)))
+        } else {
+            Ok(AddressExpr::Symbol {
+                name: base.to_string(),
+                offset,
+            })
         }
     }
 
-    deserializer.deserialize_seq(HexAddressesVisitor)
+    /// Parses a string that is already known to name a symbol (used where
+    /// `symbol` is a dedicated JSON key), so no address/symbol auto-detection
+    /// is needed. May carry a trailing `+offset`/`-offset` (hex or decimal).
+    pub fn parse_symbol(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("Symbol name must not be empty".to_string());
+        }
+        let (name, offset) = split_trailing_offset(s);
+        Ok(AddressExpr::Symbol {
+            name: name.to_string(),
+            offset,
+        })
+    }
+
+    /// Resolves this expression to a concrete address, looking up the symbol
+    /// table when needed. The Thumb LSB is cleared from resolved symbol
+    /// addresses (the actual code/data lives at the even address).
+    pub fn resolve(
+        &self,
+        symbol_map: &HashMap<String, elf::symbol::Symbol>,
+    ) -> Result<u64, SimulatorError> {
+        match self {
+            AddressExpr::Address(addr) => Ok(*addr),
+            AddressExpr::Symbol { name, offset } => {
+                let symbol = symbol_map.get(name).ok_or_else(|| {
+                    SimulatorError::elf(format!("Symbol '{}' not found in ELF file", name))
+                })?;
+                let base = symbol.st_value & !1;
+                Ok(base.wrapping_add_signed(*offset))
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AddressExpr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, Visitor};
+        use std::fmt;
+
+        struct AddressExprVisitor;
+
+        impl<'de> Visitor<'de> for AddressExprVisitor {
+            type Value = AddressExpr;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str(
+                    "an address (\"0x1234\"), a number, a symbol name, \
+                     or \"symbol+offset\"/\"symbol-offset\"",
+                )
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<AddressExpr, E>
+            where
+                E: de::Error,
+            {
+                AddressExpr::parse(value).map_err(de::Error::custom)
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<AddressExpr, E>
+            where
+                E: de::Error,
+            {
+                Ok(AddressExpr::Address(value))
+            }
+        }
+
+        deserializer.deserialize_any(AddressExprVisitor)
+    }
 }
 
 /// Convert register name string to RegisterARM enum
@@ -123,10 +227,11 @@ fn get_register_from_name(name: &str) -> Option<RegisterARM> {
     }
 }
 
-/// Custom deserializer for register context that validates register names and handles hex values
+/// Custom deserializer for register context that validates register names and
+/// handles hex/decimal values as well as symbol (+ offset) expressions.
 fn deserialize_register_context<'de, D>(
     deserializer: D,
-) -> Result<HashMap<RegisterARM, u64>, D::Error>
+) -> Result<HashMap<RegisterARM, AddressExpr>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -136,13 +241,13 @@ where
     struct RegisterContextVisitor;
 
     impl<'de> Visitor<'de> for RegisterContextVisitor {
-        type Value = HashMap<RegisterARM, u64>;
+        type Value = HashMap<RegisterARM, AddressExpr>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a map of register names to hex values")
+            formatter.write_str("a map of register names to hex values, symbols, or symbol+offset")
         }
 
-        fn visit_map<A>(self, mut map: A) -> Result<HashMap<RegisterARM, u64>, A::Error>
+        fn visit_map<A>(self, mut map: A) -> Result<HashMap<RegisterARM, AddressExpr>, A::Error>
         where
             A: de::MapAccess<'de>,
         {
@@ -155,10 +260,12 @@ where
                 })?;
 
                 let reg_value = match value {
-                    serde_json::Value::String(s) => parse_hex(&s).map_err(de::Error::custom)?,
+                    serde_json::Value::String(s) => {
+                        AddressExpr::parse(&s).map_err(de::Error::custom)?
+                    }
                     serde_json::Value::Number(n) => {
                         if let Some(val) = n.as_u64() {
-                            val
+                            AddressExpr::Address(val)
                         } else {
                             return Err(de::Error::custom(format!(
                                 "Invalid number for register {}: must be a positive integer",
@@ -211,20 +318,20 @@ pub struct Config {
     pub run_through: bool,
     #[serde(default)]
     pub print_analysis: Option<usize>,
-    #[serde(default, deserialize_with = "deserialize_hex")]
-    pub success_addresses: Vec<u64>,
-    #[serde(default, deserialize_with = "deserialize_hex")]
-    pub failure_addresses: Vec<u64>,
+    #[serde(default)]
+    pub success_addresses: Vec<AddressExpr>,
+    #[serde(default)]
+    pub failure_addresses: Vec<AddressExpr>,
     #[serde(default, deserialize_with = "deserialize_register_context")]
-    pub initial_registers: HashMap<RegisterARM, u64>,
+    pub initial_registers: HashMap<RegisterARM, AddressExpr>,
     #[serde(default, deserialize_with = "deserialize_code_patches")]
     pub code_patches: Vec<CodePatch>,
     #[serde(default, deserialize_with = "deserialize_memory_regions")]
-    pub memory_regions: Vec<MemoryRegion>,
+    pub memory_regions: Vec<MemoryRegionSpec>,
     #[serde(default)]
     pub log_level: String,
     #[serde(default)]
-    pub result_checks: Option<ResultChecks>,
+    pub result_checks: Option<ResultChecksSpec>,
     /// Seconds to wait for a worker result before aborting a campaign (0 = wait forever).
     #[serde(default = "Config::default_result_timeout")]
     pub result_timeout: u64,
@@ -289,8 +396,16 @@ impl Config {
             no_check: args.no_check,
             run_through: args.run_through,
             print_analysis: args.print_analysis,
-            success_addresses: args.success_addresses.clone(),
-            failure_addresses: args.failure_addresses.clone(),
+            success_addresses: args
+                .success_addresses
+                .iter()
+                .map(|&a| AddressExpr::Address(a))
+                .collect(),
+            failure_addresses: args
+                .failure_addresses
+                .iter()
+                .map(|&a| AddressExpr::Address(a))
+                .collect(),
             initial_registers: HashMap::new(),
             code_patches: Vec::new(),
             memory_regions: Vec::new(),
@@ -350,13 +465,77 @@ impl Config {
             self.elf = args.elf.clone();
         }
         if !args.success_addresses.is_empty() {
-            self.success_addresses = args.success_addresses.clone();
+            self.success_addresses = args
+                .success_addresses
+                .iter()
+                .map(|&a| AddressExpr::Address(a))
+                .collect();
         }
         if !args.failure_addresses.is_empty() {
-            self.failure_addresses = args.failure_addresses.clone();
+            self.failure_addresses = args
+                .failure_addresses
+                .iter()
+                .map(|&a| AddressExpr::Address(a))
+                .collect();
         }
         // Note: initial_registers, code_patches, memory_regions, and log_level from JSON config are preserved
     }
+
+    /// Resolves every symbol/offset expression in the configuration against
+    /// the loaded ELF file's symbol table, producing the plain addresses the
+    /// simulation engine consumes. Call this once, right after the ELF file
+    /// is loaded (and after `code_patches` have been applied, since those are
+    /// resolved separately by [`crate::elf_file::ElfFile::apply_patches`]).
+    pub fn resolve_addresses(
+        &self,
+        elf: &crate::elf_file::ElfFile,
+    ) -> Result<ResolvedAddresses, SimulatorError> {
+        let symbol_map = &elf.symbol_map;
+
+        let success_addresses = self
+            .success_addresses
+            .iter()
+            .map(|a| a.resolve(symbol_map))
+            .collect::<Result<_, _>>()?;
+        let failure_addresses = self
+            .failure_addresses
+            .iter()
+            .map(|a| a.resolve(symbol_map))
+            .collect::<Result<_, _>>()?;
+        let initial_registers = self
+            .initial_registers
+            .iter()
+            .map(|(reg, value)| Ok((*reg, value.resolve(symbol_map)?)))
+            .collect::<Result<_, SimulatorError>>()?;
+        let memory_regions = self
+            .memory_regions
+            .iter()
+            .map(|region| region.resolve(symbol_map))
+            .collect::<Result<_, _>>()?;
+        let result_checks = self
+            .result_checks
+            .as_ref()
+            .map(|checks| checks.resolve(symbol_map))
+            .transpose()?;
+
+        Ok(ResolvedAddresses {
+            success_addresses,
+            failure_addresses,
+            initial_registers,
+            memory_regions,
+            result_checks,
+        })
+    }
+}
+
+/// Every address/symbol expression in a [`Config`] resolved to a plain
+/// address, ready to hand to [`crate::simulation_thread::SimulationConfig`].
+pub struct ResolvedAddresses {
+    pub success_addresses: Vec<u64>,
+    pub failure_addresses: Vec<u64>,
+    pub initial_registers: HashMap<RegisterARM, u64>,
+    pub memory_regions: Vec<MemoryRegion>,
+    pub result_checks: Option<ResultChecks>,
 }
 
 /// Public function to parse hex addresses, used by CLI argument parser
@@ -550,7 +729,6 @@ where
     struct CodePatchHelper {
         address: Option<String>,
         symbol: Option<String>,
-        offset: Option<String>,
         data_u8: Option<String>,
         data_u16: Option<String>,
         data_u32: Option<String>,
@@ -562,7 +740,7 @@ where
         .into_iter()
         .map(|patch| {
             // Validate that exactly one of address or symbol is provided
-            match (&patch.address, &patch.symbol) {
+            let address = match (&patch.address, &patch.symbol) {
                 (None, None) => {
                     return Err(de::Error::custom(
                         "Code patch must specify either 'address' or 'symbol'",
@@ -573,21 +751,12 @@ where
                         "Code patch cannot specify both 'address' and 'symbol'",
                     ));
                 }
-                _ => {}
-            }
-
-            // Parse address if provided
-            let address = if let Some(addr_str) = patch.address {
-                Some(parse_hex(&addr_str).map_err(de::Error::custom)?)
-            } else {
-                None
-            };
-
-            // Parse offset if provided
-            let offset = if let Some(offset_str) = patch.offset {
-                parse_hex(&offset_str).map_err(de::Error::custom)?
-            } else {
-                0
+                (Some(addr_str), None) => {
+                    AddressExpr::parse(addr_str).map_err(de::Error::custom)?
+                }
+                (None, Some(symbol_str)) => {
+                    AddressExpr::parse_symbol(symbol_str).map_err(de::Error::custom)?
+                }
             };
 
             let bytes = resolve_patch_data(
@@ -599,8 +768,6 @@ where
 
             Ok(CodePatch {
                 address,
-                symbol: patch.symbol,
-                offset,
                 data: bytes,
             })
         })
@@ -608,7 +775,9 @@ where
 }
 
 /// Custom deserializer for memory regions
-pub fn deserialize_memory_regions<'de, D>(deserializer: D) -> Result<Vec<MemoryRegion>, D::Error>
+pub fn deserialize_memory_regions<'de, D>(
+    deserializer: D,
+) -> Result<Vec<MemoryRegionSpec>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -632,7 +801,7 @@ where
     regions
         .into_iter()
         .map(|region| {
-            let address = parse_hex(&region.address).map_err(de::Error::custom)?;
+            let address = AddressExpr::parse(&region.address).map_err(de::Error::custom)?;
             let size = parse_hex(&region.size).map_err(de::Error::custom)?;
 
             let inline_data = if region.data_u8.is_some()
@@ -654,17 +823,16 @@ where
             // A region is initialized either from a binary file or from an inline value
             let data = match (region.file, inline_data) {
                 (Some(_), Some(_)) => {
-                    return Err(de::Error::custom(format!(
-                        "Memory region 0x{:08X}: use either 'file' or one of 'data_u8'/'data_u16'/'data_u32', not both",
-                        address
-                    )))
+                    return Err(de::Error::custom(
+                        "Memory region: use either 'file' or one of 'data_u8'/'data_u16'/'data_u32', not both",
+                    ))
                 }
                 (Some(file_path), None) => Some(fs::read(file_path).map_err(de::Error::custom)?),
                 (None, Some(bytes)) => Some(bytes),
                 (None, None) => None,
             };
 
-            Ok(MemoryRegion {
+            Ok(MemoryRegionSpec {
                 address,
                 size,
                 data,
@@ -674,45 +842,39 @@ where
         .collect()
 }
 
-/// Deserialize a single hex string to u64
-fn deserialize_single_hex<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    use serde::de::{self, Visitor};
-
-    struct HexVisitor;
-
-    impl<'de> Visitor<'de> for HexVisitor {
-        type Value = u64;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a hex string (e.g., '0x1234') or a number")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<u64, E>
-        where
-            E: de::Error,
-        {
-            parse_hex(value).map_err(de::Error::custom)
-        }
-
-        fn visit_u64<E>(self, value: u64) -> Result<u64, E>
-        where
-            E: de::Error,
-        {
-            Ok(value)
-        }
-    }
-
-    deserializer.deserialize_any(HexVisitor)
-}
+/// A single code patch: the location to patch (address, symbol, or symbol+offset)
+/// and the replacement bytes.
 #[derive(Debug, Clone)]
 pub struct CodePatch {
-    pub address: Option<u64>,
-    pub symbol: Option<String>,
-    pub offset: u64,
+    pub address: AddressExpr,
     pub data: Vec<u8>,
+}
+
+/// A memory region as loaded from the configuration file, with its location
+/// not yet resolved against the ELF symbol table. Resolve with
+/// [`MemoryRegionSpec::resolve`] once the ELF file is available.
+#[derive(Debug, Clone)]
+pub struct MemoryRegionSpec {
+    pub address: AddressExpr,
+    pub size: u64,
+    pub data: Option<Vec<u8>>,
+    pub force_overwrite: bool,
+}
+
+impl MemoryRegionSpec {
+    /// Resolves the region's address against the ELF symbol table, producing
+    /// the plain-address [`MemoryRegion`] consumed by the simulation engine.
+    pub fn resolve(
+        &self,
+        symbol_map: &HashMap<String, elf::symbol::Symbol>,
+    ) -> Result<MemoryRegion, SimulatorError> {
+        Ok(MemoryRegion {
+            address: self.address.resolve(symbol_map)?,
+            size: self.size,
+            data: self.data.clone(),
+            force_overwrite: self.force_overwrite,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -723,25 +885,89 @@ pub struct MemoryRegion {
     pub force_overwrite: bool, // If true, merge ELF segments to allow overwriting
 }
 
-/// Configuration for register value checking at a specific address
+/// Configuration for register value checking at a specific address, as loaded
+/// from the configuration file with its location(s) not yet resolved against
+/// the ELF symbol table. Resolve with [`RegisterCheckSpec::resolve`] once the
+/// ELF file is available.
 #[derive(Debug, Clone, Deserialize)]
-pub struct RegisterCheck {
-    /// Address where register values should be checked
-    #[serde(deserialize_with = "deserialize_single_hex")]
-    pub address: u64,
+pub struct RegisterCheckSpec {
+    /// Address, symbol, or symbol+offset where register values should be checked
+    pub address: AddressExpr,
     /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
     #[serde(deserialize_with = "deserialize_register_context")]
+    pub expected_registers: HashMap<RegisterARM, AddressExpr>,
+}
+
+impl RegisterCheckSpec {
+    pub fn resolve(
+        &self,
+        symbol_map: &HashMap<String, elf::symbol::Symbol>,
+    ) -> Result<RegisterCheck, SimulatorError> {
+        let expected_registers = self
+            .expected_registers
+            .iter()
+            .map(|(reg, value)| Ok((*reg, value.resolve(symbol_map)?)))
+            .collect::<Result<_, SimulatorError>>()?;
+        Ok(RegisterCheck {
+            address: self.address.resolve(symbol_map)?,
+            expected_registers,
+        })
+    }
+}
+
+/// Configuration for register value checking at a specific (already resolved) address.
+/// Consumed directly by the simulation engine; construct via
+/// [`RegisterCheckSpec::resolve`] when parsing from a configuration file.
+#[derive(Debug, Clone)]
+pub struct RegisterCheck {
+    /// Address where register values should be checked
+    pub address: u64,
+    /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
     pub expected_registers: HashMap<RegisterARM, u64>,
 }
 
-/// Configuration for register-based success/failure checking
+/// Configuration for register-based success/failure checking, as loaded from
+/// the configuration file with locations not yet resolved against the ELF
+/// symbol table. Resolve with [`ResultChecksSpec::resolve`] once the ELF file
+/// is available.
 #[derive(Debug, Clone, Deserialize)]
-pub struct ResultChecks {
+pub struct ResultChecksSpec {
     /// List of register checks that indicate success
     #[serde(default)]
-    pub success_checks: Vec<RegisterCheck>,
+    pub success_checks: Vec<RegisterCheckSpec>,
     /// List of register checks that indicate failure
     #[serde(default)]
+    pub failure_checks: Vec<RegisterCheckSpec>,
+}
+
+impl ResultChecksSpec {
+    pub fn resolve(
+        &self,
+        symbol_map: &HashMap<String, elf::symbol::Symbol>,
+    ) -> Result<ResultChecks, SimulatorError> {
+        Ok(ResultChecks {
+            success_checks: self
+                .success_checks
+                .iter()
+                .map(|check| check.resolve(symbol_map))
+                .collect::<Result<_, _>>()?,
+            failure_checks: self
+                .failure_checks
+                .iter()
+                .map(|check| check.resolve(symbol_map))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+/// Configuration for register-based success/failure checking, resolved to
+/// plain addresses. Consumed directly by the simulation engine; construct via
+/// [`ResultChecksSpec::resolve`] when parsing from a configuration file.
+#[derive(Debug, Clone)]
+pub struct ResultChecks {
+    /// List of register checks that indicate success
+    pub success_checks: Vec<RegisterCheck>,
+    /// List of register checks that indicate failure
     pub failure_checks: Vec<RegisterCheck>,
 }
 #[cfg(test)]
@@ -913,8 +1139,34 @@ mod tests {
     fn config_hex_addresses() {
         let json = r#"{"success_addresses": ["0x1000", "0x2000"], "failure_addresses": [4096]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.success_addresses, vec![0x1000, 0x2000]);
-        assert_eq!(config.failure_addresses, vec![4096]);
+        assert_eq!(
+            config.success_addresses,
+            vec![AddressExpr::Address(0x1000), AddressExpr::Address(0x2000)]
+        );
+        assert_eq!(config.failure_addresses, vec![AddressExpr::Address(4096)]);
+    }
+
+    #[test]
+    fn config_symbol_addresses() {
+        let json = r#"{"success_addresses": ["check_secret", "check_secret+0x10", "check_secret-100"]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.success_addresses,
+            vec![
+                AddressExpr::Symbol {
+                    name: "check_secret".to_string(),
+                    offset: 0
+                },
+                AddressExpr::Symbol {
+                    name: "check_secret".to_string(),
+                    offset: 0x10
+                },
+                AddressExpr::Symbol {
+                    name: "check_secret".to_string(),
+                    offset: -100
+                },
+            ]
+        );
     }
 
     #[test]
@@ -922,8 +1174,27 @@ mod tests {
         let json = r#"{"initial_registers": {"R0": "0xFF", "SP": "0x20000000"}}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.initial_registers.len(), 2);
-        assert_eq!(config.initial_registers[&RegisterARM::R0], 0xFF);
-        assert_eq!(config.initial_registers[&RegisterARM::SP], 0x20000000);
+        assert_eq!(
+            config.initial_registers[&RegisterARM::R0],
+            AddressExpr::Address(0xFF)
+        );
+        assert_eq!(
+            config.initial_registers[&RegisterARM::SP],
+            AddressExpr::Address(0x20000000)
+        );
+    }
+
+    #[test]
+    fn config_initial_registers_symbol() {
+        let json = r#"{"initial_registers": {"R0": "decisiondata+0x4"}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.initial_registers[&RegisterARM::R0],
+            AddressExpr::Symbol {
+                name: "decisiondata".to_string(),
+                offset: 0x4
+            }
+        );
     }
 
     #[test]
@@ -931,6 +1202,109 @@ mod tests {
         let json = r#"{"initial_registers": {"INVALID": "0xFF"}}"#;
         let result: Result<Config, _> = serde_json::from_str(json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn address_expr_parses_plain_address() {
+        assert_eq!(AddressExpr::parse("0x1000").unwrap(), AddressExpr::Address(0x1000));
+    }
+
+    #[test]
+    fn address_expr_parses_bare_symbol() {
+        assert_eq!(
+            AddressExpr::parse("check_secret").unwrap(),
+            AddressExpr::Symbol {
+                name: "check_secret".to_string(),
+                offset: 0
+            }
+        );
+    }
+
+    #[test]
+    fn address_expr_parses_symbol_plus_hex_offset() {
+        assert_eq!(
+            AddressExpr::parse("check_secret+0x2A").unwrap(),
+            AddressExpr::Symbol {
+                name: "check_secret".to_string(),
+                offset: 0x2A
+            }
+        );
+    }
+
+    #[test]
+    fn address_expr_parses_symbol_minus_hex_offset() {
+        assert_eq!(
+            AddressExpr::parse("check_secret-0x10").unwrap(),
+            AddressExpr::Symbol {
+                name: "check_secret".to_string(),
+                offset: -0x10
+            }
+        );
+    }
+
+    #[test]
+    fn address_expr_parses_symbol_plus_decimal_offset() {
+        assert_eq!(
+            AddressExpr::parse("check_secret+20").unwrap(),
+            AddressExpr::Symbol {
+                name: "check_secret".to_string(),
+                offset: 20
+            }
+        );
+    }
+
+    #[test]
+    fn address_expr_parses_symbol_minus_decimal_offset() {
+        assert_eq!(
+            AddressExpr::parse("check_secret-100").unwrap(),
+            AddressExpr::Symbol {
+                name: "check_secret".to_string(),
+                offset: -100
+            }
+        );
+    }
+
+    #[test]
+    fn address_expr_parses_address_plus_offset() {
+        assert_eq!(
+            AddressExpr::parse("0x1000+0x10").unwrap(),
+            AddressExpr::Address(0x1010)
+        );
+    }
+
+    #[test]
+    fn address_expr_parse_symbol_treats_hex_lookalike_as_symbol() {
+        // Via the dedicated `symbol` key there is no ambiguity: even a
+        // hex-lookalike name is a symbol, never an address.
+        assert_eq!(
+            AddressExpr::parse_symbol("abc+4").unwrap(),
+            AddressExpr::Symbol {
+                name: "abc".to_string(),
+                offset: 4
+            }
+        );
+    }
+
+    #[test]
+    fn address_expr_resolves_symbol_with_offset() {
+        let elf = crate::elf_file::ElfFile::new(PathBuf::from("tests/bin/test.elf")).unwrap();
+        let base = elf.symbol_map["check_secret"].st_value & !1;
+
+        let expr = AddressExpr::Symbol {
+            name: "check_secret".to_string(),
+            offset: 0x10,
+        };
+        assert_eq!(expr.resolve(&elf.symbol_map).unwrap(), base + 0x10);
+    }
+
+    #[test]
+    fn address_expr_resolve_missing_symbol_is_error() {
+        let elf = crate::elf_file::ElfFile::new(PathBuf::from("tests/bin/test.elf")).unwrap();
+        let expr = AddressExpr::Symbol {
+            name: "definitely_not_a_real_symbol".to_string(),
+            offset: 0,
+        };
+        assert!(expr.resolve(&elf.symbol_map).is_err());
     }
 
     #[test]
