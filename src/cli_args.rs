@@ -398,13 +398,15 @@ impl Config {
     /// * `Result<Config, String>` - Loaded and processed configuration
     pub fn from_args(args: &Args) -> Self {
         Self {
-            threads: args.threads,
+            threads: args.threads.unwrap_or_else(Self::default_threads),
             no_compilation: args.no_compilation,
             class: args.class.clone(),
             faults: args.faults.clone(),
             analysis: args.analysis,
             deep_analysis: args.deep_analysis,
-            max_instructions: args.max_instructions,
+            max_instructions: args
+                .max_instructions
+                .unwrap_or_else(Self::default_max_instructions),
             elf: args.elf.clone(),
             trace: args.trace,
             no_check: args.no_check,
@@ -433,11 +435,15 @@ impl Config {
     }
 
     /// Override config values with command line arguments
-    /// Override config values with command line arguments
     pub fn override_with_args(&mut self, args: &Args) {
-        // Always apply CLI values since they include defaults
-        self.threads = args.threads;
-        self.max_instructions = args.max_instructions;
+        // Only override what the user actually passed, so the configuration file
+        // stays in charge of everything else.
+        if let Some(threads) = args.threads {
+            self.threads = threads;
+        }
+        if let Some(max_instructions) = args.max_instructions {
+            self.max_instructions = max_instructions;
+        }
 
         // Only override boolean flags if they're true (explicitly set by user)
         if args.no_compilation {
@@ -587,10 +593,9 @@ pub struct Args {
     pub config: Option<PathBuf>,
 
     /// Number of threads started in parallel
-    #[arg(short, long, default_value_t =  std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1))]
-    pub threads: usize,
+    /// [default: number of CPU cores]
+    #[arg(short, long, verbatim_doc_comment)]
+    pub threads: Option<usize>,
 
     /// Suppress re-compilation of target program
     #[arg(short, long, default_value_t = false)]
@@ -617,8 +622,9 @@ pub struct Args {
     pub deep_analysis: bool,
 
     /// Maximum number of instructions to be executed
-    #[arg(short, long, default_value_t = 2000)]
-    pub max_instructions: usize,
+    /// [default: 2000]
+    #[arg(short, long, verbatim_doc_comment)]
+    pub max_instructions: Option<usize>,
 
     /// Load elf file w/o compilation step
     #[arg(short, long)]
@@ -1742,5 +1748,45 @@ mod tests {
             Config::from_args(&args).faults,
             vec!["cmdbf_00000800", "cmdbf_00000002"]
         );
+    }
+
+    #[test]
+    fn config_threads_and_max_instructions_survive_without_cli_flags() {
+        let args = Args::try_parse_from(["fault_simulator", "--no-check"]).unwrap();
+        let mut config: Config =
+            serde_json::from_str(r#"{"threads": 3, "max_instructions": 50}"#).unwrap();
+
+        config.override_with_args(&args);
+
+        assert_eq!(config.threads, 3);
+        assert_eq!(config.max_instructions, 50);
+    }
+
+    #[test]
+    fn cli_flags_override_the_config_file() {
+        let args = Args::try_parse_from([
+            "fault_simulator",
+            "--threads",
+            "7",
+            "--max-instructions",
+            "123",
+        ])
+        .unwrap();
+        let mut config: Config =
+            serde_json::from_str(r#"{"threads": 3, "max_instructions": 50}"#).unwrap();
+
+        config.override_with_args(&args);
+
+        assert_eq!(config.threads, 7);
+        assert_eq!(config.max_instructions, 123);
+    }
+
+    #[test]
+    fn cli_defaults_apply_without_a_config_file() {
+        let args = Args::try_parse_from(["fault_simulator"]).unwrap();
+        let config = Config::from_args(&args);
+
+        assert_eq!(config.max_instructions, 2000);
+        assert!(config.threads > 0);
     }
 }

@@ -228,6 +228,9 @@ cargo run --release -- --faults regbf_r1_0100 glitch_1
 cargo run --release -- --config example.json5 --threads 8
 ```
 
+A command-line option overrides the configuration file only when it is actually passed;
+everything else keeps the value from the file.
+
 </details>
 
 <details>
