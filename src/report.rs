@@ -1,5 +1,5 @@
 use std::io::stdout;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 use fault_simulator::error::SimulatorError;
 use fault_simulator::prelude::FaultAttacks;
@@ -35,6 +35,15 @@ pub fn print_results(
     }
 
     if analysis {
+        // The prompt can only be answered on a terminal; in a pipe or a CI log it
+        // would dangle unanswered behind the results.
+        if !io::stdin().is_terminal() {
+            println!(
+                "\nInteractive analysis skipped: stdin is not a terminal. \
+                 Use --print-analysis <number> to print one attack trace."
+            );
+            return Ok(());
+        }
         loop {
             if attack_sim.fault_data.is_empty() {
                 println!("No successful attacks!");

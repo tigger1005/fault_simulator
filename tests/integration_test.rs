@@ -799,6 +799,31 @@ fn test_result_checks_json_config_symbol() {
 }
 
 #[test]
+/// `--analysis` must not leave a dangling prompt on a non-interactive stdin.
+///
+/// The interactive loop can only be answered on a terminal; under a pipe the run
+/// has to report that it skipped the prompt and exit instead.
+fn test_analysis_prompt_skipped_without_terminal() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--elf",
+        "tests/bin/victim_.elf",
+        "--no-check",
+        "--class",
+        "single",
+        "glitch",
+        "--analysis",
+    ]);
+
+    cmd.assert()
+        .stdout(predicate::str::contains(
+            "Interactive analysis skipped: stdin is not a terminal",
+        ))
+        .success();
+}
+
+#[test]
 /// Test --print-analysis flag for automated analysis output
 ///
 /// This test runs a single glitch attack on victim_.elf (which is known to produce
