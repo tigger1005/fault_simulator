@@ -1040,6 +1040,61 @@ pub struct ResultCheck {
     pub expected_memory: Vec<MemoryCheck>,
 }
 
+/// Canonical, order-independent identity of a [`ResultCheck`], used to detect
+/// checks that the simulation engine could not tell apart.
+#[derive(PartialEq, Eq)]
+struct ResultCheckKey {
+    address: u64,
+    registers: Vec<(i32, u64)>,
+    memory: Vec<(u64, Vec<u8>)>,
+}
+
+impl ResultCheck {
+    /// Order-independent form of the location and conditions, so two checks that
+    /// differ only in the order of their entries still compare equal.
+    fn comparison_key(&self) -> ResultCheckKey {
+        let mut registers: Vec<(i32, u64)> = self
+            .expected_registers
+            .iter()
+            .map(|(reg, value)| (i32::from(*reg), *value))
+            .collect();
+        registers.sort_unstable();
+
+        let mut memory: Vec<(u64, Vec<u8>)> = self
+            .expected_memory
+            .iter()
+            .map(|check| (check.address, check.data.clone()))
+            .collect();
+        memory.sort_unstable();
+
+        ResultCheckKey {
+            address: self.address,
+            registers,
+            memory,
+        }
+    }
+
+    /// Human-readable summary of the conditions, for error messages.
+    fn describe_conditions(&self) -> String {
+        let mut parts: Vec<String> = self
+            .expected_registers
+            .iter()
+            .map(|(reg, value)| format!("{:?}=0x{:X}", reg, value))
+            .collect();
+        parts.sort();
+        parts.extend(
+            self.expected_memory
+                .iter()
+                .map(|check| format!("[0x{:08X}]={:02X?}", check.address, check.data)),
+        );
+        if parts.is_empty() {
+            "no conditions (matches on reaching the address)".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+}
+
 /// Configuration for register-based success/failure checking, as loaded from
 /// the configuration file with locations not yet resolved against the ELF
 /// symbol table. Resolve with [`ResultChecksSpec::resolve`] once the ELF file
@@ -1060,17 +1115,37 @@ impl ResultChecksSpec {
         &self,
         symbol_map: &HashMap<String, elf::symbol::Symbol>,
     ) -> Result<ResultChecks, SimulatorError> {
+        let success_checks: Vec<ResultCheck> = self
+            .success_checks
+            .iter()
+            .map(|check| check.resolve(symbol_map))
+            .collect::<Result<_, _>>()?;
+        let failure_checks: Vec<ResultCheck> = self
+            .failure_checks
+            .iter()
+            .map(|check| check.resolve(symbol_map))
+            .collect::<Result<_, _>>()?;
+
+        // Compared after resolution so that a symbol and the hex address it
+        // resolves to are recognized as the same location.
+        for success in &success_checks {
+            for failure in &failure_checks {
+                if success.comparison_key() == failure.comparison_key() {
+                    return Err(SimulatorError::config(format!(
+                        "Result check at 0x{:08X} with {} is listed as both a success and a \
+                         failure check. The run would always be reported as success. Give the \
+                         two checks different expected_registers/expected_memory, or different \
+                         addresses.",
+                        success.address,
+                        success.describe_conditions()
+                    )));
+                }
+            }
+        }
+
         Ok(ResultChecks {
-            success_checks: self
-                .success_checks
-                .iter()
-                .map(|check| check.resolve(symbol_map))
-                .collect::<Result<_, _>>()?,
-            failure_checks: self
-                .failure_checks
-                .iter()
-                .map(|check| check.resolve(symbol_map))
-                .collect::<Result<_, _>>()?,
+            success_checks,
+            failure_checks,
         })
     }
 }
@@ -1304,6 +1379,73 @@ mod tests {
             "address": "0x1000", "expected_memory": [{"symbol": "buf", "data_u8": "01"}]
         }]}}"#;
         assert!(serde_json::from_str::<Config>(json).is_err());
+    }
+
+    fn resolve_result_checks(json: &str) -> Result<ResultChecks, SimulatorError> {
+        let elf =
+            crate::elf_file::ElfFile::new(PathBuf::from("tests/bin/test.elf")).expect("test.elf");
+        result_checks_of(json).resolve(&elf.symbol_map)
+    }
+
+    #[test]
+    fn identical_success_and_failure_check_is_rejected() {
+        let error = resolve_result_checks(
+            r#"{"result_checks": {
+                "success_checks": [{"address": "start_success_handling"}],
+                "failure_checks": [{"address": "start_success_handling"}]
+            }}"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("both a success and a failure check"),
+            "unexpected error: {}",
+            error
+        );
+    }
+
+    #[test]
+    fn identical_check_is_rejected_across_symbol_and_address_form() {
+        // The symbol resolves to the same address as the literal below, so the
+        // two checks are indistinguishable at run time.
+        let elf =
+            crate::elf_file::ElfFile::new(PathBuf::from("tests/bin/test.elf")).expect("test.elf");
+        let address = elf.symbol_map["start_success_handling"].st_value & !1;
+        let json = format!(
+            r#"{{"result_checks": {{
+                "success_checks": [{{"address": "start_success_handling"}}],
+                "failure_checks": [{{"address": "0x{:08X}"}}]
+            }}}}"#,
+            address
+        );
+        assert!(resolve_result_checks(&json).is_err());
+    }
+
+    #[test]
+    fn same_address_with_different_conditions_is_allowed() {
+        // The established pattern: one address, told apart by a register value.
+        resolve_result_checks(
+            r#"{"result_checks": {
+                "success_checks": [{"address": "start_success_handling",
+                                    "expected_registers": {"R0": "0x0"}}],
+                "failure_checks": [{"address": "start_success_handling",
+                                    "expected_registers": {"R0": "0x1"}}]
+            }}"#,
+        )
+        .expect("different register values must stay valid");
+    }
+
+    #[test]
+    fn condition_order_does_not_hide_an_identical_check() {
+        let error = resolve_result_checks(
+            r#"{"result_checks": {
+                "success_checks": [{"address": "start_success_handling",
+                                    "expected_registers": {"R0": "0x0", "R1": "0x1"}}],
+                "failure_checks": [{"address": "start_success_handling",
+                                    "expected_registers": {"R1": "0x1", "R0": "0x0"}}]
+            }}"#,
+        );
+        assert!(error.is_err(), "entry order must not hide a duplicate");
     }
 
     #[test]

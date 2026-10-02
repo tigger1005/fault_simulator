@@ -404,6 +404,11 @@ A check triggers when **all** listed registers **and all** listed memory locatio
 A check with neither triggers as soon as the address is reached. A register that cannot be
 read, or memory that is not mapped, counts as a mismatch rather than an error.
 
+Listing the same location with the same conditions under both `success_checks` and
+`failure_checks` is rejected at load time: success is evaluated first, so the failure check
+could never trigger. Two checks may share an address as long as their conditions differ —
+that is the usual pattern when both paths converge on one return instruction.
+
 The checkpoint is evaluated **before** the instruction at `address` executes, so it
 observes the state on entry to that address. `address` accepts a hex address, a symbol, or
 `symbol+offset`/`symbol-offset` (see "Addresses and symbols" above). `result_checks` takes
