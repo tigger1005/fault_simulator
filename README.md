@@ -340,6 +340,7 @@ an overlapping region, because the ELF segments are loaded after the regions.
     { symbol: "check_secret+0x10", data_u16: "0x2001" },                // movs r0, #1 at symbol+0x10
     { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop
     { address: "0x08000300", data_u8: "70470120" },                     // bx lr; movs r0, #1 (literal bytes)
+    { symbol: "key_buffer", data_u8: "00112233445566778899" },          // preload a .bss buffer in RAM
   ],
 }
 ```
@@ -350,6 +351,13 @@ decimal, see "Addresses and symbols" above). Symbol-based patches survive firmwa
 rebuilds. Each patch also uses **exactly one** of `data_u8` (literal byte stream),
 `data_u16`, or `data_u32` (little-endian value) — see the `Memory regions` field table
 above for their exact semantics.
+
+A patch may target any address inside a loadable segment's *memory* range (`p_memsz`),
+not only its file-backed part (`p_filesz`). Addresses past `p_filesz` lie in the
+zero-initialized `.bss` range, so RAM can be preloaded with an initial value — useful for
+seeding keys, counters or state that the startup code would otherwise zero. Patches are
+re-applied before every simulation run, so a fault that overwrites a patched location
+cannot leak into the next run.
 
 </details>
 
