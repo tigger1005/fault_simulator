@@ -5,5 +5,4 @@
         "single",
         "glitch",  // Trailing comma allowed in JSON5
     ],
-    analysis: true,
 }

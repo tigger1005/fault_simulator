@@ -5,7 +5,6 @@
         "single",
         "glitch",
     ],
-    analysis: true,
     memory_regions: [
         // Unmapped memory region for test
         {

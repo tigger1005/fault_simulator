@@ -5,7 +5,6 @@
         "single",
         "glitch",
     ],
-    analysis: true,
     max_instructions: 100,
     log_level: "debug",
     
