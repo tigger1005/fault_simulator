@@ -368,16 +368,20 @@ cannot leak into the next run.
 
 
 <details>
-<summary><b>Result checks</b> — define success by register state</summary>
+<summary><b>Result checks</b> — define success by register and memory state</summary>
 
 For binaries without simulator instrumentation, the verdict can be derived from register
-values at a given address:
+values and memory content at a given address:
 
 ```json5
 {
   result_checks: {
     success_checks: [
       { address: "start_success_handling", expected_registers: { R0: "0x00000000" } },
+      { address: "verify_done", expected_memory: [
+          { address: "0x20000100",   data_u32: "0xDEADBEEF" },
+          { address: "result_buf+4", data_u8:  "0102030405" },
+      ]},
     ],
     failure_checks: [
       { address: "start_success_handling", expected_registers: { R0: "0xFFFFFFFF" } },
@@ -386,9 +390,24 @@ values at a given address:
 }
 ```
 
-`address` accepts a hex address, a symbol, or `symbol+offset`/`symbol-offset` (see
-"Addresses and symbols" above). All listed registers must match for a check to trigger.
-`result_checks` takes precedence over `success_addresses` / `failure_addresses`.
+| Field | Description |
+|---|---|
+| `address` | Checkpoint location: hex address, symbol, or `symbol±offset` |
+| `expected_registers` | Optional. Register values that must match |
+| `expected_memory` | Optional. Memory locations whose content must match |
+
+Each `expected_memory` entry takes an `address` (same format as above) and **exactly one**
+of `data_u8` (literal byte stream), `data_u16` or `data_u32` (little-endian value), with
+the same semantics as `memory_patches`.
+
+A check triggers when **all** listed registers **and all** listed memory locations match.
+A check with neither triggers as soon as the address is reached. A register that cannot be
+read, or memory that is not mapped, counts as a mismatch rather than an error.
+
+The checkpoint is evaluated **before** the instruction at `address` executes, so it
+observes the state on entry to that address. `address` accepts a hex address, a symbol, or
+`symbol+offset`/`symbol-offset` (see "Addresses and symbols" above). `result_checks` takes
+precedence over `success_addresses` / `failure_addresses`.
 
 </details>
 

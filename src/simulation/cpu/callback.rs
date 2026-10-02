@@ -1,4 +1,5 @@
 use super::{CpuState, RunState, TraceRecord, ARM_REG};
+use crate::cli_args::ResultCheck;
 use crate::simulation::record::AsmInstruction;
 
 use unicorn_engine::unicorn_const::MemType;
@@ -70,8 +71,55 @@ pub fn hook_custom_addresses_callback(emu: &mut Unicorn<CpuState>, address: u64,
     }
 }
 
-/// Dedicated hook for register-based success/failure checking
-/// This hook checks register values at specific addresses
+/// Evaluates one result checkpoint against the current CPU and memory state.
+///
+/// All expected registers and all expected memory locations must match; a
+/// checkpoint that specifies neither matches as soon as its address is reached.
+/// Unreadable registers or unmapped memory count as a mismatch rather than an
+/// error, so a fault that corrupts the target cannot be mistaken for a verdict.
+fn check_matches(emu: &Unicorn<CpuState>, check: &ResultCheck, kind: &str) -> bool {
+    let address = check.address;
+
+    for (reg, expected) in &check.expected_registers {
+        match emu.reg_read(*reg) {
+            Ok(actual) if actual == *expected => {}
+            Ok(actual) => {
+                debug!(
+                    "Register mismatch at {} checkpoint 0x{:x}: {:?} = 0x{:x} (expected 0x{:x})",
+                    kind, address, reg, actual, expected
+                );
+                return false;
+            }
+            Err(e) => {
+                debug!("Failed to read register {:?}: {:?}", reg, e);
+                return false;
+            }
+        }
+    }
+
+    for memory in &check.expected_memory {
+        let mut actual = vec![0u8; memory.data.len()];
+        match emu.mem_read(memory.address, &mut actual) {
+            Ok(()) if actual == memory.data => {}
+            Ok(()) => {
+                debug!(
+                    "Memory mismatch at {} checkpoint 0x{:x}: [0x{:x}] = {:02X?} (expected {:02X?})",
+                    kind, address, memory.address, actual, memory.data
+                );
+                return false;
+            }
+            Err(e) => {
+                debug!("Failed to read memory at 0x{:x}: {:?}", memory.address, e);
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// Dedicated hook for result-based success/failure checking.
+/// Compares register and memory values when a checkpoint address is reached.
 pub fn hook_result_check_callback(emu: &mut Unicorn<CpuState>, address: u64, _size: u32) {
     let emu_data = emu.get_data();
 
@@ -81,77 +129,28 @@ pub fn hook_result_check_callback(emu: &mut Unicorn<CpuState>, address: u64, _si
     }
 
     if let Some(ref checkpoints) = emu_data.result_checks {
-        // Check success conditions
-        for check in &checkpoints.success_checks {
-            if check.address == address {
-                // Read all required registers and compare
-                let mut all_match = true;
-                for (reg, expected_value) in &check.expected_registers {
-                    match emu.reg_read(*reg) {
-                        Ok(actual_value) => {
-                            if actual_value != *expected_value {
-                                debug!(
-                                    "Register mismatch at success checkpoint 0x{:x}: {:?} = 0x{:x} (expected 0x{:x})",
-                                    address, reg, actual_value, expected_value
-                                );
-                                all_match = false;
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            debug!("Failed to read register {:?}: {:?}", reg, e);
-                            all_match = false;
-                            break;
-                        }
-                    }
+        // Decide first, mutate afterwards: the state update needs `emu` mutably,
+        // which cannot overlap the reads performed by `check_matches`.
+        let mut verdict = None;
+        'checks: for (checks, kind, state) in [
+            (&checkpoints.success_checks, "success", RunState::Success),
+            (&checkpoints.failure_checks, "failure", RunState::Failed),
+        ] {
+            for check in checks {
+                if check.address != address {
+                    continue;
                 }
-
-                if all_match {
-                    emu.get_data_mut().state = RunState::Success;
-                    debug!(
-                        "Register checkpoint success at 0x{:x}: all registers match",
-                        address
-                    );
-                    emu.emu_stop().expect("failed to stop");
-                    return;
+                if check_matches(emu, check, kind) {
+                    verdict = Some((state, kind));
+                    break 'checks;
                 }
             }
         }
 
-        // Check failure conditions
-        for check in &checkpoints.failure_checks {
-            if check.address == address {
-                let mut all_match = true;
-                for (reg, expected_value) in &check.expected_registers {
-                    match emu.reg_read(*reg) {
-                        Ok(actual_value) => {
-                            if actual_value != *expected_value {
-                                debug!(
-                                    "Register mismatch at failure checkpoint 0x{:x}: {:?} = 0x{:x} (expected 0x{:x})",
-                                    address, reg, actual_value, expected_value
-                                );
-                                all_match = false;
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            debug!("Failed to read register {:?}: {:?}", reg, e);
-                            all_match = false;
-                            break;
-                        }
-                    }
-                }
-
-                if all_match {
-                    emu.get_data_mut().state = RunState::Failed;
-                    debug!(
-                        "Register checkpoint failure at 0x{:x}: all registers match",
-                        address
-                    );
-                    emu.emu_stop().expect("failed to stop");
-                    return;
-                }
-            }
+        if let Some((state, kind)) = verdict {
+            emu.get_data_mut().state = state;
+            debug!("Result checkpoint {} at 0x{:x}", kind, address);
+            emu.emu_stop().expect("failed to stop");
         }
     }
 }

@@ -220,7 +220,7 @@ impl SessionInfo {
     /// Describes how attack success is detected for the loaded target.
     fn detection_mode(&self) -> &'static str {
         if self.result_checks {
-            "result_checks (register values at address)"
+            "result_checks (register/memory values at address)"
         } else if !self.success_addresses.is_empty() || !self.failure_addresses.is_empty() {
             "success/failure addresses"
         } else {

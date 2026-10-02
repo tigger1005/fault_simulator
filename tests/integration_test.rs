@@ -702,22 +702,24 @@ fn test_result_checks() {
     let cpu_cores = get_cpu_cores();
 
     // Create result checks configuration
-    let success_check = RegisterCheck {
+    let success_check = ResultCheck {
         address: 0x08000490,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
             map.insert(RegisterARM::R0, 0x00000000);
             map
         },
+        expected_memory: Vec::new(),
     };
 
-    let failure_check_1 = RegisterCheck {
+    let failure_check_1 = ResultCheck {
         address: 0x08000490,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
             map.insert(RegisterARM::R0, 0x00000001);
             map
         },
+        expected_memory: Vec::new(),
     };
 
     let result_checks = ResultChecks {
@@ -795,6 +797,29 @@ fn test_result_checks_json_config_symbol() {
         .stderr(predicate::str::contains(
             "Using register-based success/failure checking",
         ))
+        .success();
+}
+
+#[test]
+/// Integration test for result_checks that inspect memory content
+///
+/// The success checkpoint requires the mapped region to hold the value the
+/// program expects; the failure checkpoint requires a value that never occurs.
+/// Only the success verdict may therefore be reached.
+fn test_result_checks_json_config_memory() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks_memory.json5",
+        "--no-check",
+    ]);
+
+    cmd.assert()
+        .stderr(
+            predicate::str::contains("Result checkpoint success")
+                .and(predicate::str::contains("Result checkpoint failure").not()),
+        )
         .success();
 }
 

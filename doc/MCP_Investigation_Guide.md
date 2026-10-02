@@ -365,9 +365,10 @@ third-party binary, define the verdict externally:
 2. Choose one of two detection mechanisms:
    - **Address based** — `success_addresses` / `failure_addresses`: reaching an address is
      the verdict (e.g. the "access granted" branch target vs. the "access denied" handler).
-   - **Register based** (`result_checks` in a JSON5 configuration) — at a given address the
-     register values decide, e.g. `R0 == 0` at the return of `verify_image()` means success.
-     This is the right choice when both paths converge on a common return instruction.
+   - **Register or memory based** (`result_checks` in a JSON5 configuration) — at a given
+     address the register values and/or memory content decide, e.g. `R0 == 0` at the return
+     of `verify_image()`, or an output buffer holding the decrypted plaintext. This is the
+     right choice when both paths converge on a common return instruction.
 3. Supply the execution context the ELF alone does not provide via the configuration:
    `initial_registers` (e.g. `SP`, or arguments in `R0..R3` when starting inside a function)
    and `memory_regions` (input buffers, keys, RAM that is normally set up by earlier boot
@@ -393,6 +394,19 @@ Example configuration for a register-based verdict:
     failure_checks: [ { address: "0x08000490", expected_registers: { R0: "0x00000001" } } ],
   },
 }
+```
+
+A checkpoint may also require memory content, on its own or together with registers. Each
+`expected_memory` entry takes an `address` (hex, symbol, or `symbol±offset`) and exactly
+one of `data_u8` / `data_u16` / `data_u32`. All registers and all memory entries of a
+check must match; the state is sampled before the instruction at `address` executes.
+
+```json5
+  result_checks: {
+    success_checks: [ { address: "verify_done", expected_memory: [
+      { address: "out_buf", data_u8: "00112233" },
+    ]}],
+  },
 ```
 
 ---

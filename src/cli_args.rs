@@ -916,46 +916,128 @@ pub struct MemoryRegion {
     pub force_overwrite: bool, // If true, merge ELF segments to allow overwriting
 }
 
-/// Configuration for register value checking at a specific address, as loaded
-/// from the configuration file with its location(s) not yet resolved against
-/// the ELF symbol table. Resolve with [`RegisterCheckSpec::resolve`] once the
-/// ELF file is available.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RegisterCheckSpec {
-    /// Address, symbol, or symbol+offset where register values should be checked
-    pub address: AddressExpr,
-    /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
-    #[serde(deserialize_with = "deserialize_register_context")]
-    pub expected_registers: HashMap<RegisterARM, AddressExpr>,
+/// Custom deserializer for the `expected_memory` list of a result check.
+fn deserialize_memory_checks<'de, D>(deserializer: D) -> Result<Vec<MemoryCheckSpec>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct MemoryCheckHelper {
+        address: AddressExpr,
+        data_u8: Option<String>,
+        data_u16: Option<String>,
+        data_u32: Option<String>,
+    }
+
+    let checks: Vec<MemoryCheckHelper> = Deserialize::deserialize(deserializer)?;
+
+    checks
+        .into_iter()
+        .map(|check| {
+            let data = resolve_patch_data(
+                check.data_u8.as_deref(),
+                check.data_u16.as_deref(),
+                check.data_u32.as_deref(),
+            )
+            .map_err(de::Error::custom)?;
+            Ok(MemoryCheckSpec {
+                address: check.address,
+                data,
+            })
+        })
+        .collect()
 }
 
-impl RegisterCheckSpec {
+/// Expected content of a memory location at a result checkpoint, with its
+/// location not yet resolved against the ELF symbol table.
+#[derive(Debug, Clone)]
+pub struct MemoryCheckSpec {
+    /// Address, symbol, or symbol+offset of the memory to inspect
+    pub address: AddressExpr,
+    /// Expected bytes, in increasing-address order
+    pub data: Vec<u8>,
+}
+
+impl MemoryCheckSpec {
+    fn resolve(
+        &self,
+        symbol_map: &HashMap<String, elf::symbol::Symbol>,
+    ) -> Result<MemoryCheck, SimulatorError> {
+        Ok(MemoryCheck {
+            address: self.address.resolve(symbol_map)?,
+            data: self.data.clone(),
+        })
+    }
+}
+
+/// Expected content of a memory location at a result checkpoint, resolved to a
+/// plain address.
+#[derive(Debug, Clone)]
+pub struct MemoryCheck {
+    /// Address of the memory to inspect
+    pub address: u64,
+    /// Expected bytes, in increasing-address order
+    pub data: Vec<u8>,
+}
+
+/// Configuration for a success/failure checkpoint, as loaded from the
+/// configuration file with its location(s) not yet resolved against the ELF
+/// symbol table. Resolve with [`ResultCheckSpec::resolve`] once the ELF file
+/// is available.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultCheckSpec {
+    /// Address, symbol, or symbol+offset where the values should be checked
+    pub address: AddressExpr,
+    /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
+    #[serde(default, deserialize_with = "deserialize_register_context")]
+    pub expected_registers: HashMap<RegisterARM, AddressExpr>,
+    /// Expected memory contents (e.g., [{address: "buf+0x4", data_u32: "0x1"}])
+    #[serde(default, deserialize_with = "deserialize_memory_checks")]
+    pub expected_memory: Vec<MemoryCheckSpec>,
+}
+
+impl ResultCheckSpec {
     pub fn resolve(
         &self,
         symbol_map: &HashMap<String, elf::symbol::Symbol>,
-    ) -> Result<RegisterCheck, SimulatorError> {
+    ) -> Result<ResultCheck, SimulatorError> {
         let expected_registers = self
             .expected_registers
             .iter()
             .map(|(reg, value)| Ok((*reg, value.resolve(symbol_map)?)))
             .collect::<Result<_, SimulatorError>>()?;
-        Ok(RegisterCheck {
+        let expected_memory = self
+            .expected_memory
+            .iter()
+            .map(|check| check.resolve(symbol_map))
+            .collect::<Result<_, SimulatorError>>()?;
+        Ok(ResultCheck {
             address: self.address.resolve(symbol_map)?,
             expected_registers,
+            expected_memory,
         })
     }
 }
 
-/// Configuration for register value checking at a specific (already resolved) address.
-/// Consumed directly by the simulation engine; construct via
-/// [`RegisterCheckSpec::resolve`] when parsing from a configuration file.
+/// Configuration for a success/failure checkpoint at an already resolved
+/// address. Consumed directly by the simulation engine; construct via
+/// [`ResultCheckSpec::resolve`] when parsing from a configuration file.
+///
+/// A checkpoint matches when **all** expected registers and **all** expected
+/// memory locations match. A checkpoint with neither matches as soon as the
+/// address is reached.
 #[derive(Debug, Clone)]
-pub struct RegisterCheck {
-    /// Address where register values should be checked
+pub struct ResultCheck {
+    /// Address where the values should be checked
     pub address: u64,
     /// Expected register values (e.g., {"R0": "0x00000001", "R1": "0x00000000"})
     pub expected_registers: HashMap<RegisterARM, u64>,
+    /// Expected memory contents
+    pub expected_memory: Vec<MemoryCheck>,
 }
 
 /// Configuration for register-based success/failure checking, as loaded from
@@ -965,12 +1047,12 @@ pub struct RegisterCheck {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResultChecksSpec {
-    /// List of register checks that indicate success
+    /// List of checks that indicate success
     #[serde(default)]
-    pub success_checks: Vec<RegisterCheckSpec>,
-    /// List of register checks that indicate failure
+    pub success_checks: Vec<ResultCheckSpec>,
+    /// List of checks that indicate failure
     #[serde(default)]
-    pub failure_checks: Vec<RegisterCheckSpec>,
+    pub failure_checks: Vec<ResultCheckSpec>,
 }
 
 impl ResultChecksSpec {
@@ -998,10 +1080,10 @@ impl ResultChecksSpec {
 /// [`ResultChecksSpec::resolve`] when parsing from a configuration file.
 #[derive(Debug, Clone)]
 pub struct ResultChecks {
-    /// List of register checks that indicate success
-    pub success_checks: Vec<RegisterCheck>,
-    /// List of register checks that indicate failure
-    pub failure_checks: Vec<RegisterCheck>,
+    /// List of checks that indicate success
+    pub success_checks: Vec<ResultCheck>,
+    /// List of checks that indicate failure
+    pub failure_checks: Vec<ResultCheck>,
 }
 #[cfg(test)]
 mod tests {
@@ -1159,6 +1241,68 @@ mod tests {
     fn unknown_memory_patch_key_is_rejected() {
         // The pre-3.0.0 patch schema used `data`/`offset` keys.
         let json = r#"{"memory_patches": [{"symbol": "f", "offset": "0x4", "data": "0x2001"}]}"#;
+        assert!(serde_json::from_str::<Config>(json).is_err());
+    }
+
+    fn result_checks_of(json: &str) -> ResultChecksSpec {
+        serde_json::from_str::<Config>(json)
+            .unwrap()
+            .result_checks
+            .unwrap()
+    }
+
+    #[test]
+    fn result_check_parses_expected_memory() {
+        let checks = result_checks_of(
+            r#"{"result_checks": {"success_checks": [{
+                "address": "done",
+                "expected_memory": [
+                    {"address": "0x20000100", "data_u32": "0x12345678"},
+                    {"address": "buf+0x4", "data_u8": "0102"}
+                ]
+            }]}}"#,
+        );
+        let memory = &checks.success_checks[0].expected_memory;
+        // data_u32 is stored little-endian, data_u8 in increasing-address order
+        assert_eq!(memory[0].data, vec![0x78, 0x56, 0x34, 0x12]);
+        assert_eq!(memory[0].address, AddressExpr::Address(0x20000100));
+        assert_eq!(memory[1].data, vec![0x01, 0x02]);
+        assert_eq!(
+            memory[1].address,
+            AddressExpr::Symbol {
+                name: "buf".to_string(),
+                offset: 4
+            }
+        );
+    }
+
+    #[test]
+    fn result_check_fields_are_optional() {
+        let checks =
+            result_checks_of(r#"{"result_checks": {"success_checks": [{"address": "0x1000"}]}}"#);
+        assert!(checks.success_checks[0].expected_registers.is_empty());
+        assert!(checks.success_checks[0].expected_memory.is_empty());
+    }
+
+    #[test]
+    fn result_check_memory_requires_exactly_one_data_field() {
+        let missing = r#"{"result_checks": {"success_checks": [{
+            "address": "0x1000", "expected_memory": [{"address": "0x2000"}]
+        }]}}"#;
+        assert!(serde_json::from_str::<Config>(missing).is_err());
+
+        let ambiguous = r#"{"result_checks": {"success_checks": [{
+            "address": "0x1000",
+            "expected_memory": [{"address": "0x2000", "data_u8": "01", "data_u32": "0x1"}]
+        }]}}"#;
+        assert!(serde_json::from_str::<Config>(ambiguous).is_err());
+    }
+
+    #[test]
+    fn result_check_rejects_unknown_memory_key() {
+        let json = r#"{"result_checks": {"success_checks": [{
+            "address": "0x1000", "expected_memory": [{"symbol": "buf", "data_u8": "01"}]
+        }]}}"#;
         assert!(serde_json::from_str::<Config>(json).is_err());
     }
 
