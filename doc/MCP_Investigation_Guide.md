@@ -43,6 +43,11 @@ Explicit parameters override the values coming from `config_file` / `config_json
 The configuration route additionally unlocks `initial_registers`, `memory_regions`,
 `result_checks` and `log_level`, which have no dedicated tool parameter.
 
+Keys that only the CLI binary acts on — `analysis`, `print_analysis`, `trace`, `class`,
+`faults`, `run_through`, `no_compilation` — are **rejected** by `load_elf` rather than
+silently dropped. The equivalent MCP tools are `analyze_attack`, `get_trace`,
+`run_attack`, `run_faults` and `compile_target`.
+
 The response reports the resolved setup and the result of the baseline behavior check
 (`Behavior check: OK | SKIPPED (no_check) | FAILED: <reason>`). A failed behavior check
 is not fatal — the session stays loaded so `get_trace` and `get_symbols` can be used to

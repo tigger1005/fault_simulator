@@ -156,6 +156,49 @@ fn source_location(file_data: &ElfFile, address: u64) -> Option<String> {
     None
 }
 
+/// Rejects configuration keys that only the CLI binary acts on.
+///
+/// The MCP tools select the campaign and render the output themselves, so these
+/// keys would be silently dropped; `analysis` would additionally try to read an
+/// answer from the stdio transport.
+fn reject_cli_only_keys(config: &Config) -> Result<(), McpError> {
+    let mut rejected: Vec<&str> = Vec::new();
+    if config.analysis {
+        rejected.push("analysis (use the analyze_attack tool)");
+    }
+    if config.print_analysis.is_some() {
+        rejected.push("print_analysis (use the analyze_attack tool)");
+    }
+    if config.trace {
+        rejected.push("trace (use the get_trace tool)");
+    }
+    if !config.class.is_empty() {
+        rejected.push("class (use the run_attack tool)");
+    }
+    if !config.faults.is_empty() {
+        rejected.push("faults (use the run_faults tool)");
+    }
+    if config.run_through {
+        rejected.push("run_through (use the run_attack tool's run_through parameter)");
+    }
+    if config.no_compilation {
+        rejected.push("no_compilation (the MCP server never compiles; use compile_target)");
+    }
+
+    if rejected.is_empty() {
+        return Ok(());
+    }
+
+    Err(McpError::invalid_request(
+        format!(
+            "Configuration contains command-line-only key(s) that have no effect here: {}. \
+             Remove them from the configuration.",
+            rejected.join(", ")
+        ),
+        None,
+    ))
+}
+
 /// Static description of a loaded session, used by `get_status`.
 struct SessionInfo {
     elf_path: String,
@@ -379,6 +422,8 @@ impl FaultSimulatorServer {
                 McpError::internal_error(format!("Failed to build default config: {}", e), None)
             })?
         };
+
+        reject_cli_only_keys(&config)?;
 
         if let Some(elf_path) = &params.elf_path {
             config.elf = Some(PathBuf::from(elf_path));

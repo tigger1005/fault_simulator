@@ -1306,6 +1306,45 @@ fn mcp_load_elf_with_config_json5() {
 }
 
 #[test]
+/// load_elf must reject configuration keys that only the CLI binary acts on,
+/// instead of silently dropping them.
+fn mcp_load_elf_rejects_cli_only_keys() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "config_json5": "{ elf: 'tests/bin/victim_.elf', analysis: true }"
+        }),
+    );
+    let message = response.to_string();
+    assert!(
+        response.get("error").is_some(),
+        "Expected load_elf to reject 'analysis': {:?}",
+        response
+    );
+    assert!(
+        message.contains("analysis") && message.contains("analyze_attack"),
+        "Error should name the key and the replacement tool: {}",
+        message
+    );
+
+    // A configuration without those keys still loads.
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "config_json5": "{ elf: 'tests/bin/victim_.elf', max_instructions: 2000, threads: 1 }"
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "load_elf without CLI-only keys failed: {:?}",
+        response
+    );
+}
+
+#[test]
 /// A too small instruction limit is reported explicitly by the baseline behavior check
 fn instruction_limit_reported_in_behavior_check() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
