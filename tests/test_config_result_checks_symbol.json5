@@ -1,0 +1,34 @@
+// Test configuration for result_checks feature, keyed by symbol name instead
+// of a plain hex address. Same setup as test_config_result_checks.json5, but
+// demonstrates that `address` (and register values) can be a symbol or a
+// `symbol+offset`/`symbol-offset` expression, resolved once against the ELF
+// symbol table.
+{
+    elf: "tests/bin/victim_3.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    max_instructions: 100,
+    log_level: "debug",
+
+    result_checks: {
+        success_checks: [
+            {
+                address: "start_success_handling+0x0",
+                expected_registers: {
+                    R0: "0x00000000",  // R0 = 0 means success
+                }
+            }
+        ],
+        failure_checks: [
+            {
+                address: "start_success_handling",
+                expected_registers: {
+                    R0: "0x00000001",  // R0 = 1 means failure
+                }
+            }
+        ]
+    }
+}

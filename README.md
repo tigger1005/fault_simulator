@@ -254,6 +254,25 @@ Some capabilities are only reachable through the configuration file. They are wh
 the tool from a C playground into a firmware auditing instrument.
 
 <details>
+<summary><b>Addresses and symbols</b> — one format, used everywhere</summary>
+
+Every location in the configuration file — `success_addresses`, `failure_addresses`,
+`initial_registers` values, `code_patches` locations, and `result_checks` addresses and
+expected register values — accepts the same string format:
+
+* a plain hex address: `"0x08000490"`
+* a bare symbol name, resolved from the ELF symbol table: `"check_secret"`
+* a symbol with a signed offset: `"check_secret+0x10"`, `"check_secret-100"`
+
+The offset may be written in hex (`0x`/`0X` prefix) or decimal, and is added to (or
+subtracted from) the symbol's address. Symbols are resolved to concrete addresses once,
+right after the ELF file is loaded; the rest of the simulator only ever deals with plain
+addresses. Symbol-based locations survive firmware rebuilds, as long as the symbol name
+is still present.
+
+</details>
+
+<details>
 <summary><b>Initial register context</b> — start execution in any CPU state</summary>
 
 ```json5
@@ -265,13 +284,14 @@ the tool from a C playground into a firmware auditing instrument.
     R7: "0x2000FFF8",  // frame pointer
     SP: "0x2000FFF8",  // stack pointer
     LR: "0x08000005",  // link register
-    PC: "0x08000620",  // entry point
+    PC: "0x08000620",  // entry point (a symbol like "main" also works)
   },
 }
 ```
 
-Supported: `R0`–`R12`, `SP`, `LR`, `PC`, `CPSR`. Values as hex strings (`"0x12345678"`) or
-decimal numbers; register names are case insensitive.
+Supported: `R0`–`R12`, `SP`, `LR`, `PC`, `CPSR`. Values as hex strings (`"0x12345678"`),
+decimal numbers, or symbols/`symbol+offset` (see above); register names are case
+insensitive.
 
 </details>
 
@@ -293,7 +313,7 @@ decimal numbers; register names are case insensitive.
 
 | Field | Type | Description |
 |---|---|---|
-| `address` | hex string | Start of the region |
+| `address` | hex string, symbol, or `symbol+offset` | Start of the region |
 | `size` | hex string | Size in bytes |
 | `file` | string, optional | Binary file loaded into the region |
 | `data_u8` | hex string, optional | Literal byte stream; first byte pair = lowest address (spaces optional, e.g. `"01 02 0A"`) |
@@ -317,18 +337,19 @@ an overlapping region, because the ELF segments are loaded after the regions.
 {
   code_patches: [
     { symbol: "decision_activation", data_u16: "0x4770" },              // bx lr → return immediately
-    { symbol: "check_secret", offset: "0x10", data_u16: "0x2001" },     // movs r0, #1 at symbol+0x10
+    { symbol: "check_secret+0x10", data_u16: "0x2001" },                // movs r0, #1 at symbol+0x10
     { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop
     { address: "0x08000300", data_u8: "70470120" },                     // bx lr; movs r0, #1 (literal bytes)
   ],
 }
 ```
 
-Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table,
-optionally with `offset`). Symbol-based patches survive firmware rebuilds. Each patch
-also uses **exactly one** of `data_u8` (literal byte stream), `data_u16`, or `data_u32`
-(little-endian value) — see the `Memory regions` field table above for their exact
-semantics.
+Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table).
+Either key accepts an optional `+offset`/`-offset` suffix embedded in the string (hex or
+decimal, see "Addresses and symbols" above). Symbol-based patches survive firmware
+rebuilds. Each patch also uses **exactly one** of `data_u8` (literal byte stream),
+`data_u16`, or `data_u32` (little-endian value) — see the `Memory regions` field table
+above for their exact semantics.
 
 </details>
 
@@ -343,17 +364,18 @@ values at a given address:
 {
   result_checks: {
     success_checks: [
-      { address: "0x08000490", expected_registers: { R0: "0x00000000" } },
+      { address: "start_success_handling", expected_registers: { R0: "0x00000000" } },
     ],
     failure_checks: [
-      { address: "0x08000490", expected_registers: { R0: "0xFFFFFFFF" } },
+      { address: "start_success_handling", expected_registers: { R0: "0xFFFFFFFF" } },
     ],
   },
 }
 ```
 
-All listed registers must match for a check to trigger. `result_checks` takes precedence
-over `success_addresses` / `failure_addresses`.
+`address` accepts a hex address, a symbol, or `symbol+offset`/`symbol-offset` (see
+"Addresses and symbols" above). All listed registers must match for a check to trigger.
+`result_checks` takes precedence over `success_addresses` / `failure_addresses`.
 
 </details>
 

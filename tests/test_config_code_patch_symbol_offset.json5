@@ -9,8 +9,7 @@
     code_patches: [
         // Patch check_secret function at offset 0x4 from function start
         {
-            symbol: "check_secret",
-            offset: "0x4",
+            symbol: "check_secret+0x4",
             data_u16: "0x2001",  // movs r0, #1
         },
     ],

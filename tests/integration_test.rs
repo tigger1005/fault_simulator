@@ -579,6 +579,24 @@ fn test_code_patch_symbol() {
 }
 
 #[test]
+/// Test code patching from JSON5 config using a `symbol+offset` expression
+///
+/// This test verifies that a code patch location can be given as a single
+/// `symbol+offset` string (hex offset), instead of separate `symbol`/`offset` keys.
+fn test_code_patch_symbol_offset() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_code_patch_symbol_offset.json5",
+        "--no-check",
+    ]);
+
+    // Should run without Unicorn error (function patched successfully)
+    cmd.assert().success();
+}
+
+#[test]
 /// Test code running victim_5.elf with all tests
 ///
 /// This test verifies that victim_5.elf can run successfully with the victim_5.elf binary,
@@ -678,6 +696,27 @@ fn test_result_checks_json_config() {
     cmd.args([
         "--config",
         "tests/test_config_result_checks.json5",
+        "--no-check",
+        "--max-instructions",
+        "100",
+    ]);
+
+    cmd.assert()
+        .stderr(predicate::str::contains(
+            "Using register-based success/failure checking",
+        ))
+        .success();
+}
+
+#[test]
+/// Integration test for result_checks keyed by symbol name (+offset) instead
+/// of a plain hex address.
+fn test_result_checks_json_config_symbol() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks_symbol.json5",
         "--no-check",
         "--max-instructions",
         "100",

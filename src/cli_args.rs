@@ -164,6 +164,19 @@ impl AddressExpr {
     }
 }
 
+impl std::fmt::Display for AddressExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AddressExpr::Address(addr) => write!(f, "0x{:08X}", addr),
+            AddressExpr::Symbol { name, offset } => match offset.cmp(&0) {
+                std::cmp::Ordering::Equal => write!(f, "{}", name),
+                std::cmp::Ordering::Greater => write!(f, "{}+0x{:X}", name, offset),
+                std::cmp::Ordering::Less => write!(f, "{}-0x{:X}", name, -offset),
+            },
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for AddressExpr {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -709,12 +722,10 @@ pub fn resolve_patch_data(
         (Some(v), None, None) => parse_data_u8(v),
         (None, Some(v), None) => parse_data_u16(v),
         (None, None, Some(v)) => parse_data_u32(v),
-        (None, None, None) => Err(
-            "Specify exactly one of 'data_u8', 'data_u16', or 'data_u32'".to_string(),
-        ),
-        _ => Err(
-            "Specify only one of 'data_u8', 'data_u16', or 'data_u32'".to_string(),
-        ),
+        (None, None, None) => {
+            Err("Specify exactly one of 'data_u8', 'data_u16', or 'data_u32'".to_string())
+        }
+        _ => Err("Specify only one of 'data_u8', 'data_u16', or 'data_u32'".to_string()),
     }
 }
 
@@ -788,10 +799,10 @@ where
     struct MemoryRegionHelper {
         address: String,
         size: String,
-        file: Option<String>,      // Optional binary file to load
-        data_u8: Option<String>,   // Optional hex byte stream the region is initialized with
-        data_u16: Option<String>,  // Optional 16-bit LE value the region is initialized with
-        data_u32: Option<String>,  // Optional 32-bit LE value the region is initialized with
+        file: Option<String>,     // Optional binary file to load
+        data_u8: Option<String>,  // Optional hex byte stream the region is initialized with
+        data_u16: Option<String>, // Optional 16-bit LE value the region is initialized with
+        data_u32: Option<String>, // Optional 32-bit LE value the region is initialized with
         #[serde(default)]
         force_overwrite: bool, // If true, merge ELF segments to allow overwriting
     }
@@ -1034,8 +1045,14 @@ mod tests {
 
     #[test]
     fn data_u32_stores_little_endian() {
-        assert_eq!(parse_data_u32("0x12").unwrap(), vec![0x12, 0x00, 0x00, 0x00]);
-        assert_eq!(parse_data_u32("0x125").unwrap(), vec![0x25, 0x01, 0x00, 0x00]);
+        assert_eq!(
+            parse_data_u32("0x12").unwrap(),
+            vec![0x12, 0x00, 0x00, 0x00]
+        );
+        assert_eq!(
+            parse_data_u32("0x125").unwrap(),
+            vec![0x25, 0x01, 0x00, 0x00]
+        );
         assert_eq!(
             parse_data_u32("0x12abcdef").unwrap(),
             vec![0xEF, 0xCD, 0xAB, 0x12]
@@ -1056,8 +1073,7 @@ mod tests {
 
     #[test]
     fn code_patch_requires_one_data_field() {
-        let json =
-            r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
+        let json = r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.code_patches[0].data, vec![0x70, 0x47]);
     }
@@ -1071,7 +1087,8 @@ mod tests {
 
     #[test]
     fn code_patch_multiple_data_fields_is_error() {
-        let json = r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x1", "data_u32": "0x1"}]}"#;
+        let json =
+            r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x1", "data_u32": "0x1"}]}"#;
         let result: Result<Config, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
@@ -1148,7 +1165,8 @@ mod tests {
 
     #[test]
     fn config_symbol_addresses() {
-        let json = r#"{"success_addresses": ["check_secret", "check_secret+0x10", "check_secret-100"]}"#;
+        let json =
+            r#"{"success_addresses": ["check_secret", "check_secret+0x10", "check_secret-100"]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(
             config.success_addresses,
@@ -1206,7 +1224,10 @@ mod tests {
 
     #[test]
     fn address_expr_parses_plain_address() {
-        assert_eq!(AddressExpr::parse("0x1000").unwrap(), AddressExpr::Address(0x1000));
+        assert_eq!(
+            AddressExpr::parse("0x1000").unwrap(),
+            AddressExpr::Address(0x1000)
+        );
     }
 
     #[test]
@@ -1305,6 +1326,52 @@ mod tests {
             offset: 0,
         };
         assert!(expr.resolve(&elf.symbol_map).is_err());
+    }
+
+    #[test]
+    fn address_expr_display_address() {
+        assert_eq!(
+            format!("{}", AddressExpr::Address(0x2000FFF8)),
+            "0x2000FFF8"
+        );
+    }
+
+    #[test]
+    fn address_expr_display_bare_symbol() {
+        assert_eq!(
+            format!(
+                "{}",
+                AddressExpr::Symbol {
+                    name: "check_secret".to_string(),
+                    offset: 0
+                }
+            ),
+            "check_secret"
+        );
+    }
+
+    #[test]
+    fn address_expr_display_symbol_with_offset() {
+        assert_eq!(
+            format!(
+                "{}",
+                AddressExpr::Symbol {
+                    name: "check_secret".to_string(),
+                    offset: 0x10
+                }
+            ),
+            "check_secret+0x10"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                AddressExpr::Symbol {
+                    name: "check_secret".to_string(),
+                    offset: -0x10
+                }
+            ),
+            "check_secret-0x10"
+        );
     }
 
     #[test]
