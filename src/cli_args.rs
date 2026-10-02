@@ -306,6 +306,7 @@ where
 
 /// Configuration structure that can be loaded from JSON
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default = "Config::default_threads")]
     pub threads: usize,
@@ -738,6 +739,7 @@ where
     use std::fs;
 
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct MemoryPatchHelper {
         address: Option<String>,
         symbol: Option<String>,
@@ -813,6 +815,7 @@ where
     use std::fs;
 
     #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct MemoryRegionHelper {
         address: String,
         size: String,
@@ -918,6 +921,7 @@ pub struct MemoryRegion {
 /// the ELF symbol table. Resolve with [`RegisterCheckSpec::resolve`] once the
 /// ELF file is available.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegisterCheckSpec {
     /// Address, symbol, or symbol+offset where register values should be checked
     pub address: AddressExpr,
@@ -959,6 +963,7 @@ pub struct RegisterCheck {
 /// symbol table. Resolve with [`ResultChecksSpec::resolve`] once the ELF file
 /// is available.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResultChecksSpec {
     /// List of register checks that indicate success
     #[serde(default)]
@@ -1133,6 +1138,28 @@ mod tests {
         let json = r#"{"memory_patches": [{"address": "0x1000", "file": "tests/bin/patch_data.bin", "data_u32": "0x1"}]}"#;
         let result: Result<Config, _> = serde_json::from_str(json);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_config_key_is_rejected() {
+        // `code_patches` was renamed to `memory_patches` in 3.0.0; a stale config
+        // must fail loudly instead of silently applying no patches.
+        let json = r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
+        let error = serde_json::from_str::<Config>(json)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("code_patches"),
+            "unexpected error: {}",
+            error
+        );
+    }
+
+    #[test]
+    fn unknown_memory_patch_key_is_rejected() {
+        // The pre-3.0.0 patch schema used `data`/`offset` keys.
+        let json = r#"{"memory_patches": [{"symbol": "f", "offset": "0x4", "data": "0x2001"}]}"#;
+        assert!(serde_json::from_str::<Config>(json).is_err());
     }
 
     #[test]

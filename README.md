@@ -253,6 +253,10 @@ cargo run --release -- --config example.json5
 Some capabilities are only reachable through the configuration file. They are what turns
 the tool from a C playground into a firmware auditing instrument.
 
+Unknown keys are rejected with the offending name and the list of accepted ones, so a
+typo or an outdated configuration fails at load time instead of silently changing what
+is simulated.
+
 <details>
 <summary><b>Addresses and symbols</b> — one format, used everywhere</summary>
 
