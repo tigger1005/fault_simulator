@@ -693,50 +693,49 @@ fn test_code_victim_5_full_run() {
 #[test]
 /// Test for result_checks functionality
 ///
-/// This test verifies the new result_checks mechanism that checks both address
-/// and register values. It uses victim_3.elf and defines checkpoints where specific
-/// register values determine success or failure.
+/// Builds the checkpoints programmatically instead of through a JSON5 file and
+/// asserts that they produce the same verdict as
+/// `test_result_checks_json_config`: without the mapped region the program takes
+/// the negative path, so the campaign must find attacks only through the
+/// register condition of the converging checkpoint.
 fn test_result_checks() {
     use unicorn_engine::RegisterARM;
 
     let cpu_cores = get_cpu_cores();
 
-    // Create result checks configuration
-    let success_check = ResultCheck {
-        address: 0x08000490,
-        expected_registers: {
-            let mut map = std::collections::HashMap::new();
-            map.insert(RegisterARM::R0, 0x00000000);
-            map
-        },
-        expected_memory: Vec::new(),
-    };
+    // Both paths of test.elf converge on the `if (check_secret())` branch in
+    // main(), where R0 carries the decision.
+    const CONVERGING_BRANCH: u64 = 0x08000656;
 
-    let failure_check_1 = ResultCheck {
-        address: 0x08000490,
+    let register_check = |value: u64| ResultCheck {
+        address: CONVERGING_BRANCH,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
-            map.insert(RegisterARM::R0, 0x00000001);
+            map.insert(RegisterARM::R0, value);
             map
         },
         expected_memory: Vec::new(),
     };
 
     let result_checks = ResultChecks {
-        success_checks: vec![success_check],
-        failure_checks: vec![failure_check_1],
+        success_checks: vec![register_check(0x00000001)],
+        failure_checks: vec![register_check(0x00000000)],
     };
 
-    let file_data: ElfFile =
-        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap();
 
     let sim_config = SimulationConfig::new(
-        2000,
+        200,
         false,
         vec![],
         vec![],
         std::collections::HashMap::new(),
-        vec![],
+        vec![MemoryRegion {
+            address: 0x30000000,
+            size: 0x1000,
+            data: Some(0x12345678u32.to_le_bytes().to_vec()),
+            force_overwrite: false,
+        }],
         "off".to_string(),
         Some(result_checks),
     );
@@ -750,17 +749,23 @@ fn test_result_checks() {
     let vec = ["glitch".to_string()];
     let single_result = attack.single(&vec, false).unwrap();
 
-    assert!(
-        single_result.1 > 0,
-        "Expected some attack iterations with result_checks"
+    assert_eq!(
+        single_result.1, 25,
+        "Expected the same iteration count as the JSON5 variant"
+    );
+    assert_eq!(
+        attack.fault_data.len(),
+        13,
+        "Expected the checkpoints to report the same attacks as the JSON5 variant"
     );
 }
 
 #[test]
 /// Integration test for result_checks from JSON5 config
 ///
-/// This test verifies that result_checks can be loaded from a JSON5 config file
-/// and used in simulation.
+/// Asserts that the checkpoints are actually evaluated, not merely installed:
+/// the campaign must reach both the success and the failure condition of the
+/// converging checkpoint, and reach the exact attack count that follows from it.
 fn test_result_checks_json_config() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
@@ -768,20 +773,27 @@ fn test_result_checks_json_config() {
         "--config",
         "tests/test_config_result_checks.json5",
         "--no-check",
-        "--max-instructions",
-        "100",
     ]);
 
     cmd.assert()
-        .stderr(predicate::str::contains(
-            "Using register-based success/failure checking",
-        ))
+        .stderr(
+            predicate::str::contains("Using register-based success/failure checking")
+                .and(predicate::str::contains("Result checkpoint success"))
+                .and(predicate::str::contains("Result checkpoint failure")),
+        )
+        .stdout(
+            predicate::str::contains("Successful attacks 13")
+                .and(predicate::str::contains("Overall tests executed 25")),
+        )
         .success();
 }
 
 #[test]
 /// Integration test for result_checks keyed by symbol name (+offset) instead
 /// of a plain hex address.
+///
+/// The fixture points at the same instruction as `test_result_checks_json_config`
+/// via `main+0x12`, so it has to produce exactly the same verdicts.
 fn test_result_checks_json_config_symbol() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
@@ -789,14 +801,40 @@ fn test_result_checks_json_config_symbol() {
         "--config",
         "tests/test_config_result_checks_symbol.json5",
         "--no-check",
-        "--max-instructions",
-        "100",
     ]);
 
     cmd.assert()
-        .stderr(predicate::str::contains(
-            "Using register-based success/failure checking",
-        ))
+        .stderr(
+            predicate::str::contains("Using register-based success/failure checking")
+                .and(predicate::str::contains("Result checkpoint success")),
+        )
+        .stdout(
+            predicate::str::contains("Successful attacks 13")
+                .and(predicate::str::contains("Overall tests executed 25")),
+        )
+        .success();
+}
+
+#[test]
+/// Integration test for the failure side of result_checks
+///
+/// The mapped region holds a value the program rejects, so every run must end on
+/// the failure checkpoint and no attack may be reported.
+fn test_result_checks_json_config_failure() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks_failure.json5",
+        "--no-check",
+    ]);
+
+    cmd.assert()
+        .stderr(predicate::str::contains("Result checkpoint failure"))
+        .stdout(
+            predicate::str::contains("Successful attacks 0")
+                .and(predicate::str::contains("Overall tests executed 200")),
+        )
         .success();
 }
 

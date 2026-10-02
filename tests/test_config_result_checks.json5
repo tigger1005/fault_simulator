@@ -1,28 +1,41 @@
-// Test configuration for result_checks feature
+// Test configuration for result_checks, keyed by a plain hex address.
+//
+// Both program paths converge on the `if (check_secret())` branch in main(), so
+// a single address can decide the verdict from R0: check_secret() returns 1 on
+// the positive path and 0 on the negative one. The region at 0x30000000 holds
+// the value check_secret() expects, so the baseline takes the positive path and
+// the success checkpoint is the one that fires.
 {
-    elf: "tests/bin/victim_3.elf",
+    elf: "tests/bin/test.elf",
     class: [
         "single",
         "glitch",
     ],
-    max_instructions: 100,
+    max_instructions: 200,
     log_level: "debug",
-    
-    // New result_checks mechanism
+
+    memory_regions: [
+        {
+            address: "0x30000000",
+            size: "0x1000",
+            data_u32: "0x12345678",
+        },
+    ],
+
     result_checks: {
         success_checks: [
             {
-                address: "0x08000490",
+                address: "0x08000656",
                 expected_registers: {
-                    R0: "0x00000000",  // R0 = 0 means success
+                    R0: "0x00000001",  // check_secret() reported the secret as valid
                 }
             }
         ],
         failure_checks: [
             {
-                address: "0x08000490",
+                address: "0x08000656",
                 expected_registers: {
-                    R0: "0x00000001",  // R0 = 1 means failure
+                    R0: "0x00000000",  // check_secret() rejected the secret
                 }
             }
         ]
