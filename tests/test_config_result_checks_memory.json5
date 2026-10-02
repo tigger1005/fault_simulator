@@ -1,0 +1,42 @@
+// Test configuration for result_checks that inspect memory content.
+//
+// The region at 0x30000000 is initialized with the value check_secret() expects,
+// so the run takes the positive path. The success checkpoint at
+// start_success_handling additionally requires that memory to still hold the
+// expected value, the failure checkpoint requires a value that never occurs.
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    max_instructions: 200,
+    log_level: "debug",
+
+    memory_regions: [
+        {
+            address: "0x30000000",
+            size: "0x1000",
+            data_u32: "0x12345678",
+        },
+    ],
+
+    result_checks: {
+        success_checks: [
+            {
+                address: "start_success_handling",
+                expected_memory: [
+                    { address: "0x30000000", data_u32: "0x12345678" },
+                ],
+            }
+        ],
+        failure_checks: [
+            {
+                address: "start_success_handling",
+                expected_memory: [
+                    { address: "0x30000000", data_u32: "0xDEADBEEF" },
+                ],
+            }
+        ]
+    }
+}

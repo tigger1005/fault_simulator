@@ -5,7 +5,6 @@
         "single",
         "glitch",
     ],
-    analysis: true,
     initial_registers: {
         R7: "0x2000FFF8",  // Frame pointer
         SP: "0x2000FFF8",  // Stack pointer

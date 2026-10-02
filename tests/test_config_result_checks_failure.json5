@@ -1,7 +1,6 @@
-// Same checkpoint as test_config_result_checks.json5, but the location is given
-// as `symbol+offset` instead of a raw address: main is at 0x08000644 (Thumb bit
-// cleared) and the converging branch sits 0x12 bytes into it. Proves that a
-// symbol expression resolves to a checkpoint that really fires.
+// Counterpart to test_config_result_checks.json5 that exercises the *failure*
+// checkpoint: the region holds a value check_secret() rejects, so the baseline
+// takes the negative path and every run must end on the failure check.
 {
     elf: "tests/bin/test.elf",
     class: [
@@ -15,14 +14,14 @@
         {
             address: "0x30000000",
             size: "0x1000",
-            data_u32: "0x12345678",
+            data_u32: "0xDEADBEEF",
         },
     ],
 
     result_checks: {
         success_checks: [
             {
-                address: "main+0x12",
+                address: "0x08000656",
                 expected_registers: {
                     R0: "0x00000001",
                 }
@@ -30,7 +29,7 @@
         ],
         failure_checks: [
             {
-                address: "main+0x12",
+                address: "0x08000656",
                 expected_registers: {
                     R0: "0x00000000",
                 }

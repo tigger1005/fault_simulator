@@ -1,12 +1,11 @@
-// Test configuration for code patching by symbol name
+// Test configuration for memory patching by symbol name
 {
     elf: "tests/bin/test.elf",
     class: [
         "single",
         "glitch",
     ],
-    analysis: true,
-    code_patches: [
+    memory_patches: [
         // Patch check_secret function to return immediately with success (return 1)
         {
             symbol: "check_secret",

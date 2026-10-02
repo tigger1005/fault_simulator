@@ -44,7 +44,7 @@ Two ways to use it:
 | Mode | Use it for | How |
 |---|---|---|
 | **C project mode** | Developing and hardening a routine from source | Edit `content/src/main.c`; the simulator compiles it for you |
-| **Firmware mode** | Auditing an existing binary, with or without sources | `--elf firmware.elf` plus memory regions, register context and code patches |
+| **Firmware mode** | Auditing an existing binary, with or without sources | `--elf firmware.elf` plus memory regions, register context and memory patches |
 
 ---
 
@@ -228,6 +228,9 @@ cargo run --release -- --faults regbf_r1_0100 glitch_1
 cargo run --release -- --config example.json5 --threads 8
 ```
 
+A command-line option overrides the configuration file only when it is actually passed;
+everything else keeps the value from the file.
+
 </details>
 
 <details>
@@ -253,11 +256,15 @@ cargo run --release -- --config example.json5
 Some capabilities are only reachable through the configuration file. They are what turns
 the tool from a C playground into a firmware auditing instrument.
 
+Unknown keys are rejected with the offending name and the list of accepted ones, so a
+typo or an outdated configuration fails at load time instead of silently changing what
+is simulated.
+
 <details>
 <summary><b>Addresses and symbols</b> — one format, used everywhere</summary>
 
 Every location in the configuration file — `success_addresses`, `failure_addresses`,
-`initial_registers` values, `code_patches` locations, and `result_checks` addresses and
+`initial_registers` values, `memory_patches` locations, and `result_checks` addresses and
 expected register values — accepts the same string format:
 
 * a plain hex address: `"0x08000490"`
@@ -331,15 +338,17 @@ an overlapping region, because the ELF segments are loaded after the regions.
 </details>
 
 <details>
-<summary><b>Code patches</b> — stub functions, bypass peripherals</summary>
+<summary><b>Memory patches</b> — stub functions, bypass peripherals</summary>
 
 ```json5
 {
-  code_patches: [
+  memory_patches: [
     { symbol: "decision_activation", data_u16: "0x4770" },              // bx lr → return immediately
     { symbol: "check_secret+0x10", data_u16: "0x2001" },                // movs r0, #1 at symbol+0x10
     { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop
     { address: "0x08000300", data_u8: "70470120" },                     // bx lr; movs r0, #1 (literal bytes)
+    { symbol: "key_buffer", data_u8: "00112233445566778899" },          // preload a .bss buffer in RAM
+    { symbol: "key_buffer", file: "key.bin" },                          // same, bytes taken from a file
   ],
 }
 ```
@@ -347,24 +356,35 @@ an overlapping region, because the ELF segments are loaded after the regions.
 Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table).
 Either key accepts an optional `+offset`/`-offset` suffix embedded in the string (hex or
 decimal, see "Addresses and symbols" above). Symbol-based patches survive firmware
-rebuilds. Each patch also uses **exactly one** of `data_u8` (literal byte stream),
-`data_u16`, or `data_u32` (little-endian value) — see the `Memory regions` field table
-above for their exact semantics.
+rebuilds. Each patch takes its bytes from **exactly one** of `data_u8` (literal byte
+stream), `data_u16`, `data_u32` (little-endian value) or `file` (a binary file) — see the
+`Memory regions` field table above for the exact `data_*` semantics.
+
+A patch may target any address inside a loadable segment's *memory* range (`p_memsz`),
+not only its file-backed part (`p_filesz`). Addresses past `p_filesz` lie in the
+zero-initialized `.bss` range, so RAM can be preloaded with an initial value — useful for
+seeding keys, counters or state that the startup code would otherwise zero. Patches are
+re-applied before every simulation run, so a fault that overwrites a patched location
+cannot leak into the next run.
 
 </details>
 
 
 <details>
-<summary><b>Result checks</b> — define success by register state</summary>
+<summary><b>Result checks</b> — define success by register and memory state</summary>
 
 For binaries without simulator instrumentation, the verdict can be derived from register
-values at a given address:
+values and memory content at a given address:
 
 ```json5
 {
   result_checks: {
     success_checks: [
       { address: "start_success_handling", expected_registers: { R0: "0x00000000" } },
+      { address: "verify_done", expected_memory: [
+          { address: "0x20000100",   data_u32: "0xDEADBEEF" },
+          { address: "result_buf+4", data_u8:  "0102030405" },
+      ]},
     ],
     failure_checks: [
       { address: "start_success_handling", expected_registers: { R0: "0xFFFFFFFF" } },
@@ -373,9 +393,29 @@ values at a given address:
 }
 ```
 
-`address` accepts a hex address, a symbol, or `symbol+offset`/`symbol-offset` (see
-"Addresses and symbols" above). All listed registers must match for a check to trigger.
-`result_checks` takes precedence over `success_addresses` / `failure_addresses`.
+| Field | Description |
+|---|---|
+| `address` | Checkpoint location: hex address, symbol, or `symbol±offset` |
+| `expected_registers` | Optional. Register values that must match |
+| `expected_memory` | Optional. Memory locations whose content must match |
+
+Each `expected_memory` entry takes an `address` (same format as above) and **exactly one**
+of `data_u8` (literal byte stream), `data_u16` or `data_u32` (little-endian value), with
+the same semantics as `memory_patches`.
+
+A check triggers when **all** listed registers **and all** listed memory locations match.
+A check with neither triggers as soon as the address is reached. A register that cannot be
+read, or memory that is not mapped, counts as a mismatch rather than an error.
+
+Listing the same location with the same conditions under both `success_checks` and
+`failure_checks` is rejected at load time: success is evaluated first, so the failure check
+could never trigger. Two checks may share an address as long as their conditions differ —
+that is the usual pattern when both paths converge on one return instruction.
+
+The checkpoint is evaluated **before** the instruction at `address` executes, so it
+observes the state on entry to that address. `address` accepts a hex address, a symbol, or
+`symbol+offset`/`symbol-offset` (see "Addresses and symbols" above). `result_checks` takes
+precedence over `success_addresses` / `failure_addresses`.
 
 </details>
 

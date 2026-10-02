@@ -156,6 +156,49 @@ fn source_location(file_data: &ElfFile, address: u64) -> Option<String> {
     None
 }
 
+/// Rejects configuration keys that only the CLI binary acts on.
+///
+/// The MCP tools select the campaign and render the output themselves, so these
+/// keys would be silently dropped; `analysis` would additionally try to read an
+/// answer from the stdio transport.
+fn reject_cli_only_keys(config: &Config) -> Result<(), McpError> {
+    let mut rejected: Vec<&str> = Vec::new();
+    if config.analysis {
+        rejected.push("analysis (use the analyze_attack tool)");
+    }
+    if config.print_analysis.is_some() {
+        rejected.push("print_analysis (use the analyze_attack tool)");
+    }
+    if config.trace {
+        rejected.push("trace (use the get_trace tool)");
+    }
+    if !config.class.is_empty() {
+        rejected.push("class (use the run_attack tool)");
+    }
+    if !config.faults.is_empty() {
+        rejected.push("faults (use the run_faults tool)");
+    }
+    if config.run_through {
+        rejected.push("run_through (use the run_attack tool's run_through parameter)");
+    }
+    if config.no_compilation {
+        rejected.push("no_compilation (the MCP server never compiles; use compile_target)");
+    }
+
+    if rejected.is_empty() {
+        return Ok(());
+    }
+
+    Err(McpError::invalid_request(
+        format!(
+            "Configuration contains command-line-only key(s) that have no effect here: {}. \
+             Remove them from the configuration.",
+            rejected.join(", ")
+        ),
+        None,
+    ))
+}
+
 /// Static description of a loaded session, used by `get_status`.
 struct SessionInfo {
     elf_path: String,
@@ -168,7 +211,7 @@ struct SessionInfo {
     result_checks: bool,
     initial_registers: usize,
     memory_regions: usize,
-    code_patches: usize,
+    memory_patches: usize,
     result_timeout: Option<std::time::Duration>,
     behavior_check: String,
 }
@@ -177,7 +220,7 @@ impl SessionInfo {
     /// Describes how attack success is detected for the loaded target.
     fn detection_mode(&self) -> &'static str {
         if self.result_checks {
-            "result_checks (register values at address)"
+            "result_checks (register/memory values at address)"
         } else if !self.success_addresses.is_empty() || !self.failure_addresses.is_empty() {
             "success/failure addresses"
         } else {
@@ -211,7 +254,7 @@ struct LoadElfParams {
     #[serde(default)]
     elf_path: Option<String>,
     /// Path to a JSON5 configuration file (same schema as the CLI `--config` option).
-    /// Use it for advanced setups: initial_registers, memory_regions, result_checks, code_patches.
+    /// Use it for advanced setups: initial_registers, memory_regions, result_checks, memory_patches.
     #[serde(default)]
     config_file: Option<String>,
     /// Inline JSON5 configuration content (same schema as `config_file`).
@@ -246,14 +289,15 @@ struct LoadElfParams {
     /// program executes data as code. Enumerating them is slow and rarely useful. Default: false.
     #[serde(default)]
     no_injection_filter: Option<bool>,
-    /// Code patches to apply: list of {address: "0x...", data_u8|data_u16|data_u32: "..."}
+    /// Memory patches to apply: list of {address: "0x...", data_u8|data_u16|data_u32: "..."}
     /// or {symbol: "name"[+/-offset], data_u8|data_u16|data_u32: "..."}. The offset (hex
     /// or decimal) is embedded directly in the `address`/`symbol` string, e.g.
     /// {symbol: "check_secret+0x10", ...}. `data_u8` is a literal hex byte stream (first
     /// byte = lowest address); `data_u16`/`data_u32` store a little-endian value of the
-    /// given width.
+    /// given width. Alternatively `file: "path.bin"` supplies the patch bytes from a
+    /// binary file, mutually exclusive with the `data_*` fields.
     #[serde(default)]
-    code_patches: Option<Vec<HashMap<String, String>>>,
+    memory_patches: Option<Vec<HashMap<String, String>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -348,7 +392,7 @@ impl FaultSimulatorServer {
             }
             output.push('\n');
         }
-        Ok(CallToolResult::success(vec![Content::text(output)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(output)]))
     }
 
     /// Load an ELF file and initialize the simulation environment.
@@ -363,7 +407,7 @@ impl FaultSimulatorServer {
         Parameters(params): Parameters<LoadElfParams>,
     ) -> Result<CallToolResult, McpError> {
         // Start from a JSON5 configuration (file or inline) so that all advanced
-        // options (initial_registers, memory_regions, result_checks, code_patches,
+        // options (initial_registers, memory_regions, result_checks, memory_patches,
         // log_level) are available, then apply the explicit tool parameters on top.
         let mut config: Config = if let Some(path) = &params.config_file {
             Config::from_file(&PathBuf::from(path)).map_err(|e| {
@@ -378,6 +422,8 @@ impl FaultSimulatorServer {
                 McpError::internal_error(format!("Failed to build default config: {}", e), None)
             })?
         };
+
+        reject_cli_only_keys(&config)?;
 
         if let Some(elf_path) = &params.elf_path {
             config.elf = Some(PathBuf::from(elf_path));
@@ -412,22 +458,25 @@ impl FaultSimulatorServer {
                 .filter_map(|s| AddressExpr::parse(s).ok())
                 .collect();
         }
-        if let Some(patches) = &params.code_patches {
-            config.code_patches = patches
+        if let Some(patches) = &params.memory_patches {
+            config.memory_patches = patches
                 .iter()
                 .filter_map(|patch| {
-                    let data = resolve_patch_data(
-                        patch.get("data_u8").map(String::as_str),
-                        patch.get("data_u16").map(String::as_str),
-                        patch.get("data_u32").map(String::as_str),
-                    )
-                    .ok()?;
+                    let data = match patch.get("file") {
+                        Some(file_path) => std::fs::read(file_path).ok()?,
+                        None => resolve_patch_data(
+                            patch.get("data_u8").map(String::as_str),
+                            patch.get("data_u16").map(String::as_str),
+                            patch.get("data_u32").map(String::as_str),
+                        )
+                        .ok()?,
+                    };
                     let address = if let Some(addr_str) = patch.get("address") {
                         AddressExpr::parse(addr_str).ok()?
                     } else {
                         AddressExpr::parse_symbol(patch.get("symbol")?).ok()?
                     };
-                    Some(CodePatch { address, data })
+                    Some(MemoryPatch { address, data })
                 })
                 .collect();
         }
@@ -443,11 +492,13 @@ impl FaultSimulatorServer {
         let mut file_data = ElfFile::new(path.clone())
             .map_err(|e| McpError::internal_error(format!("Failed to load ELF: {}", e), None))?;
 
-        // Apply code patches
-        if !config.code_patches.is_empty() {
-            file_data.apply_patches(&config.code_patches).map_err(|e| {
-                McpError::internal_error(format!("Failed to apply patches: {}", e), None)
-            })?;
+        // Apply memory patches
+        if !config.memory_patches.is_empty() {
+            file_data
+                .apply_patches(&config.memory_patches)
+                .map_err(|e| {
+                    McpError::internal_error(format!("Failed to apply patches: {}", e), None)
+                })?;
         }
 
         // Resolve every symbol/offset expression against the ELF symbol table once;
@@ -518,7 +569,7 @@ impl FaultSimulatorServer {
             result_checks: resolved.result_checks.is_some(),
             initial_registers: config.initial_registers.len(),
             memory_regions: config.memory_regions.len(),
-            code_patches: config.code_patches.len(),
+            memory_patches: config.memory_patches.len(),
             result_timeout,
             behavior_check: behavior_check.clone(),
         };
@@ -534,14 +585,14 @@ impl FaultSimulatorServer {
 
         let summary = format!(
             "ELF loaded: {}\nThreads: {}\nMax instructions: {}\nDeep analysis: {}\n\
-             Success detection: {}\nCode patches applied: {}\nInitial registers: {}\n\
+             Success detection: {}\nMemory patches applied: {}\nInitial registers: {}\n\
              Memory regions: {}\nBehavior check: {}\n{}{}",
             info.elf_path,
             info.threads,
             info.max_instructions,
             info.deep_analysis,
             detection_mode,
-            info.code_patches,
+            info.memory_patches,
             info.initial_registers,
             info.memory_regions,
             behavior_check,
@@ -551,7 +602,7 @@ impl FaultSimulatorServer {
 
         *self.session.lock().unwrap() = Some(Session { attack_sim, info });
 
-        Ok(CallToolResult::success(vec![Content::text(summary)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(summary)]))
     }
 
     /// Run class-based fault attacks (single or double).
@@ -620,7 +671,7 @@ impl FaultSimulatorServer {
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
             output, num_attacks, count, limit_report, filter_report
         ))]))
@@ -682,7 +733,7 @@ impl FaultSimulatorServer {
             .map(|r| format!("\n{}", r))
             .unwrap_or_default();
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "{}\nSuccessful attacks: {}\nOverall tests executed: {}{}{}",
             output, num_attacks, count, limit_report, filter_report
         ))]))
@@ -702,7 +753,7 @@ impl FaultSimulatorServer {
 
         let num_attacks = session.attack_sim.fault_data.len();
         if num_attacks == 0 {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 "No successful attacks found.",
             )]));
         }
@@ -711,7 +762,7 @@ impl FaultSimulatorServer {
             session.attack_sim.print_fault_data();
         });
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Successful attacks: {}\nOverall tests executed: {}\n\n{}",
             num_attacks,
             session.attack_sim.count_sum,
@@ -733,13 +784,13 @@ impl FaultSimulatorServer {
 
         let num_attacks = session.attack_sim.fault_data.len();
         if num_attacks == 0 {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 "No successful attacks to analyze.",
             )]));
         }
 
         if params.attack_number == 0 || params.attack_number > num_attacks {
-            return Ok(CallToolResult::success(vec![Content::text(format!(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "Invalid attack number {}. Valid range: 1-{}",
                 params.attack_number, num_attacks
             ))]));
@@ -751,7 +802,7 @@ impl FaultSimulatorServer {
 
         trace_result.map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_output(&output, params.max_lines),
         )]))
     }
@@ -773,7 +824,7 @@ impl FaultSimulatorServer {
 
         trace_result.map_err(|e| McpError::internal_error(format!("Trace failed: {}", e), None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_output(&output, params.max_lines),
         )]))
     }
@@ -789,7 +840,7 @@ impl FaultSimulatorServer {
 
         let fault_data = session.attack_sim.get_fault_data();
         if fault_data.is_empty() {
-            return Ok(CallToolResult::success(vec![Content::text("[]")]));
+            return Ok(CallToolResult::success(vec![ContentBlock::text("[]")]));
         }
 
         let mut attacks = Vec::new();
@@ -814,7 +865,7 @@ impl FaultSimulatorServer {
         }
 
         let json = serde_json::to_string_pretty(&attacks).unwrap_or_default();
-        Ok(CallToolResult::success(vec![Content::text(json)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
     }
 
     /// Reset the current simulation session, clearing all attack results.
@@ -823,7 +874,7 @@ impl FaultSimulatorServer {
     async fn reset_session(&self) -> Result<CallToolResult, McpError> {
         let mut session_guard = self.session.lock().unwrap();
         if session_guard.is_none() {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 "No session to reset.",
             )]));
         }
@@ -834,7 +885,7 @@ impl FaultSimulatorServer {
             session.attack_sim.reset_run_statistics();
         }
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             "Session reset. Attack data cleared.",
         )]))
     }
@@ -845,7 +896,7 @@ impl FaultSimulatorServer {
     async fn get_status(&self) -> Result<CallToolResult, McpError> {
         let session_guard = self.session.lock().unwrap();
         let Some(session) = session_guard.as_ref() else {
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::json!({ "loaded": false }).to_string(),
             )]));
         };
@@ -865,7 +916,7 @@ impl FaultSimulatorServer {
             "result_checks": info.result_checks,
             "initial_registers": info.initial_registers,
             "memory_regions": info.memory_regions,
-            "code_patches": info.code_patches,
+            "memory_patches": info.memory_patches,
             "result_timeout_seconds": info.result_timeout.map(|t| t.as_secs()),
             "behavior_check": info.behavior_check,
             "successful_attacks": session.attack_sim.fault_data.len(),
@@ -879,7 +930,7 @@ impl FaultSimulatorServer {
             "injection_filter_report": session.attack_sim.injection_filter_report(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&status).unwrap_or_default(),
         )]))
     }
@@ -901,7 +952,7 @@ impl FaultSimulatorServer {
             Err(e) => format!("Behavior check: FAILED: {}", e),
         };
 
-        Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "{}\n{}",
             verdict, output
         ))]))
@@ -909,7 +960,7 @@ impl FaultSimulatorServer {
 
     /// List the global symbols of an ELF file with their addresses.
     /// Use it to locate success/failure addresses in binaries that carry no
-    /// simulator instrumentation, and to pick symbols for code patches.
+    /// simulator instrumentation, and to pick symbols for memory patches.
     #[tool(name = "get_symbols")]
     async fn get_symbols(
         &self,
@@ -964,7 +1015,7 @@ impl FaultSimulatorServer {
             "symbols": symbols.into_iter().take(limit).collect::<Vec<_>>(),
         });
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             serde_json::to_string_pretty(&result).unwrap_or_default(),
         )]))
     }
@@ -1023,13 +1074,13 @@ impl FaultSimulatorServer {
             if elf_exists { "exists" } else { "is MISSING" }
         ));
 
-        Ok(CallToolResult::success(vec![Content::text(report)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(report)]))
     }
 }
 
 #[tool_handler]
 impl ServerHandler for FaultSimulatorServer {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
             .with_instructions(
@@ -1078,7 +1129,7 @@ mod tests {
         assert!(params.success_addresses.is_none());
         assert!(params.failure_addresses.is_none());
         assert!(params.no_check.is_none());
-        assert!(params.code_patches.is_none());
+        assert!(params.memory_patches.is_none());
     }
 
     #[test]
@@ -1091,7 +1142,7 @@ mod tests {
             "success_addresses": ["0x8000100", "0x8000200"],
             "failure_addresses": ["0x8000300"],
             "no_check": true,
-            "code_patches": [
+            "memory_patches": [
                 {"address": "0x08000100", "data_u16": "0x4770"},
                 {"symbol": "check_secret", "data_u16": "0xbf00"}
             ]
@@ -1104,7 +1155,7 @@ mod tests {
         assert_eq!(params.success_addresses.as_ref().unwrap().len(), 2);
         assert_eq!(params.failure_addresses.as_ref().unwrap().len(), 1);
         assert_eq!(params.no_check, Some(true));
-        assert_eq!(params.code_patches.as_ref().unwrap().len(), 2);
+        assert_eq!(params.memory_patches.as_ref().unwrap().len(), 2);
     }
 
     #[test]
@@ -1188,7 +1239,7 @@ mod tests {
         let content = &result.content;
         assert!(!content.is_empty());
         // Check the text contains known fault types
-        let text_content = content[0].raw.as_text().expect("Expected text content");
+        let text_content = content[0].as_text().expect("Expected text content");
         assert!(text_content.text.contains("glitch"));
         assert!(text_content.text.contains("regbf"));
         assert!(text_content.text.contains("cmdbf"));
@@ -1198,10 +1249,7 @@ mod tests {
     async fn test_reset_session_when_empty() {
         let server = FaultSimulatorServer::new();
         let result = server.reset_session().await.unwrap();
-        let text_content = result.content[0]
-            .raw
-            .as_text()
-            .expect("Expected text content");
+        let text_content = result.content[0].as_text().expect("Expected text content");
         assert!(text_content.text.contains("No session to reset"));
     }
 }

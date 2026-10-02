@@ -210,16 +210,22 @@ impl ElfFile {
             .collect()
     }
 
-    /// Apply patches to the program data
+    /// Applies memory patches to the program data, before simulation starts.
+    ///
+    /// A patch can target any address within a loadable segment's *memory* range
+    /// (`p_memsz`), not just the file-backed part (`p_filesz`). Addresses beyond
+    /// `p_filesz` fall in the segment's zero-initialized `.bss` range; the segment's
+    /// stored data is zero-extended on demand, so RAM can be preloaded with an
+    /// initial value just like flash.
     pub fn apply_patches(
         &mut self,
-        patches: &[crate::cli_args::CodePatch],
+        patches: &[crate::cli_args::MemoryPatch],
     ) -> Result<(), SimulatorError> {
         if patches.is_empty() {
             return Ok(());
         }
 
-        log::info!("Applying {} code patches to ELF data...", patches.len());
+        log::info!("Applying {} memory patches to ELF data...", patches.len());
 
         for patch in patches {
             let address = patch.address.resolve(&self.symbol_map)?;
@@ -235,21 +241,28 @@ impl ElfFile {
             for (header, data) in &mut self.program_data {
                 // Use virtual address (p_vaddr) for ARM Cortex-M flat memory model
                 let segment_start = header.p_vaddr;
-                let segment_end = segment_start + header.p_filesz;
+                let segment_end = segment_start + header.p_memsz;
 
                 if address >= segment_start && address < segment_end {
                     let offset = (address - segment_start) as usize;
+                    let patch_end = offset + patch.data.len();
 
                     // Check if patch fits within segment
-                    if offset + patch.data.len() > data.len() {
+                    if patch_end as u64 > header.p_memsz {
                         return Err(SimulatorError::elf(format!(
-                            "Code patch at 0x{:08X} extends beyond segment boundary",
+                            "Memory patch at 0x{:08X} extends beyond segment boundary",
                             address
                         )));
                     }
 
+                    // Zero-extend the file-backed data up to the patch end, covering
+                    // any .bss range the patch reaches into.
+                    if patch_end > data.len() {
+                        data.resize(patch_end, 0);
+                    }
+
                     // Apply the patch
-                    data[offset..offset + patch.data.len()].copy_from_slice(&patch.data);
+                    data[offset..patch_end].copy_from_slice(&patch.data);
                     found = true;
                     break;
                 }
@@ -312,5 +325,68 @@ mod tests {
         // assert_eq!(elf_struct.symbol_map["decision_activation"].st_size, 10);
         // assert_eq!(elf_struct.symbol_map["decision_activation"].st_shndx, 1);
         // assert_eq!(elf_struct.symbol_map["decision_activation"].st_bind(), 1);
+    }
+
+    #[test]
+    fn apply_patches_writes_into_file_backed_data() {
+        use crate::cli_args::{AddressExpr, MemoryPatch};
+
+        let mut elf_struct = ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap();
+        // First segment is the flash image (0x08000000), file-backed from the start.
+        let address = elf_struct.program_data[0].0.p_vaddr;
+
+        elf_struct
+            .apply_patches(&[MemoryPatch {
+                address: AddressExpr::Address(address),
+                data: vec![0xAA, 0xBB, 0xCC, 0xDD],
+            }])
+            .unwrap();
+
+        assert_eq!(
+            &elf_struct.program_data[0].1[0..4],
+            &[0xAA, 0xBB, 0xCC, 0xDD]
+        );
+    }
+
+    #[test]
+    fn apply_patches_can_write_into_uninitialized_ram() {
+        use crate::cli_args::{AddressExpr, MemoryPatch};
+
+        let mut elf_struct = ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap();
+        // Second segment is RAM: an address past p_filesz lies in the
+        // zero-initialized .bss range.
+        let (header, data) = &elf_struct.program_data[1];
+        assert_eq!(header.p_vaddr, 0x2000_0000);
+        let ram_bss_address = header.p_vaddr + data.len() as u64 + 0x100;
+        assert!(ram_bss_address < header.p_vaddr + header.p_memsz);
+
+        let patch_data: Vec<u8> = (0..20).collect();
+
+        elf_struct
+            .apply_patches(&[MemoryPatch {
+                address: AddressExpr::Address(ram_bss_address),
+                data: patch_data.clone(),
+            }])
+            .unwrap();
+
+        let (header, data) = &elf_struct.program_data[1];
+        let offset = (ram_bss_address - header.p_vaddr) as usize;
+        assert_eq!(&data[offset..offset + patch_data.len()], &patch_data[..]);
+    }
+
+    #[test]
+    fn apply_patches_beyond_segment_memsz_errors() {
+        use crate::cli_args::{AddressExpr, MemoryPatch};
+
+        let mut elf_struct = ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap();
+        let (header, _) = &elf_struct.program_data[1];
+        let out_of_range_address = header.p_vaddr + header.p_memsz;
+
+        let result = elf_struct.apply_patches(&[MemoryPatch {
+            address: AddressExpr::Address(out_of_range_address),
+            data: vec![0x01],
+        }]);
+
+        assert!(result.is_err());
     }
 }

@@ -590,18 +590,18 @@ fn test_memory_region_data_u32_init() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using address
+/// Test memory patching from JSON5 config using address
 ///
-/// This test verifies that code patches can be applied using a specific address.
+/// This test verifies that memory patches can be applied using a specific address.
 /// The test program has an instruction at 0x08000496 that loads from unmapped memory.
-/// With code_patches config, we patch this instruction to load the expected value directly,
+/// With memory_patches config, we patch this instruction to load the expected value directly,
 /// bypassing the unmapped memory access entirely.
-fn test_code_patch() {
+fn test_memory_patch() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch.json5",
+        "tests/test_config_memory_patch.json5",
         "--no-check",
     ]);
 
@@ -610,18 +610,18 @@ fn test_code_patch() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using symbol
+/// Test memory patching from JSON5 config using symbol
 ///
-/// This test verifies that code patches can be applied using a function symbol name.
+/// This test verifies that memory patches can be applied using a function symbol name.
 /// The test program has a check_secret() function that reads from unmapped memory.
-/// With code_patches config, we patch the function entry point to return immediately,
+/// With memory_patches config, we patch the function entry point to return immediately,
 /// bypassing the entire function logic including the unmapped memory access.
-fn test_code_patch_symbol() {
+fn test_memory_patch_symbol() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch_symbol.json5",
+        "tests/test_config_memory_patch_symbol.json5",
         "--no-check",
     ]);
 
@@ -630,20 +630,38 @@ fn test_code_patch_symbol() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using a `symbol+offset` expression
+/// Test memory patching from JSON5 config using a `symbol+offset` expression
 ///
-/// This test verifies that a code patch location can be given as a single
+/// This test verifies that a memory patch location can be given as a single
 /// `symbol+offset` string (hex offset), instead of separate `symbol`/`offset` keys.
-fn test_code_patch_symbol_offset() {
+fn test_memory_patch_symbol_offset() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch_symbol_offset.json5",
+        "tests/test_config_memory_patch_symbol_offset.json5",
         "--no-check",
     ]);
 
     // Should run without Unicorn error (function patched successfully)
+    cmd.assert().success();
+}
+
+#[test]
+/// Test memory patching with the patch bytes read from a binary file
+///
+/// The config preloads 20 bytes from `tests/bin/patch_data.bin` into RAM at an
+/// address beyond the segment's file-backed range (.bss), and additionally
+/// patches the unmapped memory read so the run completes.
+fn test_memory_patch_file() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_memory_patch_file.json5",
+        "--no-check",
+    ]);
+
     cmd.assert().success();
 }
 
@@ -651,7 +669,7 @@ fn test_code_patch_symbol_offset() {
 /// Test code running victim_5.elf with all tests
 ///
 /// This test verifies that victim_5.elf can run successfully with the victim_5.elf binary,
-/// which contains all the test scenarios (glitch, regbf, memory access, code patching).
+/// which contains all the test scenarios (glitch, regbf, memory access, memory patching).
 /// It checks that all tests are executed without errors. And the output contains the
 /// expected summary of executed tests.
 fn test_code_victim_5_full_run() {
@@ -675,48 +693,49 @@ fn test_code_victim_5_full_run() {
 #[test]
 /// Test for result_checks functionality
 ///
-/// This test verifies the new result_checks mechanism that checks both address
-/// and register values. It uses victim_3.elf and defines checkpoints where specific
-/// register values determine success or failure.
+/// Builds the checkpoints programmatically instead of through a JSON5 file and
+/// asserts that they produce the same verdict as
+/// `test_result_checks_json_config`: without the mapped region the program takes
+/// the negative path, so the campaign must find attacks only through the
+/// register condition of the converging checkpoint.
 fn test_result_checks() {
     use unicorn_engine::RegisterARM;
 
     let cpu_cores = get_cpu_cores();
 
-    // Create result checks configuration
-    let success_check = RegisterCheck {
-        address: 0x08000490,
-        expected_registers: {
-            let mut map = std::collections::HashMap::new();
-            map.insert(RegisterARM::R0, 0x00000000);
-            map
-        },
-    };
+    // Both paths of test.elf converge on the `if (check_secret())` branch in
+    // main(), where R0 carries the decision.
+    const CONVERGING_BRANCH: u64 = 0x08000656;
 
-    let failure_check_1 = RegisterCheck {
-        address: 0x08000490,
+    let register_check = |value: u64| ResultCheck {
+        address: CONVERGING_BRANCH,
         expected_registers: {
             let mut map = std::collections::HashMap::new();
-            map.insert(RegisterARM::R0, 0x00000001);
+            map.insert(RegisterARM::R0, value);
             map
         },
+        expected_memory: Vec::new(),
     };
 
     let result_checks = ResultChecks {
-        success_checks: vec![success_check],
-        failure_checks: vec![failure_check_1],
+        success_checks: vec![register_check(0x00000001)],
+        failure_checks: vec![register_check(0x00000000)],
     };
 
-    let file_data: ElfFile =
-        ElfFile::new(std::path::PathBuf::from("tests/bin/victim_3.elf")).unwrap();
+    let file_data: ElfFile = ElfFile::new(std::path::PathBuf::from("tests/bin/test.elf")).unwrap();
 
     let sim_config = SimulationConfig::new(
-        2000,
+        200,
         false,
         vec![],
         vec![],
         std::collections::HashMap::new(),
-        vec![],
+        vec![MemoryRegion {
+            address: 0x30000000,
+            size: 0x1000,
+            data: Some(0x12345678u32.to_le_bytes().to_vec()),
+            force_overwrite: false,
+        }],
         "off".to_string(),
         Some(result_checks),
     );
@@ -730,17 +749,23 @@ fn test_result_checks() {
     let vec = ["glitch".to_string()];
     let single_result = attack.single(&vec, false).unwrap();
 
-    assert!(
-        single_result.1 > 0,
-        "Expected some attack iterations with result_checks"
+    assert_eq!(
+        single_result.1, 25,
+        "Expected the same iteration count as the JSON5 variant"
+    );
+    assert_eq!(
+        attack.fault_data.len(),
+        13,
+        "Expected the checkpoints to report the same attacks as the JSON5 variant"
     );
 }
 
 #[test]
 /// Integration test for result_checks from JSON5 config
 ///
-/// This test verifies that result_checks can be loaded from a JSON5 config file
-/// and used in simulation.
+/// Asserts that the checkpoints are actually evaluated, not merely installed:
+/// the campaign must reach both the success and the failure condition of the
+/// converging checkpoint, and reach the exact attack count that follows from it.
 fn test_result_checks_json_config() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
@@ -748,20 +773,27 @@ fn test_result_checks_json_config() {
         "--config",
         "tests/test_config_result_checks.json5",
         "--no-check",
-        "--max-instructions",
-        "100",
     ]);
 
     cmd.assert()
-        .stderr(predicate::str::contains(
-            "Using register-based success/failure checking",
-        ))
+        .stderr(
+            predicate::str::contains("Using register-based success/failure checking")
+                .and(predicate::str::contains("Result checkpoint success"))
+                .and(predicate::str::contains("Result checkpoint failure")),
+        )
+        .stdout(
+            predicate::str::contains("Successful attacks 13")
+                .and(predicate::str::contains("Overall tests executed 25")),
+        )
         .success();
 }
 
 #[test]
 /// Integration test for result_checks keyed by symbol name (+offset) instead
 /// of a plain hex address.
+///
+/// The fixture points at the same instruction as `test_result_checks_json_config`
+/// via `main+0x12`, so it has to produce exactly the same verdicts.
 fn test_result_checks_json_config_symbol() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
@@ -769,13 +801,87 @@ fn test_result_checks_json_config_symbol() {
         "--config",
         "tests/test_config_result_checks_symbol.json5",
         "--no-check",
-        "--max-instructions",
-        "100",
     ]);
 
     cmd.assert()
-        .stderr(predicate::str::contains(
-            "Using register-based success/failure checking",
+        .stderr(
+            predicate::str::contains("Using register-based success/failure checking")
+                .and(predicate::str::contains("Result checkpoint success")),
+        )
+        .stdout(
+            predicate::str::contains("Successful attacks 13")
+                .and(predicate::str::contains("Overall tests executed 25")),
+        )
+        .success();
+}
+
+#[test]
+/// Integration test for the failure side of result_checks
+///
+/// The mapped region holds a value the program rejects, so every run must end on
+/// the failure checkpoint and no attack may be reported.
+fn test_result_checks_json_config_failure() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks_failure.json5",
+        "--no-check",
+    ]);
+
+    cmd.assert()
+        .stderr(predicate::str::contains("Result checkpoint failure"))
+        .stdout(
+            predicate::str::contains("Successful attacks 0")
+                .and(predicate::str::contains("Overall tests executed 200")),
+        )
+        .success();
+}
+
+#[test]
+/// Integration test for result_checks that inspect memory content
+///
+/// The success checkpoint requires the mapped region to hold the value the
+/// program expects; the failure checkpoint requires a value that never occurs.
+/// Only the success verdict may therefore be reached.
+fn test_result_checks_json_config_memory() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_result_checks_memory.json5",
+        "--no-check",
+    ]);
+
+    cmd.assert()
+        .stderr(
+            predicate::str::contains("Result checkpoint success")
+                .and(predicate::str::contains("Result checkpoint failure").not()),
+        )
+        .success();
+}
+
+#[test]
+/// `--analysis` must not leave a dangling prompt on a non-interactive stdin.
+///
+/// The interactive loop can only be answered on a terminal; under a pipe the run
+/// has to report that it skipped the prompt and exit instead.
+fn test_analysis_prompt_skipped_without_terminal() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--elf",
+        "tests/bin/victim_.elf",
+        "--no-check",
+        "--class",
+        "single",
+        "glitch",
+        "--analysis",
+    ]);
+
+    cmd.assert()
+        .stdout(predicate::str::contains(
+            "Interactive analysis skipped: stdin is not a terminal",
         ))
         .success();
 }
@@ -1285,6 +1391,45 @@ fn mcp_load_elf_with_config_json5() {
         .as_str()
         .unwrap_or("");
     assert!(text.contains("Behavior check: OK"), "Got: {}", text);
+}
+
+#[test]
+/// load_elf must reject configuration keys that only the CLI binary acts on,
+/// instead of silently dropping them.
+fn mcp_load_elf_rejects_cli_only_keys() {
+    let mut client = mcp_test::McpTestClient::spawn();
+    client.initialize();
+
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "config_json5": "{ elf: 'tests/bin/victim_.elf', analysis: true }"
+        }),
+    );
+    let message = response.to_string();
+    assert!(
+        response.get("error").is_some(),
+        "Expected load_elf to reject 'analysis': {:?}",
+        response
+    );
+    assert!(
+        message.contains("analysis") && message.contains("analyze_attack"),
+        "Error should name the key and the replacement tool: {}",
+        message
+    );
+
+    // A configuration without those keys still loads.
+    let response = client.call_tool(
+        "load_elf",
+        serde_json::json!({
+            "config_json5": "{ elf: 'tests/bin/victim_.elf', max_instructions: 2000, threads: 1 }"
+        }),
+    );
+    assert!(
+        response.get("error").is_none(),
+        "load_elf without CLI-only keys failed: {:?}",
+        response
+    );
 }
 
 #[test]
