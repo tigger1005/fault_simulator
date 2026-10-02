@@ -251,7 +251,8 @@ struct LoadElfParams {
     /// or decimal) is embedded directly in the `address`/`symbol` string, e.g.
     /// {symbol: "check_secret+0x10", ...}. `data_u8` is a literal hex byte stream (first
     /// byte = lowest address); `data_u16`/`data_u32` store a little-endian value of the
-    /// given width.
+    /// given width. Alternatively `file: "path.bin"` supplies the patch bytes from a
+    /// binary file, mutually exclusive with the `data_*` fields.
     #[serde(default)]
     memory_patches: Option<Vec<HashMap<String, String>>>,
 }
@@ -416,12 +417,15 @@ impl FaultSimulatorServer {
             config.memory_patches = patches
                 .iter()
                 .filter_map(|patch| {
-                    let data = resolve_patch_data(
-                        patch.get("data_u8").map(String::as_str),
-                        patch.get("data_u16").map(String::as_str),
-                        patch.get("data_u32").map(String::as_str),
-                    )
-                    .ok()?;
+                    let data = match patch.get("file") {
+                        Some(file_path) => std::fs::read(file_path).ok()?,
+                        None => resolve_patch_data(
+                            patch.get("data_u8").map(String::as_str),
+                            patch.get("data_u16").map(String::as_str),
+                            patch.get("data_u32").map(String::as_str),
+                        )
+                        .ok()?,
+                    };
                     let address = if let Some(addr_str) = patch.get("address") {
                         AddressExpr::parse(addr_str).ok()?
                     } else {

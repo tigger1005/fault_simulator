@@ -341,6 +341,7 @@ an overlapping region, because the ELF segments are loaded after the regions.
     { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop
     { address: "0x08000300", data_u8: "70470120" },                     // bx lr; movs r0, #1 (literal bytes)
     { symbol: "key_buffer", data_u8: "00112233445566778899" },          // preload a .bss buffer in RAM
+    { symbol: "key_buffer", file: "key.bin" },                          // same, bytes taken from a file
   ],
 }
 ```
@@ -348,9 +349,9 @@ an overlapping region, because the ELF segments are loaded after the regions.
 Each patch uses **either** `address` **or** `symbol` (resolved from the ELF symbol table).
 Either key accepts an optional `+offset`/`-offset` suffix embedded in the string (hex or
 decimal, see "Addresses and symbols" above). Symbol-based patches survive firmware
-rebuilds. Each patch also uses **exactly one** of `data_u8` (literal byte stream),
-`data_u16`, or `data_u32` (little-endian value) — see the `Memory regions` field table
-above for their exact semantics.
+rebuilds. Each patch takes its bytes from **exactly one** of `data_u8` (literal byte
+stream), `data_u16`, `data_u32` (little-endian value) or `file` (a binary file) — see the
+`Memory regions` field table above for the exact `data_*` semantics.
 
 A patch may target any address inside a loadable segment's *memory* range (`p_memsz`),
 not only its file-backed part (`p_filesz`). Addresses past `p_filesz` lie in the

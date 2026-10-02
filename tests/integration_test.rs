@@ -648,6 +648,24 @@ fn test_memory_patch_symbol_offset() {
 }
 
 #[test]
+/// Test memory patching with the patch bytes read from a binary file
+///
+/// The config preloads 20 bytes from `tests/bin/patch_data.bin` into RAM at an
+/// address beyond the segment's file-backed range (.bss), and additionally
+/// patches the unmapped memory read so the run completes.
+fn test_memory_patch_file() {
+    let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
+
+    cmd.args([
+        "--config",
+        "tests/test_config_memory_patch_file.json5",
+        "--no-check",
+    ]);
+
+    cmd.assert().success();
+}
+
+#[test]
 /// Test code running victim_5.elf with all tests
 ///
 /// This test verifies that victim_5.elf can run successfully with the victim_5.elf binary,

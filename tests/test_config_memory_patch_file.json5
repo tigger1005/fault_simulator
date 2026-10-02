@@ -1,0 +1,22 @@
+// Test configuration for memory patching from a binary file into RAM (.bss)
+{
+    elf: "tests/bin/test.elf",
+    class: [
+        "single",
+        "glitch",
+    ],
+    analysis: true,
+    memory_patches: [
+        // Preload 20 bytes from a binary file into uninitialized RAM (beyond the
+        // segment's file-backed range), proving RAM/.bss can be patched too.
+        {
+            address: "0x20001000",
+            file: "tests/bin/patch_data.bin",
+        },
+        // Patch unmapped memory read at 0x08000496 to load expected value directly
+        {
+            address: "0x08000496",
+            data_u32: "0x4FF0125A",
+        },
+    ],
+}

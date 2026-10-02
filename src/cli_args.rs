@@ -735,11 +735,13 @@ where
     D: Deserializer<'de>,
 {
     use serde::de;
+    use std::fs;
 
     #[derive(Deserialize)]
     struct MemoryPatchHelper {
         address: Option<String>,
         symbol: Option<String>,
+        file: Option<String>, // Optional binary file supplying the patch bytes
         data_u8: Option<String>,
         data_u16: Option<String>,
         data_u32: Option<String>,
@@ -770,12 +772,27 @@ where
                 }
             };
 
-            let bytes = resolve_patch_data(
-                patch.data_u8.as_deref(),
-                patch.data_u16.as_deref(),
-                patch.data_u32.as_deref(),
-            )
-            .map_err(de::Error::custom)?;
+            // The patch bytes come either from a binary file or from an inline value
+            let bytes = match &patch.file {
+                Some(file_path) => {
+                    if patch.data_u8.is_some()
+                        || patch.data_u16.is_some()
+                        || patch.data_u32.is_some()
+                    {
+                        return Err(de::Error::custom(
+                            "Memory patch: use either 'file' or one of \
+                             'data_u8'/'data_u16'/'data_u32', not both",
+                        ));
+                    }
+                    fs::read(file_path).map_err(de::Error::custom)?
+                }
+                None => resolve_patch_data(
+                    patch.data_u8.as_deref(),
+                    patch.data_u16.as_deref(),
+                    patch.data_u32.as_deref(),
+                )
+                .map_err(de::Error::custom)?,
+            };
 
             Ok(MemoryPatch {
                 address,
@@ -1098,6 +1115,24 @@ mod tests {
         let json = r#"{"memory_patches": [{"address": "0x1000", "data_u8": "70470120"}]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert_eq!(config.memory_patches[0].data, vec![0x70, 0x47, 0x01, 0x20]);
+    }
+
+    #[test]
+    fn memory_patch_reads_data_from_file() {
+        let json =
+            r#"{"memory_patches": [{"address": "0x1000", "file": "tests/bin/patch_data.bin"}]}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            config.memory_patches[0].data,
+            std::fs::read("tests/bin/patch_data.bin").unwrap()
+        );
+    }
+
+    #[test]
+    fn memory_patch_data_and_file_mutually_exclusive() {
+        let json = r#"{"memory_patches": [{"address": "0x1000", "file": "tests/bin/patch_data.bin", "data_u32": "0x1"}]}"#;
+        let result: Result<Config, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 
     #[test]
