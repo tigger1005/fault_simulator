@@ -1,4 +1,4 @@
-// Test configuration for code patching by symbol name with offset
+// Test configuration for memory patching by symbol name with offset
 {
     elf: "tests/bin/test.elf",
     class: [
@@ -6,7 +6,7 @@
         "glitch",
     ],
     analysis: true,
-    code_patches: [
+    memory_patches: [
         // Patch check_secret function at offset 0x4 from function start
         {
             symbol: "check_secret+0x4",

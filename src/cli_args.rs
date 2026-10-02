@@ -95,7 +95,7 @@ fn is_hex_literal(s: &str) -> bool {
 ///
 /// This is the unified representation used for every address-like value in
 /// the JSON5 configuration (`success_addresses`, `failure_addresses`,
-/// register values, code patch and result-check locations). Resolution to a
+/// register values, memory patch and result-check locations). Resolution to a
 /// concrete `u64` address happens once, right after the ELF file is loaded
 /// (see [`AddressExpr::resolve`]); everything downstream deals only with
 /// plain addresses, never with symbol names.
@@ -337,8 +337,8 @@ pub struct Config {
     pub failure_addresses: Vec<AddressExpr>,
     #[serde(default, deserialize_with = "deserialize_register_context")]
     pub initial_registers: HashMap<RegisterARM, AddressExpr>,
-    #[serde(default, deserialize_with = "deserialize_code_patches")]
-    pub code_patches: Vec<CodePatch>,
+    #[serde(default, deserialize_with = "deserialize_memory_patches")]
+    pub memory_patches: Vec<MemoryPatch>,
     #[serde(default, deserialize_with = "deserialize_memory_regions")]
     pub memory_regions: Vec<MemoryRegionSpec>,
     #[serde(default)]
@@ -420,7 +420,7 @@ impl Config {
                 .map(|&a| AddressExpr::Address(a))
                 .collect(),
             initial_registers: HashMap::new(),
-            code_patches: Vec::new(),
+            memory_patches: Vec::new(),
             memory_regions: Vec::new(),
             log_level: "off".to_string(),
             result_checks: None,
@@ -491,13 +491,13 @@ impl Config {
                 .map(|&a| AddressExpr::Address(a))
                 .collect();
         }
-        // Note: initial_registers, code_patches, memory_regions, and log_level from JSON config are preserved
+        // Note: initial_registers, memory_patches, memory_regions, and log_level from JSON config are preserved
     }
 
     /// Resolves every symbol/offset expression in the configuration against
     /// the loaded ELF file's symbol table, producing the plain addresses the
     /// simulation engine consumes. Call this once, right after the ELF file
-    /// is loaded (and after `code_patches` have been applied, since those are
+    /// is loaded (and after `memory_patches` have been applied, since those are
     /// resolved separately by [`crate::elf_file::ElfFile::apply_patches`]).
     pub fn resolve_addresses(
         &self,
@@ -710,8 +710,8 @@ pub fn parse_data_u32(s: &str) -> Result<Vec<u8>, String> {
 /// `data_u16`, `data_u32`) into raw patch bytes.
 ///
 /// Returns an error if none or more than one of the fields is provided.
-/// Shared by the JSON5 `code_patches`/`memory_regions` deserializers and the
-/// MCP `load_elf` tool's ad-hoc `code_patches` parameter, so both paths patch
+/// Shared by the JSON5 `memory_patches`/`memory_regions` deserializers and the
+/// MCP `load_elf` tool's ad-hoc `memory_patches` parameter, so both paths patch
 /// memory with identical, unambiguous semantics.
 pub fn resolve_patch_data(
     data_u8: Option<&str>,
@@ -729,15 +729,15 @@ pub fn resolve_patch_data(
     }
 }
 
-/// Custom deserializer for code patches
-pub fn deserialize_code_patches<'de, D>(deserializer: D) -> Result<Vec<CodePatch>, D::Error>
+/// Custom deserializer for memory patches
+pub fn deserialize_memory_patches<'de, D>(deserializer: D) -> Result<Vec<MemoryPatch>, D::Error>
 where
     D: Deserializer<'de>,
 {
     use serde::de;
 
     #[derive(Deserialize)]
-    struct CodePatchHelper {
+    struct MemoryPatchHelper {
         address: Option<String>,
         symbol: Option<String>,
         data_u8: Option<String>,
@@ -745,7 +745,7 @@ where
         data_u32: Option<String>,
     }
 
-    let patches: Vec<CodePatchHelper> = Deserialize::deserialize(deserializer)?;
+    let patches: Vec<MemoryPatchHelper> = Deserialize::deserialize(deserializer)?;
 
     patches
         .into_iter()
@@ -754,12 +754,12 @@ where
             let address = match (&patch.address, &patch.symbol) {
                 (None, None) => {
                     return Err(de::Error::custom(
-                        "Code patch must specify either 'address' or 'symbol'",
+                        "Memory patch must specify either 'address' or 'symbol'",
                     ));
                 }
                 (Some(_), Some(_)) => {
                     return Err(de::Error::custom(
-                        "Code patch cannot specify both 'address' and 'symbol'",
+                        "Memory patch cannot specify both 'address' and 'symbol'",
                     ));
                 }
                 (Some(addr_str), None) => {
@@ -777,7 +777,7 @@ where
             )
             .map_err(de::Error::custom)?;
 
-            Ok(CodePatch {
+            Ok(MemoryPatch {
                 address,
                 data: bytes,
             })
@@ -853,10 +853,10 @@ where
         .collect()
 }
 
-/// A single code patch: the location to patch (address, symbol, or symbol+offset)
+/// A single memory patch: the location to patch (address, symbol, or symbol+offset)
 /// and the replacement bytes.
 #[derive(Debug, Clone)]
-pub struct CodePatch {
+pub struct MemoryPatch {
     pub address: AddressExpr,
     pub data: Vec<u8>,
 }
@@ -1072,32 +1072,32 @@ mod tests {
     }
 
     #[test]
-    fn code_patch_requires_one_data_field() {
-        let json = r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
+    fn memory_patch_requires_one_data_field() {
+        let json = r#"{"memory_patches": [{"address": "0x1000", "data_u16": "0x4770"}]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.code_patches[0].data, vec![0x70, 0x47]);
+        assert_eq!(config.memory_patches[0].data, vec![0x70, 0x47]);
     }
 
     #[test]
-    fn code_patch_missing_data_field_is_error() {
-        let json = r#"{"code_patches": [{"address": "0x1000"}]}"#;
+    fn memory_patch_missing_data_field_is_error() {
+        let json = r#"{"memory_patches": [{"address": "0x1000"}]}"#;
         let result: Result<Config, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
 
     #[test]
-    fn code_patch_multiple_data_fields_is_error() {
+    fn memory_patch_multiple_data_fields_is_error() {
         let json =
-            r#"{"code_patches": [{"address": "0x1000", "data_u16": "0x1", "data_u32": "0x1"}]}"#;
+            r#"{"memory_patches": [{"address": "0x1000", "data_u16": "0x1", "data_u32": "0x1"}]}"#;
         let result: Result<Config, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
 
     #[test]
-    fn code_patch_data_u8_is_literal_byte_stream() {
-        let json = r#"{"code_patches": [{"address": "0x1000", "data_u8": "70470120"}]}"#;
+    fn memory_patch_data_u8_is_literal_byte_stream() {
+        let json = r#"{"memory_patches": [{"address": "0x1000", "data_u8": "70470120"}]}"#;
         let config: Config = serde_json::from_str(json).unwrap();
-        assert_eq!(config.code_patches[0].data, vec![0x70, 0x47, 0x01, 0x20]);
+        assert_eq!(config.memory_patches[0].data, vec![0x70, 0x47, 0x01, 0x20]);
     }
 
     #[test]

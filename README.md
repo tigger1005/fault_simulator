@@ -44,7 +44,7 @@ Two ways to use it:
 | Mode | Use it for | How |
 |---|---|---|
 | **C project mode** | Developing and hardening a routine from source | Edit `content/src/main.c`; the simulator compiles it for you |
-| **Firmware mode** | Auditing an existing binary, with or without sources | `--elf firmware.elf` plus memory regions, register context and code patches |
+| **Firmware mode** | Auditing an existing binary, with or without sources | `--elf firmware.elf` plus memory regions, register context and memory patches |
 
 ---
 
@@ -257,7 +257,7 @@ the tool from a C playground into a firmware auditing instrument.
 <summary><b>Addresses and symbols</b> — one format, used everywhere</summary>
 
 Every location in the configuration file — `success_addresses`, `failure_addresses`,
-`initial_registers` values, `code_patches` locations, and `result_checks` addresses and
+`initial_registers` values, `memory_patches` locations, and `result_checks` addresses and
 expected register values — accepts the same string format:
 
 * a plain hex address: `"0x08000490"`
@@ -331,11 +331,11 @@ an overlapping region, because the ELF segments are loaded after the regions.
 </details>
 
 <details>
-<summary><b>Code patches</b> — stub functions, bypass peripherals</summary>
+<summary><b>Memory patches</b> — stub functions, bypass peripherals</summary>
 
 ```json5
 {
-  code_patches: [
+  memory_patches: [
     { symbol: "decision_activation", data_u16: "0x4770" },              // bx lr → return immediately
     { symbol: "check_secret+0x10", data_u16: "0x2001" },                // movs r0, #1 at symbol+0x10
     { address: "0x08000200", data_u32: "0xbf00bf00" },                  // nop; nop

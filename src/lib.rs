@@ -45,7 +45,7 @@ pub mod simulation_thread;
 /// * Simulation core: `SimulationThread`, `WorkloadMessage`, `TraceRecord`
 pub mod prelude {
     pub use crate::cli_args::{
-        AddressExpr, CodePatch, Config, MemoryRegion, MemoryRegionSpec, RegisterCheck,
+        AddressExpr, Config, MemoryPatch, MemoryRegion, MemoryRegionSpec, RegisterCheck,
         RegisterCheckSpec, ResolvedAddresses, ResultChecks, ResultChecksSpec,
     };
     pub use crate::elf_file::*;

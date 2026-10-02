@@ -590,18 +590,18 @@ fn test_memory_region_data_u32_init() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using address
+/// Test memory patching from JSON5 config using address
 ///
-/// This test verifies that code patches can be applied using a specific address.
+/// This test verifies that memory patches can be applied using a specific address.
 /// The test program has an instruction at 0x08000496 that loads from unmapped memory.
-/// With code_patches config, we patch this instruction to load the expected value directly,
+/// With memory_patches config, we patch this instruction to load the expected value directly,
 /// bypassing the unmapped memory access entirely.
-fn test_code_patch() {
+fn test_memory_patch() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch.json5",
+        "tests/test_config_memory_patch.json5",
         "--no-check",
     ]);
 
@@ -610,18 +610,18 @@ fn test_code_patch() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using symbol
+/// Test memory patching from JSON5 config using symbol
 ///
-/// This test verifies that code patches can be applied using a function symbol name.
+/// This test verifies that memory patches can be applied using a function symbol name.
 /// The test program has a check_secret() function that reads from unmapped memory.
-/// With code_patches config, we patch the function entry point to return immediately,
+/// With memory_patches config, we patch the function entry point to return immediately,
 /// bypassing the entire function logic including the unmapped memory access.
-fn test_code_patch_symbol() {
+fn test_memory_patch_symbol() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch_symbol.json5",
+        "tests/test_config_memory_patch_symbol.json5",
         "--no-check",
     ]);
 
@@ -630,16 +630,16 @@ fn test_code_patch_symbol() {
 }
 
 #[test]
-/// Test code patching from JSON5 config using a `symbol+offset` expression
+/// Test memory patching from JSON5 config using a `symbol+offset` expression
 ///
-/// This test verifies that a code patch location can be given as a single
+/// This test verifies that a memory patch location can be given as a single
 /// `symbol+offset` string (hex offset), instead of separate `symbol`/`offset` keys.
-fn test_code_patch_symbol_offset() {
+fn test_memory_patch_symbol_offset() {
     let mut cmd = Command::cargo_bin("fault_simulator").unwrap();
 
     cmd.args([
         "--config",
-        "tests/test_config_code_patch_symbol_offset.json5",
+        "tests/test_config_memory_patch_symbol_offset.json5",
         "--no-check",
     ]);
 
@@ -651,7 +651,7 @@ fn test_code_patch_symbol_offset() {
 /// Test code running victim_5.elf with all tests
 ///
 /// This test verifies that victim_5.elf can run successfully with the victim_5.elf binary,
-/// which contains all the test scenarios (glitch, regbf, memory access, code patching).
+/// which contains all the test scenarios (glitch, regbf, memory access, memory patching).
 /// It checks that all tests are executed without errors. And the output contains the
 /// expected summary of executed tests.
 fn test_code_victim_5_full_run() {

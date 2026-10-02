@@ -213,13 +213,13 @@ impl ElfFile {
     /// Apply patches to the program data
     pub fn apply_patches(
         &mut self,
-        patches: &[crate::cli_args::CodePatch],
+        patches: &[crate::cli_args::MemoryPatch],
     ) -> Result<(), SimulatorError> {
         if patches.is_empty() {
             return Ok(());
         }
 
-        log::info!("Applying {} code patches to ELF data...", patches.len());
+        log::info!("Applying {} memory patches to ELF data...", patches.len());
 
         for patch in patches {
             let address = patch.address.resolve(&self.symbol_map)?;
@@ -243,7 +243,7 @@ impl ElfFile {
                     // Check if patch fits within segment
                     if offset + patch.data.len() > data.len() {
                         return Err(SimulatorError::elf(format!(
-                            "Code patch at 0x{:08X} extends beyond segment boundary",
+                            "Memory patch at 0x{:08X} extends beyond segment boundary",
                             address
                         )));
                     }

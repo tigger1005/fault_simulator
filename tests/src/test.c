@@ -7,7 +7,7 @@
  * not part of any ELF segment, so it only runs when that area is mapped through a
  * configuration (see `tests/test_config_memory_region.json5`) and always needs
  * `--no-check`, because the baseline behaviour check cannot pass without the
- * mapping. It exercises `memory_regions`, `code_patches`, `initial_registers` and
+ * mapping. It exercises `memory_regions`, `memory_patches`, `initial_registers` and
  * `result_checks` against an otherwise uninstrumented binary.
  *
  * Rebuild after a change with the target C project Makefile and copy the result

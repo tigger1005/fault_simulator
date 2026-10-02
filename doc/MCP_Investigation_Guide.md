@@ -37,7 +37,7 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 | `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
 | `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
 | `no_injection_filter` | boolean | no     | false     | Also place follow-up faults outside the executable image (slow, see Section 2.10)        |
-| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data_u8|data_u16|data_u32: "..."}` or `{symbol: "name"[+/-offset], data_u8|data_u16|data_u32: "..."}` |
+| `memory_patches`    | object[] | no       | []        | Binary patches: `{address: "0x...", data_u8|data_u16|data_u32: "..."}` or `{symbol: "name"[+/-offset], data_u8|data_u16|data_u32: "..."}` |
 
 Explicit parameters override the values coming from `config_file` / `config_json5`.
 The configuration route additionally unlocks `initial_registers`, `memory_regions`,
@@ -366,7 +366,7 @@ third-party binary, define the verdict externally:
 3. Supply the execution context the ELF alone does not provide via the configuration:
    `initial_registers` (e.g. `SP`, or arguments in `R0..R3` when starting inside a function)
    and `memory_regions` (input buffers, keys, RAM that is normally set up by earlier boot
-   stages). `code_patches` can stub out unavailable peripherals.
+   stages). `memory_patches` can stub out unavailable peripherals.
 4. `check_behavior` — confirm the simulator observes both the success and the failure path
    with these criteria. Only then are campaign results meaningful.
 5. From here the workflow is identical to an instrumented target. Source-level hardening is

@@ -130,9 +130,9 @@ fn main() -> Result<(), SimulatorError> {
         }
     }
 
-    // Log code patches if provided
-    if !config.code_patches.is_empty() {
-        log::info!("Code patches configured: {}", config.code_patches.len());
+    // Log memory patches if provided
+    if !config.memory_patches.is_empty() {
+        log::info!("Memory patches configured: {}", config.memory_patches.len());
     }
 
     // Log memory regions if provided
@@ -147,8 +147,8 @@ fn main() -> Result<(), SimulatorError> {
     let mut file_data: ElfFile = ElfFile::new(path)?;
 
     // Apply patches immediately after loading
-    if !config.code_patches.is_empty() {
-        file_data.apply_patches(&config.code_patches)?;
+    if !config.memory_patches.is_empty() {
+        file_data.apply_patches(&config.memory_patches)?;
     }
 
     // Run attack campaign (setup threads, validate, execute attacks, report)

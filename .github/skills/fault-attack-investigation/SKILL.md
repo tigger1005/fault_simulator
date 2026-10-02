@@ -649,7 +649,7 @@ mcp_fault-simulat_load_elf(config_json5: "{ \
    - **Register based** (`result_checks`): register values at one address decide — use when
      both paths converge on a common return.
    - `initial_registers` / `memory_regions` supply the context earlier boot stages would
-     normally create; `code_patches` stub out unavailable peripherals.
+     normally create; `memory_patches` stub out unavailable peripherals.
 3. `mcp_fault-simulat_check_behavior()` — both outcomes must be detected before attacking.
 4. Continue with Phase 3 onwards unchanged. If the source of the binary is available,
    hardening iterations work exactly as for the instrumented target: edit the source,
