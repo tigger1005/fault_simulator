@@ -677,7 +677,7 @@ pub fn parse_data_u8(s: &str) -> Result<Vec<u8>, String> {
         .strip_prefix("0x")
         .or_else(|| no_ws.strip_prefix("0X"))
         .unwrap_or(&no_ws);
-    if hex.is_empty() || hex.len() % 2 != 0 {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         return Err(format!(
             "data_u8 value '{}' must contain a non-empty, even number of hex digits",
             s
