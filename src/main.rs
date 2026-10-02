@@ -126,7 +126,7 @@ fn main() -> Result<(), SimulatorError> {
     if !config.initial_registers.is_empty() {
         log::info!("Using custom initial register context:");
         for (reg, value) in &config.initial_registers {
-            log::info!("  {:?}: 0x{:08X}", reg, value);
+            log::info!("  {:?}: {}", reg, value);
         }
     }
 

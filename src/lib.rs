@@ -44,7 +44,10 @@ pub mod simulation_thread;
 /// * Fault types: All fault implementations (glitch, register operations, etc.)
 /// * Simulation core: `SimulationThread`, `WorkloadMessage`, `TraceRecord`
 pub mod prelude {
-    pub use crate::cli_args::{CodePatch, Config, MemoryRegion, RegisterCheck, ResultChecks};
+    pub use crate::cli_args::{
+        AddressExpr, CodePatch, Config, MemoryRegion, MemoryRegionSpec, RegisterCheck,
+        RegisterCheckSpec, ResolvedAddresses, ResultChecks, ResultChecksSpec,
+    };
     pub use crate::elf_file::*;
     pub use crate::error::SimulatorError;
     pub use crate::fault_attack_thread::FaultAttackThread;

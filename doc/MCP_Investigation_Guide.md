@@ -32,12 +32,12 @@ The simulator is exposed as an **MCP server** (`fault-simulat`) with tools acces
 | `threads`           | number   | no       | CPU cores | Parallel simulation threads                                                              |
 | `max_instructions`  | number   | no       | 2000      | Max instructions per simulation run                                                      |
 | `deep_analysis`     | boolean  | no       | false     | Enable deep analysis of loops                                                            |
-| `success_addresses` | string[] | no       | []        | Hex addresses indicating attack success (e.g. `"0x8000123"`)                             |
-| `failure_addresses` | string[] | no       | []        | Hex addresses indicating attack failure                                                  |
+| `success_addresses` | string[] | no       | []        | Addresses indicating attack success: hex (e.g. `"0x8000123"`), a symbol, or `"symbol+offset"`/`"symbol-offset"` |
+| `failure_addresses` | string[] | no       | []        | Addresses indicating attack failure, same format as `success_addresses`                  |
 | `no_check`          | boolean  | no       | false     | Skip program behavior validation                                                         |
 | `result_timeout_seconds` | number | no    | 120       | Seconds to wait for a worker result before aborting (0 = wait indefinitely)              |
 | `no_injection_filter` | boolean | no     | false     | Also place follow-up faults outside the executable image (slow, see Section 2.10)        |
-| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data_u8|data_u16|data_u32: "..."}` or `{symbol: "name", data_u8|data_u16|data_u32: "..."}` |
+| `code_patches`      | object[] | no       | []        | Binary patches: `{address: "0x...", data_u8|data_u16|data_u32: "..."}` or `{symbol: "name"[+/-offset], data_u8|data_u16|data_u32: "..."}` |
 
 Explicit parameters override the values coming from `config_file` / `config_json5`.
 The configuration route additionally unlocks `initial_registers`, `memory_regions`,
